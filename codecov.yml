@@ -1,0 +1,41 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...100"
+  
+  status:
+    project:
+      default:
+        target: 60%
+        threshold: 5%
+        paths:
+          - "!main.go"  # Exclude main.go from coverage requirements
+          - "!**/*_test.go"
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+        
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  
+ignore:
+  - "**/*_test.go"
+  - "testdata/**"
+  - "docs/**"
+  - "dist/**"
+  - "vendor/**"
+  - ".github/**"
+  
+flags:
+  unittests:
+    paths:
+      - "."
+    carryforward: false

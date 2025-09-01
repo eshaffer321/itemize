@@ -1,5 +1,9 @@
 # Walmart-Monarch Money Sync Backend
 
+[![CI](https://github.com/eshaffer321/monarchmoney-walmart-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/eshaffer321/monarchmoney-walmart-server/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/eshaffer321/monarchmoney-walmart-server/graph/badge.svg)](https://codecov.io/gh/eshaffer321/monarchmoney-walmart-server)
+[![Go Report Card](https://goreportcard.com/badge/github.com/eshaffer321/monarchmoney-walmart-server)](https://goreportcard.com/report/github.com/eshaffer321/monarchmoney-walmart-server)
+
 A Go backend server that receives Walmart order data from a Chrome extension and syncs it with Monarch Money for intelligent transaction categorization and splitting.
 
 ## Overview
