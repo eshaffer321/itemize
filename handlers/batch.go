@@ -56,29 +56,32 @@ func ReceiveBatchOrders(c *gin.Context) {
 	failedCount := 0
 
 	for _, order := range batchRequest.Orders {
+		// Create local copy to avoid implicit memory aliasing
+		orderCopy := order
+		
 		result := models.BatchOrderResult{
-			OrderNumber: order.OrderNumber,
+			OrderNumber: orderCopy.OrderNumber,
 		}
 
 		// Validate individual order
-		if err := validateOrder(order); err != nil {
+		if err := validateOrder(orderCopy); err != nil {
 			result.Success = false
 			result.Error = err.Error()
 			failedCount++
 		} else {
 			// Process the order (same logic as single order endpoint)
-			processingID := fmt.Sprintf("proc_%s_%d", order.OrderNumber, time.Now().Unix())
+			processingID := fmt.Sprintf("proc_%s_%d", orderCopy.OrderNumber, time.Now().Unix())
 
 			// Log the order
-			logBatchOrder(order)
+			logBatchOrder(orderCopy)
 
 			// Track in Sentry
 			if hub != nil {
-				trackBatchOrderInSentry(hub, order, processingID)
+				trackBatchOrderInSentry(hub, orderCopy, processingID)
 			}
 
 			// Update sync tracker
-			updateSyncTracker(&order)
+			updateSyncTracker(&orderCopy)
 
 			result.Success = true
 			result.ProcessingID = processingID
