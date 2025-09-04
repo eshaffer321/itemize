@@ -230,3 +230,136 @@ func TestReceiveBatchOrders_MissingAuth(t *testing.T) {
 	assert.Contains(t, response["message"], "Unauthorized")
 }
 
+func TestReceiveBatchOrders_ValidationErrors(t *testing.T) {
+	// Test various validation error scenarios
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/walmart/orders/batch", ReceiveBatchOrders)
+
+	testCases := []struct {
+		name        string
+		orders      []models.Order
+		expectError string
+	}{
+		{
+			name: "Missing order number",
+			orders: []models.Order{
+				{
+					OrderDate: "2024-01-15",
+				},
+			},
+			expectError: "missing order number",
+		},
+		{
+			name: "Empty order number",
+			orders: []models.Order{
+				{
+					OrderNumber: "",
+					OrderDate:   "2024-01-15",
+				},
+			},
+			expectError: "missing order number",
+		},
+		{
+			name: "Missing order date",
+			orders: []models.Order{
+				{
+					OrderNumber: "123",
+				},
+			},
+			expectError: "missing order date",
+		},
+		{
+			name: "Invalid item quantity zero",
+			orders: []models.Order{
+				{
+					OrderNumber: "123",
+					OrderDate:   "2024-01-15",
+					Items: []models.OrderItem{
+						{
+							Name:     "Test",
+							Price:    10.00,
+							Quantity: 0,
+						},
+					},
+				},
+			},
+			expectError: "invalid quantity",
+		},
+		{
+			name: "Invalid item quantity negative",
+			orders: []models.Order{
+				{
+					OrderNumber: "123",
+					OrderDate:   "2024-01-15",
+					Items: []models.OrderItem{
+						{
+							Name:     "Test",
+							Price:    10.00,
+							Quantity: -1,
+						},
+					},
+				},
+			},
+			expectError: "invalid quantity",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			batchRequest := models.BatchOrdersRequest{Orders: tc.orders}
+			jsonData, _ := json.Marshal(batchRequest)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/api/walmart/orders/batch", bytes.NewBuffer(jsonData))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Extension-Key", "test-secret")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+
+			var response models.BatchOrdersResponse
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			assert.NoError(t, err)
+			assert.Equal(t, 0, response.ProcessedCount)
+			assert.Equal(t, 1, response.FailedCount)
+			assert.Contains(t, response.Results[0].Error, tc.expectError)
+		})
+	}
+}
+
+func TestLogBatchOrder(t *testing.T) {
+	// Test logBatchOrder function directly
+	orderTotal := 100.00
+	order := models.Order{
+		OrderNumber: "TEST123",
+		OrderDate:   "2024-01-15",
+		OrderTotal:  &orderTotal,
+		Items: []models.OrderItem{
+			{Name: "Item1", Price: 50.00, Quantity: 1},
+			{Name: "Item2", Price: 50.00, Quantity: 1},
+		},
+	}
+
+	// This should not panic and should log properly
+	logBatchOrder(order)
+	
+	// Test with nil items
+	orderNoItems := models.Order{
+		OrderNumber: "TEST456",
+		OrderDate:   "2024-01-16",
+		OrderTotal:  &orderTotal,
+	}
+	logBatchOrder(orderNoItems)
+	
+	// Test with nil total
+	orderNoTotal := models.Order{
+		OrderNumber: "TEST789",
+		OrderDate:   "2024-01-17",
+		Items: []models.OrderItem{
+			{Name: "Item1", Price: 25.00, Quantity: 2},
+		},
+	}
+	logBatchOrder(orderNoTotal)
+}
+

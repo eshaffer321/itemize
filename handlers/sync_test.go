@@ -104,3 +104,114 @@ func TestGetSyncStatus_MissingAuth(t *testing.T) {
 	assert.Contains(t, response["message"], "Unauthorized")
 }
 
+func TestGetSyncStatus_DailyReset(t *testing.T) {
+	// Test that daily counter resets on new day
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/walmart/orders", ReceiveOrders)
+	router.GET("/api/walmart/sync-status", GetSyncStatus)
+
+	// Process an order
+	orderTotal := 50.00
+	order := models.Order{
+		OrderNumber: "test-daily-123",
+		OrderDate:   "2024-01-15",
+		OrderTotal:  &orderTotal,
+	}
+	
+	jsonData, _ := json.Marshal(order)
+	w1 := httptest.NewRecorder()
+	req1, _ := http.NewRequest("POST", "/api/walmart/orders", bytes.NewBuffer(jsonData))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w1, req1)
+	assert.Equal(t, http.StatusOK, w1.Code)
+
+	// Get status - should show 1 order today
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/api/walmart/sync-status", nil)
+	req2.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w2, req2)
+	
+	var response1 models.SyncStatusResponse
+	err := json.Unmarshal(w2.Body.Bytes(), &response1)
+	assert.NoError(t, err)
+	firstCount := response1.OrdersProcessedToday
+	assert.GreaterOrEqual(t, firstCount, 1)
+	
+	// Manually change the todayDate in syncTracker to simulate day change
+	syncTracker.mu.Lock()
+	syncTracker.todayDate = "1999-01-01" // Old date to force reset
+	syncTracker.mu.Unlock()
+
+	// Get status again - should trigger reset
+	w3 := httptest.NewRecorder()
+	req3, _ := http.NewRequest("GET", "/api/walmart/sync-status", nil)
+	req3.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w3, req3)
+	
+	var response2 models.SyncStatusResponse
+	err = json.Unmarshal(w3.Body.Bytes(), &response2)
+	assert.NoError(t, err)
+	// After reset, today's count should be 0
+	assert.Equal(t, 0, response2.OrdersProcessedToday)
+	// Total should still be maintained
+	assert.GreaterOrEqual(t, response2.OrdersProcessedTotal, 1)
+}
+
+func TestGetSyncStatus_WithPendingErrors(t *testing.T) {
+	// Test sync status with pending errors
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/walmart/sync-status", GetSyncStatus)
+
+	// Manually add some pending errors
+	syncTracker.mu.Lock()
+	syncTracker.PendingErrors = []string{"Error 1", "Error 2"}
+	syncTracker.mu.Unlock()
+
+	// Get status
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/walmart/sync-status", nil)
+	req.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.SyncStatusResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "degraded", response.Status) // Status should be degraded when errors exist
+	assert.Len(t, response.PendingErrors, 2)
+	assert.Contains(t, response.PendingErrors, "Error 1")
+	assert.Contains(t, response.PendingErrors, "Error 2")
+
+	// Clean up
+	syncTracker.mu.Lock()
+	syncTracker.PendingErrors = []string{}
+	syncTracker.mu.Unlock()
+}
+
+func TestUpdateSyncTracker(t *testing.T) {
+	// Test updateSyncTracker function directly
+	initialTotal := syncTracker.OrdersProcessedTotal
+
+	orderTotal := 100.00
+	order := models.Order{
+		OrderNumber: "SYNC-TEST",
+		OrderDate:   "2024-01-15",
+		OrderTotal:  &orderTotal,
+	}
+
+	updateSyncTracker(&order)
+
+	syncTracker.mu.RLock()
+	defer syncTracker.mu.RUnlock()
+
+	// Check that counters incremented
+	assert.Equal(t, initialTotal+1, syncTracker.OrdersProcessedTotal)
+	assert.NotNil(t, syncTracker.LastSyncTimestamp)
+	assert.True(t, syncTracker.LastSyncTimestamp.After(time.Now().Add(-1*time.Second)))
+}
+

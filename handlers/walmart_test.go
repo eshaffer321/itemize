@@ -273,3 +273,124 @@ func TestReceiveOrders_WithAdditionalFields(t *testing.T) {
 	assert.Equal(t, 1, response.ItemCount)
 	assert.Equal(t, 150.00, *response.TotalAmount)
 }
+
+func TestReceiveOrders_ItemValidationErrors(t *testing.T) {
+	// Test item validation error paths
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/walmart/orders", ReceiveOrders)
+
+	testCases := []struct {
+		name        string
+		items       []models.OrderItem
+		expectError string
+	}{
+		{
+			name: "Negative item price",
+			items: []models.OrderItem{
+				{
+					Name:     "Invalid Item",
+					Price:    -10.00,
+					Quantity: 1,
+				},
+			},
+			expectError: "Invalid item price",
+		},
+		{
+			name: "Zero item quantity",
+			items: []models.OrderItem{
+				{
+					Name:     "Invalid Item",
+					Price:    10.00,
+					Quantity: 0,
+				},
+			},
+			expectError: "Invalid item quantity",
+		},
+		{
+			name: "Negative item quantity",
+			items: []models.OrderItem{
+				{
+					Name:     "Invalid Item",
+					Price:    10.00,
+					Quantity: -1,
+				},
+			},
+			expectError: "Invalid item quantity",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			order := models.Order{
+				OrderNumber: "123456",
+				OrderDate:   "2024-01-15",
+				Items:       tc.items,
+			}
+
+			jsonData, _ := json.Marshal(order)
+
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("POST", "/api/walmart/orders", bytes.NewBuffer(jsonData))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Extension-Key", "test-secret")
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+
+			var response map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			assert.NoError(t, err)
+			assert.Equal(t, "error", response["status"])
+			assert.Contains(t, response["message"], tc.expectError)
+		})
+	}
+}
+
+func TestAuthMiddleware_EmptyKey(t *testing.T) {
+	// Test auth middleware with empty key
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(AuthMiddleware())
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Test with empty header
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Extension-Key", "")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "error", response["status"])
+	assert.Contains(t, response["message"], "Unauthorized")
+}
+
+func TestAuthMiddleware_WrongKey(t *testing.T) {
+	// Test auth middleware with wrong key
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(AuthMiddleware())
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// Test with wrong key
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Extension-Key", "wrong-key")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "error", response["status"])
+	assert.Contains(t, response["message"], "Unauthorized")
+}
