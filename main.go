@@ -86,6 +86,8 @@ func setupRouter(cfg *config.Config) *gin.Engine {
 		walmart := api.Group("/walmart")
 		{
 			walmart.POST("/orders", handlers.ReceiveOrders)
+			walmart.POST("/orders/batch", handlers.ReceiveBatchOrders)
+			walmart.GET("/sync-status", handlers.GetSyncStatus)
 		}
 
 		// Test endpoint for Sentry (only in debug mode)

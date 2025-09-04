@@ -19,10 +19,11 @@ func TestReceiveOrders_Success(t *testing.T) {
 	router := gin.New()
 	router.POST("/api/walmart/orders", ReceiveOrders)
 
+	orderTotal := 150.00
 	order := models.Order{
 		OrderNumber: "123456789",
 		OrderDate:   "2024-01-15",
-		OrderTotal:  150.00,
+		OrderTotal:  &orderTotal,
 		Items: []models.OrderItem{
 			{
 				Name:     "Great Value Milk",
@@ -88,10 +89,11 @@ func TestReceiveOrders_MissingAuth(t *testing.T) {
 	router.Use(AuthMiddleware())
 	router.POST("/api/walmart/orders", ReceiveOrders)
 
+	orderTotal := 150.00
 	order := models.Order{
 		OrderNumber: "123456789",
 		OrderDate:   "2024-01-15",
-		OrderTotal:  150.00,
+		OrderTotal:  &orderTotal,
 		Items: []models.OrderItem{
 			{
 				Name:     "Great Value Milk",
@@ -149,8 +151,8 @@ func TestReceiveOrders_EmptyOrder(t *testing.T) {
 	assert.Contains(t, response["message"], "validation")
 }
 
-func TestReceiveOrders_InvalidOrderTotal(t *testing.T) {
-	// Arrange
+func TestReceiveOrders_WithoutOrderTotal(t *testing.T) {
+	// Test that orders without orderTotal are accepted
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/walmart/orders", ReceiveOrders)
@@ -158,7 +160,7 @@ func TestReceiveOrders_InvalidOrderTotal(t *testing.T) {
 	order := models.Order{
 		OrderNumber: "123456789",
 		OrderDate:   "2024-01-15",
-		OrderTotal:  -50.00, // Negative total
+		// No OrderTotal field
 		Items: []models.OrderItem{
 			{
 				Name:     "Great Value Milk",
@@ -178,11 +180,96 @@ func TestReceiveOrders_InvalidOrderTotal(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Assert
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 
-	var response map[string]interface{}
+	var response models.OrderResponse
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	assert.Equal(t, "error", response["status"])
-	assert.Contains(t, response["message"], "Invalid order total")
+	assert.Equal(t, "success", response.Status)
+	assert.Equal(t, 1, response.ItemCount)
+	assert.Nil(t, response.TotalAmount)
+}
+
+func TestReceiveOrders_WithoutItems(t *testing.T) {
+	// Test that orders without items are accepted
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/walmart/orders", ReceiveOrders)
+
+	orderTotal := 150.00
+	order := models.Order{
+		OrderNumber: "123456789",
+		OrderDate:   "2024-01-15",
+		OrderTotal:  &orderTotal,
+		// No Items field
+	}
+
+	jsonData, _ := json.Marshal(order)
+
+	// Act
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/walmart/orders", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.OrderResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "success", response.Status)
+	assert.Equal(t, 0, response.ItemCount)
+	assert.Equal(t, 150.00, *response.TotalAmount)
+}
+
+func TestReceiveOrders_WithAdditionalFields(t *testing.T) {
+	// Test that orders with new optional fields are handled properly
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/walmart/orders", ReceiveOrders)
+
+	orderTotal := 150.00
+	tax := 12.50
+	deliveryCharges := 5.99
+	tip := 10.00
+
+	order := models.Order{
+		OrderNumber:     "123456789",
+		OrderDate:       "2024-01-15",
+		OrderTotal:      &orderTotal,
+		Tax:             &tax,
+		DeliveryCharges: &deliveryCharges,
+		Tip:             &tip,
+		Items: []models.OrderItem{
+			{
+				Name:       "Great Value Milk",
+				Price:      3.99,
+				Quantity:   1,
+				ProductURL: "https://walmart.com/product/123",
+				Category:   "Groceries",
+			},
+		},
+	}
+
+	jsonData, _ := json.Marshal(order)
+
+	// Act
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/walmart/orders", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Extension-Key", "test-secret")
+	router.ServeHTTP(w, req)
+
+	// Assert
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response models.OrderResponse
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "success", response.Status)
+	assert.NotEmpty(t, response.ProcessingID)
+	assert.Equal(t, 1, response.ItemCount)
+	assert.Equal(t, 150.00, *response.TotalAmount)
 }
