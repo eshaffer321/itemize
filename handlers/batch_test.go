@@ -328,7 +328,7 @@ func TestReceiveBatchOrders_ValidationErrors(t *testing.T) {
 	}
 }
 
-func TestLogBatchOrder(t *testing.T) {
+func TestLogBatchOrder(_ *testing.T) {
 	// Test logBatchOrder function directly
 	orderTotal := 100.00
 	order := models.Order{
