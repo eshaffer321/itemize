@@ -66,67 +66,93 @@ func ReceiveOrders(c *gin.Context) {
 		return
 	}
 
-	// Additional validation
-	if order.OrderTotal <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  "error",
-			"message": "Invalid order total: must be positive",
-		})
-		return
-	}
-
-	// Validate items
-	if len(order.Items) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  "error",
-			"message": "Order must contain at least one item",
-		})
-		return
-	}
-
-	for _, item := range order.Items {
-		if item.Price < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Invalid item price: must be non-negative",
-			})
-			return
-		}
-		if item.Quantity <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Invalid item quantity: must be positive",
-			})
-			return
+	// Validate items if present
+	if order.Items != nil {
+		for _, item := range order.Items {
+			if item.Price < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"status":  "error",
+					"message": "Invalid item price: must be non-negative",
+				})
+				return
+			}
+			if item.Quantity <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"status":  "error",
+					"message": "Invalid item quantity: must be positive",
+				})
+				return
+			}
 		}
 	}
 
-	// Log the received order
-	log.Printf("Received Walmart order: %s, Total: $%.2f, Items: %d\n",
-		order.OrderNumber, order.OrderTotal, len(order.Items))
+	// Generate processing ID
+	processingID := fmt.Sprintf("proc_%s_%d", order.OrderNumber, time.Now().Unix())
+
+	// Calculate item count
+	itemCount := 0
+	if order.Items != nil {
+		itemCount = len(order.Items)
+	}
+
+	// Log the received order with additional fields
+	logMsg := fmt.Sprintf("Received Walmart order: %s", order.OrderNumber)
+	if order.OrderTotal != nil {
+		logMsg += fmt.Sprintf(", Total: $%.2f", *order.OrderTotal)
+	}
+	logMsg += fmt.Sprintf(", Items: %d", itemCount)
+	if order.Tax != nil {
+		logMsg += fmt.Sprintf(", Tax: $%.2f", *order.Tax)
+	}
+	if order.DeliveryCharges != nil {
+		logMsg += fmt.Sprintf(", Delivery: $%.2f", *order.DeliveryCharges)
+	}
+	if order.Tip != nil {
+		logMsg += fmt.Sprintf(", Tip: $%.2f", *order.Tip)
+	}
+	log.Println(logMsg)
 
 	// Track successful order in Sentry
 	if hub != nil {
 		hub.WithScope(func(scope *sentry.Scope) {
 			scope.SetLevel(sentry.LevelInfo)
-			scope.SetContext("order", map[string]interface{}{
-				"order_number": order.OrderNumber,
-				"total":        order.OrderTotal,
-				"items_count":  len(order.Items),
-			})
+			contextData := map[string]interface{}{
+				"order_number":  order.OrderNumber,
+				"items_count":   itemCount,
+				"processing_id": processingID,
+			}
+			if order.OrderTotal != nil {
+				contextData["total"] = *order.OrderTotal
+			}
+			if order.Tax != nil {
+				contextData["tax"] = *order.Tax
+			}
+			if order.DeliveryCharges != nil {
+				contextData["delivery_charges"] = *order.DeliveryCharges
+			}
+			if order.Tip != nil {
+				contextData["tip"] = *order.Tip
+			}
+			scope.SetContext("order", contextData)
 			scope.SetTag("order.source", "walmart")
 			hub.CaptureMessage("Order received successfully")
 		})
 	}
 
+	// Update sync tracker
+	updateSyncTracker(&order)
+
 	// TODO: Process order with Monarch Money SDK
 	// For now, just acknowledge receipt
 
 	response := models.OrderResponse{
-		Status:    "success",
-		Message:   "Order received successfully",
-		OrderID:   order.OrderNumber,
-		Timestamp: time.Now(),
+		Status:       "success",
+		Message:      "Order received successfully",
+		OrderID:      order.OrderNumber,
+		ProcessingID: processingID,
+		ItemCount:    itemCount,
+		TotalAmount:  order.OrderTotal,
+		Timestamp:    time.Now(),
 	}
 
 	c.JSON(http.StatusOK, response)
