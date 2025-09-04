@@ -12,6 +12,12 @@
 *.out
 coverage.html
 coverage.out
+coverage.txt
+
+# Security scan reports
+gosec-report.json
+trivy-results.sarif
+results.sarif
 
 # Dependency directories
 vendor/
