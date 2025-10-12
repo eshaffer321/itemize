@@ -7,13 +7,13 @@ import (
 	"log"
 	"log/slog"
 	"math"
-	"os"
 	"strings"
 	"time"
 
 	costcogo "github.com/costco-go/pkg/costco"
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	appconfig "github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers/costco"
@@ -29,17 +29,17 @@ type Config struct {
 
 func main() {
 	// Parse flags
-	config := Config{}
-	flag.BoolVar(&config.DryRun, "dry-run", false, "Run without making changes")
-	flag.IntVar(&config.LookbackDays, "days", 14, "Number of days to look back")
-	flag.IntVar(&config.MaxOrders, "max", 0, "Maximum orders to process (0 = unlimited)")
-	flag.BoolVar(&config.Force, "force", false, "Force reprocess already processed orders")
+	cmdConfig := Config{}
+	flag.BoolVar(&cmdConfig.DryRun, "dry-run", false, "Run without making changes")
+	flag.IntVar(&cmdConfig.LookbackDays, "days", 14, "Number of days to look back")
+	flag.IntVar(&cmdConfig.MaxOrders, "max", 0, "Maximum orders to process (0 = unlimited)")
+	flag.BoolVar(&cmdConfig.Force, "force", false, "Force reprocess already processed orders")
 	flag.Parse()
 
 	fmt.Println("🛒 Costco → Monarch Money Sync")
 	fmt.Println("=" + strings.Repeat("=", 50))
 
-	if config.DryRun {
+	if cmdConfig.DryRun {
 		fmt.Println("🔍 DRY RUN MODE - No changes will be made")
 	} else {
 		fmt.Println("⚠️  PRODUCTION MODE - Will update Monarch transactions!")
@@ -50,20 +50,18 @@ func main() {
 	logger := slog.Default()
 	ctx := context.Background()
 
-	// Get environment variables
-	monarchToken := os.Getenv("MONARCH_TOKEN")
-	openaiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiKey == "" {
-		openaiKey = os.Getenv("OPENAI_APIKEY")
+	// Load centralized configuration
+	cfg := appconfig.LoadOrEnv()
+
+	// Get and validate required API keys
+	monarchToken, openaiKey, err := cfg.MustGetAPIKeys()
+	if err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 
-	if monarchToken == "" || openaiKey == "" {
-		log.Fatal("❌ Required environment variables not set (MONARCH_TOKEN, OPENAI_API_KEY)")
-	}
-
-	// Initialize storage
-	// Use default database path
-	dbPath := "costco_sync.db"
+	// Initialize storage using centralized config
+	dbPath := cfg.Storage.DatabasePath
+	fmt.Printf("💾 Using database: %s\n", dbPath)
 	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
@@ -99,14 +97,14 @@ func main() {
 
 	fmt.Println("📅 Configuration:")
 	fmt.Printf("   Provider: %s\n", provider.DisplayName())
-	fmt.Printf("   Lookback: %d days\n", config.LookbackDays)
-	fmt.Printf("   Max orders: %d\n", config.MaxOrders)
-	fmt.Printf("   Force reprocess: %v\n", config.Force)
+	fmt.Printf("   Lookback: %d days\n", cmdConfig.LookbackDays)
+	fmt.Printf("   Max orders: %d\n", cmdConfig.MaxOrders)
+	fmt.Printf("   Force reprocess: %v\n", cmdConfig.Force)
 	fmt.Println()
 
 	// Fetch Costco orders
 	endDate := time.Now()
-	startDate := endDate.AddDate(0, 0, -config.LookbackDays)
+	startDate := endDate.AddDate(0, 0, -cmdConfig.LookbackDays)
 
 	fmt.Printf("🛍️ Fetching Costco orders (%s to %s)...\n",
 		startDate.Format("2006-01-02"),
@@ -115,7 +113,7 @@ func main() {
 	orders, err := provider.FetchOrders(ctx, providers.FetchOptions{
 		StartDate:      startDate,
 		EndDate:        endDate,
-		MaxOrders:      config.MaxOrders,
+		MaxOrders:      cmdConfig.MaxOrders,
 		IncludeDetails: true,
 	})
 	if err != nil {
@@ -168,7 +166,7 @@ func main() {
 	// We'll create splits directly since the splitter is Walmart-specific
 
 	// Start sync run
-	runID, _ := store.StartSyncRun(len(orders), config.DryRun, config.LookbackDays)
+	runID, _ := store.StartSyncRun(len(orders), cmdConfig.DryRun, cmdConfig.LookbackDays)
 
 	// Process orders
 	fmt.Println("🔄 Processing orders...")
@@ -186,7 +184,7 @@ func main() {
 		fmt.Printf("   Items: %d\n", len(order.GetItems()))
 
 		// Check if already processed
-		if !config.Force && store.IsProcessed(order.GetID()) {
+		if !cmdConfig.Force && store.IsProcessed(order.GetID()) {
 			fmt.Printf("   ⏭️  Already processed\n")
 			skippedCount++
 			continue
@@ -292,7 +290,7 @@ func main() {
 		}
 
 		// Apply splits if not dry run
-		if !config.DryRun {
+		if !cmdConfig.DryRun {
 			fmt.Printf("   💾 Applying splits to Monarch...\n")
 			err = monarchClient.Transactions.UpdateSplits(ctx, match.ID, splits)
 			if err != nil {
@@ -327,7 +325,7 @@ func main() {
 			Status:          "success",
 			MatchConfidence: daysDiff,
 		}
-		if config.DryRun {
+		if cmdConfig.DryRun {
 			record.Status = "dry-run"
 		}
 		store.SaveRecord(record)
@@ -356,7 +354,7 @@ func main() {
 		fmt.Printf("   Success Rate: %.1f%%\n", stats.SuccessRate)
 	}
 
-	if !config.DryRun && processedCount > 0 {
+	if !cmdConfig.DryRun && processedCount > 0 {
 		fmt.Println("\n✅ Successfully updated Monarch Money transactions!")
 	}
 }
