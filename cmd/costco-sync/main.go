@@ -14,6 +14,7 @@ import (
 	costcogo "github.com/costco-go/pkg/costco"
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers/costco"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/storage"
@@ -61,11 +62,8 @@ func main() {
 	}
 
 	// Initialize storage
-	// Use config for database path, fallback to default
-	dbPath := cfg.Storage.DatabasePath
-	if dbPath == "" {
-		dbPath = "costco_sync.db"
-	}
+	// Use default database path
+	dbPath := "costco_sync.db"
 	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
@@ -194,8 +192,37 @@ func main() {
 			continue
 		}
 
-		// Find matching transaction
-		match, daysDiff := findBestMatch(order, costcoTransactions, usedTransactionIDs)
+		// Find matching transaction using shared matcher
+		matcherConfig := matcher.Config{
+			AmountTolerance: 0.01,
+			DateTolerance:   5, // Costco uses 5 days
+		}
+		transactionMatcher := matcher.NewMatcher(matcherConfig)
+
+		matchResult, err := transactionMatcher.FindMatch(order, costcoTransactions, usedTransactionIDs)
+		if err != nil {
+			fmt.Printf("   ❌ Matching error: %v\n", err)
+			record := &storage.ProcessingRecord{
+				OrderID:      order.GetID(),
+				OrderDate:    order.GetDate(),
+				OrderAmount:  order.GetTotal(),
+				ItemCount:    len(order.GetItems()),
+				ProcessedAt:  time.Now(),
+				Status:       "error",
+				ErrorMessage: err.Error(),
+			}
+			store.SaveRecord(record)
+			errorCount++
+			continue
+		}
+
+		var match *monarch.Transaction
+		var daysDiff float64
+		if matchResult != nil {
+			match = matchResult.Transaction
+			daysDiff = matchResult.DateDiff
+		}
+
 		if match == nil {
 			fmt.Printf("   ❌ No matching transaction found\n")
 			record := &storage.ProcessingRecord{
@@ -334,60 +361,7 @@ func main() {
 	}
 }
 
-func findBestMatch(order providers.Order, transactions []*monarch.Transaction, usedTransactionIDs map[string]bool) (*monarch.Transaction, float64) {
-	const AmountTolerance = 0.01 // Only allow 1 cent difference for rounding
-	const DateToleranceDays = 5
-
-	var bestMatch *monarch.Transaction
-	var bestScore float64 = 999999
-
-	orderTotal := order.GetTotal()
-	orderDate := order.GetDate()
-
-	for _, tx := range transactions {
-		// Skip if transaction already used
-		if usedTransactionIDs[tx.ID] {
-			continue
-		}
-
-		// Calculate date difference
-		daysDiff := math.Abs(tx.Date.Time.Sub(orderDate).Hours() / 24)
-		if daysDiff > DateToleranceDays {
-			continue
-		}
-
-		// Handle sign convention difference
-		var amountToMatch float64
-		if orderTotal < 0 {
-			// Return from Costco (negative) matches positive in Monarch
-			amountToMatch = -orderTotal
-			if tx.Amount < 0 {
-				continue
-			}
-		} else {
-			// Regular purchase
-			amountToMatch = orderTotal
-			if tx.Amount > 0 {
-				continue
-			}
-		}
-
-		// Require exact match within 1 cent
-		txAmount := math.Abs(tx.Amount)
-		amountDiff := math.Abs(txAmount - amountToMatch)
-		if amountDiff > AmountTolerance {
-			continue
-		}
-
-		// Score based on date closeness (amount is already exact)
-		if daysDiff < bestScore {
-			bestMatch = tx
-			bestScore = daysDiff
-		}
-	}
-
-	return bestMatch, bestScore
-}
+// Transaction matching is now handled by internal/matcher package
 
 // createSplits creates transaction splits for a Costco order
 func createSplits(
