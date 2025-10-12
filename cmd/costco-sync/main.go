@@ -13,6 +13,7 @@ import (
 	costcogo "github.com/costco-go/pkg/costco"
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/clients"
 	appconfig "github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
@@ -53,10 +54,10 @@ func main() {
 	// Load centralized configuration
 	cfg := appconfig.LoadOrEnv()
 
-	// Get and validate required API keys
-	monarchToken, openaiKey, err := cfg.MustGetAPIKeys()
+	// Initialize all service clients via dependency injection
+	serviceClients, err := clients.NewClients(cfg)
 	if err != nil {
-		log.Fatalf("❌ %v", err)
+		log.Fatalf("❌ Failed to initialize clients: %v", err)
 	}
 
 	// Initialize storage using centralized config
@@ -67,17 +68,6 @@ func main() {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	defer store.Close()
-
-	// Initialize Monarch client
-	monarchClient, err := monarch.NewClientWithToken(monarchToken)
-	if err != nil {
-		log.Fatalf("Failed to create Monarch client: %v", err)
-	}
-
-	// Initialize categorizer
-	openaiClient := categorizer.NewRealOpenAIClient(openaiKey)
-	cache := categorizer.NewMemoryCache()
-	cat := categorizer.NewCategorizer(openaiClient, cache)
 
 	// Load Costco config and create client
 	savedConfig, err := costcogo.LoadConfig()
@@ -124,7 +114,7 @@ func main() {
 
 	// Fetch Monarch transactions
 	fmt.Println("💳 Fetching Monarch transactions...")
-	txList, err := monarchClient.Transactions.Query().
+	txList, err := serviceClients.Monarch.Transactions.Query().
 		Between(startDate.AddDate(0, 0, -7), endDate). // Add buffer for date matching
 		Limit(500).
 		Execute(ctx)
@@ -148,7 +138,7 @@ func main() {
 
 	// Get Monarch categories
 	fmt.Println("📊 Loading Monarch categories...")
-	categories, err := monarchClient.Transactions.Categories().List(ctx)
+	categories, err := serviceClients.Monarch.Transactions.Categories().List(ctx)
 	if err != nil {
 		log.Fatalf("Failed to load categories: %v", err)
 	}
@@ -255,7 +245,7 @@ func main() {
 		fmt.Printf("   ✂️  Creating splits...\n")
 		fmt.Printf("      Transaction amount: $%.2f\n", match.Amount)
 		fmt.Printf("      Order subtotal: $%.2f, tax: $%.2f\n", order.GetSubtotal(), order.GetTax())
-		splits, err := createSplits(ctx, order, match, cat, catCategories, categories)
+		splits, err := createSplits(ctx, order, match, serviceClients.Categorizer, catCategories, categories)
 		if err != nil {
 			fmt.Printf("   ❌ Failed to split: %v\n", err)
 			record := &storage.ProcessingRecord{
@@ -292,7 +282,7 @@ func main() {
 		// Apply splits if not dry run
 		if !cmdConfig.DryRun {
 			fmt.Printf("   💾 Applying splits to Monarch...\n")
-			err = monarchClient.Transactions.UpdateSplits(ctx, match.ID, splits)
+			err = serviceClients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splits)
 			if err != nil {
 				fmt.Printf("   ❌ Failed to apply splits: %v\n", err)
 				record := &storage.ProcessingRecord{

@@ -13,7 +13,7 @@ import (
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	walmartclient "github.com/eshaffer321/walmart-client"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/clients"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
@@ -45,10 +45,10 @@ func main() {
 	// Load centralized configuration
 	appConfig := config.LoadOrEnv()
 
-	// Get and validate required API keys
-	monarchToken, openaiKey, err := appConfig.MustGetAPIKeys()
+	// Initialize all service clients via dependency injection
+	serviceClients, err := clients.NewClients(appConfig)
 	if err != nil {
-		log.Fatalf("❌ %v", err)
+		log.Fatalf("❌ Failed to initialize clients: %v", err)
 	}
 
 	// Use centralized config for database path (allow flag override)
@@ -67,16 +67,16 @@ func main() {
 	}
 	defer store.Close()
 
-	// Initialize clients
+	// Initialize Walmart client
 	ctx := context.Background()
-	clients, err := initializeClients(monarchToken, openaiKey)
+	walmartClient, err := initializeWalmartClient()
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize clients: %v", err)
 	}
 
 	// Get recent Walmart orders
 	fmt.Println("🛍️ Fetching Walmart orders...")
-	orders, err := fetchWalmartOrders(clients.walmart, cmdConfig.LookbackDays)
+	orders, err := fetchWalmartOrders(walmartClient, cmdConfig.LookbackDays)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch orders: %v", err)
 	}
@@ -93,7 +93,7 @@ func main() {
 
 	// Get Monarch transactions
 	fmt.Println("💳 Fetching Monarch transactions...")
-	transactions, err := fetchMonarchTransactions(ctx, clients.monarch, cmdConfig.LookbackDays)
+	transactions, err := fetchMonarchTransactions(ctx, serviceClients.Monarch, cmdConfig.LookbackDays)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch transactions: %v", err)
 	}
@@ -116,14 +116,14 @@ func main() {
 	}
 
 	// Get categories
-	categories, err := clients.monarch.Transactions.Categories().List(ctx)
+	categories, err := serviceClients.Monarch.Transactions.Categories().List(ctx)
 	if err != nil {
 		log.Fatalf("❌ Failed to load categories: %v", err)
 	}
 
 	// Initialize splitter
 	strategy := splitter.DefaultStrategy()
-	split := splitter.NewSplitter(clients.categorizer, categories, strategy)
+	split := splitter.NewSplitter(serviceClients.Categorizer, categories, strategy)
 
 	// Start sync run tracking
 	runID, _ := store.StartSyncRun(len(orders), cmdConfig.DryRun, cmdConfig.LookbackDays)
@@ -192,7 +192,7 @@ func main() {
 				fmt.Printf("  🔍 No direct match found, checking order ledger...\n")
 			}
 
-			ledger, err := clients.walmart.GetOrderLedger(order.OrderID)
+			ledger, err := walmartClient.GetOrderLedger(order.OrderID)
 			if err != nil {
 				fmt.Printf("  ❌ Failed to get order ledger: %v\n", err)
 			} else if ledger != nil {
@@ -248,7 +248,7 @@ func main() {
 
 		// Get full order for splitting (use correct isInStore flag based on fulfillment type)
 		isInStore := order.FulfillmentType == "IN_STORE"
-		fullOrder, err := clients.walmart.GetOrder(order.OrderID, isInStore)
+		fullOrder, err := walmartClient.GetOrder(order.OrderID, isInStore)
 		if err != nil {
 			fmt.Printf("  ❌ Failed to get full order: %v\n", err)
 			record.Status = "failed"
@@ -341,7 +341,7 @@ func main() {
 
 		// Apply splits if not dry run
 		if !cmdConfig.DryRun {
-			err = clients.monarch.Transactions.UpdateSplits(ctx, match.ID, splitResult.Splits)
+			err = serviceClients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splitResult.Splits)
 			if err != nil {
 				fmt.Printf("  ❌ Failed to apply: %v\n", err)
 				record.Status = "failed"
@@ -412,13 +412,6 @@ func parseFlags() Config {
 	return cmdConfig
 }
 
-// ClientSet holds all initialized clients
-type ClientSet struct {
-	walmart     *walmartclient.WalmartClient
-	monarch     *monarch.Client
-	categorizer *categorizer.Categorizer
-}
-
 // OrderInfo holds order information
 type OrderInfo struct {
 	OrderID         string
@@ -444,12 +437,7 @@ func (o *OrderInfoAdapter) GetID() string                   { return o.OrderID }
 func (o *OrderInfoAdapter) GetDate() time.Time              { return o.OrderDate }
 func (o *OrderInfoAdapter) GetTotal() float64               { return o.TotalAmount }
 
-func initializeClients(monarchToken, openaiKey string) (*ClientSet, error) {
-	monarchClient, err := monarch.NewClientWithToken(monarchToken)
-	if err != nil {
-		return nil, err
-	}
-
+func initializeWalmartClient() (*walmartclient.WalmartClient, error) {
 	homeDir, _ := os.UserHomeDir()
 	config := walmartclient.ClientConfig{
 		RateLimit:  2 * time.Second,
@@ -457,21 +445,8 @@ func initializeClients(monarchToken, openaiKey string) (*ClientSet, error) {
 		CookieDir:  filepath.Join(homeDir, ".walmart-api"),
 		CookieFile: filepath.Join(homeDir, ".walmart-api", "cookies.json"),
 	}
-	
-	walmartClient, err := walmartclient.NewWalmartClient(config)
-	if err != nil {
-		return nil, err
-	}
 
-	openaiClient := categorizer.NewRealOpenAIClient(openaiKey)
-	cache := categorizer.NewMemoryCache()
-	cat := categorizer.NewCategorizer(openaiClient, cache)
-
-	return &ClientSet{
-		walmart:     walmartClient,
-		monarch:     monarchClient,
-		categorizer: cat,
-	}, nil
+	return walmartclient.NewWalmartClient(config)
 }
 
 func fetchWalmartOrders(client *walmartclient.WalmartClient, lookbackDays int) ([]*OrderInfo, error) {
