@@ -119,9 +119,8 @@ func (s *Splitter) SplitTransaction(ctx context.Context, order *walmart.Order, .
 cmd/
 ├── api/                    # API server
 ├── audit-report/           # Generate reports
-├── costco-dry-run/         # Dry run only
 ├── costco-example/         # Example/test
-├── costco-sync/            # ⭐ Actual sync (used)
+├── costco-sync/            # ⭐ Actual sync (has --dry-run flag)
 ├── enrich-history/         # One-off script
 ├── sync/                   # Generic sync (unused!)
 ├── test-costco/            # Test script
@@ -131,6 +130,8 @@ cmd/
 ├── walmart-test-ledger/    # Test script
 ├── dashboard/              # Separate binary?
 └── (more)
+
+Note: costco-dry-run was removed - use `costco-sync --dry-run` instead
 ```
 
 **Problem:**
