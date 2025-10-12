@@ -14,6 +14,8 @@ import (
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	walmartclient "github.com/eshaffer321/walmart-client"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/splitter"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/storage"
 )
@@ -154,8 +156,30 @@ func main() {
 			Status:      "processing",
 		}
 
-		// Find matching transaction
-		match := findBestMatch(order, transactions, usedTransactionIDs)
+		// Find matching transaction using shared matcher
+		matcherConfig := matcher.Config{
+			AmountTolerance: 0.01,
+			DateTolerance:   3, // Walmart uses 3 days
+		}
+		transactionMatcher := matcher.NewMatcher(matcherConfig)
+
+		adapter := &OrderInfoAdapter{OrderInfo: order}
+		matchResult, err := transactionMatcher.FindMatch(adapter, transactions, usedTransactionIDs)
+		if err != nil {
+			fmt.Printf("  ❌ Matching error: %v\n", err)
+			record.Status = "error"
+			record.ErrorMessage = err.Error()
+			if !config.DryRun {
+				store.SaveRecord(record)
+			}
+			continue
+		}
+
+		var match *monarch.Transaction
+		if matchResult != nil {
+			match = matchResult.Transaction
+		}
+
 		if match == nil {
 			// Try using order ledger to find actual charges
 			if config.Verbose {
@@ -398,6 +422,22 @@ type OrderInfo struct {
 	FulfillmentType string
 }
 
+// OrderInfoAdapter adapts OrderInfo to providers.Order interface
+type OrderInfoAdapter struct {
+	*OrderInfo
+}
+
+func (o *OrderInfoAdapter) GetItems() []providers.OrderItem { return nil }
+func (o *OrderInfoAdapter) GetProviderName() string         { return "walmart" }
+func (o *OrderInfoAdapter) GetSubtotal() float64            { return o.TotalAmount * 0.9 }
+func (o *OrderInfoAdapter) GetTax() float64                 { return o.TotalAmount * 0.1 }
+func (o *OrderInfoAdapter) GetTip() float64                 { return 0 }
+func (o *OrderInfoAdapter) GetFees() float64                { return 0 }
+func (o *OrderInfoAdapter) GetRawData() interface{}         { return o }
+func (o *OrderInfoAdapter) GetID() string                   { return o.OrderID }
+func (o *OrderInfoAdapter) GetDate() time.Time              { return o.OrderDate }
+func (o *OrderInfoAdapter) GetTotal() float64               { return o.TotalAmount }
+
 func initializeClients(monarchToken, openaiKey string) (*ClientSet, error) {
 	monarchClient, err := monarch.NewClientWithToken(monarchToken)
 	if err != nil {
@@ -545,40 +585,4 @@ func findBestMatchUsingLedger(order *OrderInfo, ledger *walmartclient.OrderLedge
 	return nil
 }
 
-func findBestMatch(order *OrderInfo, transactions []*monarch.Transaction, usedTransactionIDs map[string]bool) *monarch.Transaction {
-	const AmountTolerance = 0.01 // Only allow 1 cent difference for rounding
-	const DateToleranceDays = 3
-
-	var bestMatch *monarch.Transaction
-	var bestScore float64 = 999999
-
-	for _, tx := range transactions {
-		// Skip if transaction already used
-		if usedTransactionIDs[tx.ID] {
-			continue
-		}
-
-		txAmount := math.Abs(tx.Amount)
-
-		// Require exact match within 1 cent
-		amountDiff := math.Abs(order.TotalAmount - txAmount)
-		if amountDiff > AmountTolerance {
-			continue
-		}
-
-		dateDiff := math.Abs(order.OrderDate.Sub(tx.Date.Time).Hours() / 24)
-		if dateDiff > DateToleranceDays {
-			continue
-		}
-
-		// Score based on date closeness (amount is already exact)
-		score := dateDiff
-
-		if score < bestScore {
-			bestMatch = tx
-			bestScore = score
-		}
-	}
-
-	return bestMatch
-}
+// Transaction matching is now handled by internal/matcher package
