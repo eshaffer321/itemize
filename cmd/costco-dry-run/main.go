@@ -27,7 +27,12 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize storage
-	store, err := storage.NewStorage("costco_dry_run.db")
+	// Use config for database path, fallback to default
+	dbPath := cfg.Storage.DatabasePath
+	if dbPath == "" {
+		dbPath = "costco_dry_run.db"
+	}
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
@@ -87,7 +92,7 @@ func main() {
 	if monarchToken == "" {
 		fmt.Println("⚠️  MONARCH_TOKEN not set - simulating Monarch transactions")
 		fmt.Println()
-		
+
 		// Simulate the sync process
 		simulateDryRun(orders, store)
 	} else {
@@ -144,7 +149,7 @@ func simulateDryRun(orders []providers.Order, store *storage.Storage) {
 		// Simulate what would happen
 		fmt.Printf("   📝 Would search for Monarch transaction around $%.2f\n", order.GetTotal())
 		fmt.Printf("   ✂️  Would create %d splits for categories:\n", len(order.GetItems()))
-		
+
 		// Show sample of items
 		maxItems := 3
 		if len(order.GetItems()) < maxItems {
@@ -205,13 +210,13 @@ func processDryRun(orders []providers.Order, transactions []*monarch.Transaction
 				fmt.Printf("   ❌ No matching transaction found\n")
 			}
 			record := &storage.ProcessingRecord{
-				OrderID:      order.GetID(),
-				OrderDate:    order.GetDate(),
-				OrderAmount:  order.GetTotal(),
-				ItemCount:    len(order.GetItems()),
-				ProcessedAt:  time.Now(),
-				Status:       "no-match",
-				Notes:        "No matching Monarch transaction found",
+				OrderID:     order.GetID(),
+				OrderDate:   order.GetDate(),
+				OrderAmount: order.GetTotal(),
+				ItemCount:   len(order.GetItems()),
+				ProcessedAt: time.Now(),
+				Status:      "no-match",
+				Notes:       "No matching Monarch transaction found",
 			}
 			store.SaveRecord(record)
 			noMatchCount++
@@ -231,7 +236,7 @@ func processDryRun(orders []providers.Order, transactions []*monarch.Transaction
 			fmt.Printf("      ⚠️  Already has splits\n")
 		} else {
 			fmt.Printf("   ✂️  Would create %d splits:\n", len(order.GetItems()))
-			
+
 			// Show category breakdown
 			categoryTotals := make(map[string]float64)
 			for _, item := range order.GetItems() {
@@ -239,7 +244,7 @@ func processDryRun(orders []providers.Order, transactions []*monarch.Transaction
 				category := guessCategory(item.GetName())
 				categoryTotals[category] += item.GetPrice()
 			}
-			
+
 			for category, total := range categoryTotals {
 				fmt.Printf("      - %s: $%.2f\n", category, total)
 			}
@@ -325,39 +330,39 @@ func findBestMatch(order providers.Order, transactions []*monarch.Transaction, u
 
 func guessCategory(itemName string) string {
 	name := strings.ToLower(itemName)
-	
+
 	// Food categories
-	if strings.Contains(name, "beef") || strings.Contains(name, "chicken") || 
-	   strings.Contains(name, "pork") || strings.Contains(name, "salmon") {
+	if strings.Contains(name, "beef") || strings.Contains(name, "chicken") ||
+		strings.Contains(name, "pork") || strings.Contains(name, "salmon") {
 		return "Groceries - Meat"
 	}
-	if strings.Contains(name, "milk") || strings.Contains(name, "cheese") || 
-	   strings.Contains(name, "yogurt") {
+	if strings.Contains(name, "milk") || strings.Contains(name, "cheese") ||
+		strings.Contains(name, "yogurt") {
 		return "Groceries - Dairy"
 	}
 	if strings.Contains(name, "bread") || strings.Contains(name, "tortilla") {
 		return "Groceries - Bakery"
 	}
-	if strings.Contains(name, "strawberry") || strings.Contains(name, "apple") || 
-	   strings.Contains(name, "banana") {
+	if strings.Contains(name, "strawberry") || strings.Contains(name, "apple") ||
+		strings.Contains(name, "banana") {
 		return "Groceries - Produce"
 	}
-	
+
 	// Household
-	if strings.Contains(name, "paper") || strings.Contains(name, "towel") || 
-	   strings.Contains(name, "tissue") || strings.Contains(name, "wipe") {
+	if strings.Contains(name, "paper") || strings.Contains(name, "towel") ||
+		strings.Contains(name, "tissue") || strings.Contains(name, "wipe") {
 		return "Household Supplies"
 	}
 	if strings.Contains(name, "battery") || strings.Contains(name, "duracell") {
 		return "Electronics"
 	}
-	
+
 	// Clothing
-	if strings.Contains(name, "sock") || strings.Contains(name, "shirt") || 
-	   strings.Contains(name, "adidas") {
+	if strings.Contains(name, "sock") || strings.Contains(name, "shirt") ||
+		strings.Contains(name, "adidas") {
 		return "Clothing"
 	}
-	
+
 	return "General Merchandise"
 }
 

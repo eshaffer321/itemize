@@ -1,211 +1,259 @@
-# Walmart-Monarch Money Sync Backend
+# Walmart → Monarch Money Sync
 
 [![CI](https://github.com/eshaffer321/monarchmoney-walmart-server/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/eshaffer321/monarchmoney-walmart-server/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/eshaffer321/monarchmoney-walmart-server/graph/badge.svg)](https://codecov.io/gh/eshaffer321/monarchmoney-walmart-server)
-[![Go Report Card](https://goreportcard.com/badge/github.com/eshaffer321/monarchmoney-walmart-server)](https://goreportcard.com/report/github.com/eshaffer321/monarchmoney-walmart-server)
 
-A Go backend server that receives Walmart order data from a Chrome extension and syncs it with Monarch Money for intelligent transaction categorization and splitting.
+Automatically sync and categorize Walmart purchases in Monarch Money by splitting transactions based on individual items purchased.
 
-## Overview
+## ✨ Features
 
-This backend is part of a larger system that automatically transforms single Walmart transactions in Monarch Money into properly categorized, split transactions that accurately reflect what was purchased.
+- 🔍 **Automatic Transaction Matching** - Matches Walmart orders with Monarch Money transactions (handles delivery tips)
+- 🤖 **AI-Powered Categorization** - Uses OpenAI GPT-4 to intelligently categorize items based on your Monarch categories
+- ✂️ **Smart Transaction Splitting** - Groups items by category and splits transactions with proportional tax distribution
+- 📝 **Detailed Notes** - Includes item details in each split for transparency
+- 🔒 **Duplicate Prevention** - Tracks processed orders to avoid reprocessing
+- 🏃 **Dry Run Mode** - Preview changes before applying them
 
-**Example**: A $150 Walmart transaction becomes:
-- $50 - Groceries (milk, bread, eggs)
-- $30 - Home & Garden (cleaning supplies) 
-- $40 - Electronics (phone charger, batteries)
-- $30 - Personal Care (shampoo, toothpaste)
+## 📸 Example
 
-## Architecture
+**Before**: Single Walmart transaction for $150.00
+
+**After**: Automatically split into:
+- $50.00 - Groceries (milk, bread, eggs, cheese)
+- $30.00 - Home Spending (paper towels, cleaning supplies)  
+- $40.00 - Electronics (phone charger, batteries)
+- $30.00 - Personal Care (shampoo, toothpaste)
+
+## 🏗️ Architecture
 
 ```
-Chrome Extension → Go Backend → LLM API → Monarch Money API
-     ↓                ↓            ↓            ↓
-Scrape Orders    Process      Categorize    Split & Update
-from Walmart      Orders        Items        Transactions
+Walmart API → Go Backend → OpenAI → Monarch Money API
+     ↓            ↓          ↓            ↓
+Get Orders    Match &    Categorize    Split & Update
+             Process      Items        Transactions
 ```
 
-## Current Status
+## 🚀 Quick Start
 
-✅ **Phase 1 Implementation Complete**:
-- Health check endpoint with monitoring
-- Order reception from Chrome extension  
-- Request authentication with X-Extension-Key
-- Comprehensive order validation
-- Sentry error tracking and monitoring
-- 60%+ test coverage with TDD methodology
-- golangci-lint passing with 0 issues
-- Full CI/CD pipeline with GitHub Actions
-- Cross-platform binary builds
-- Security scanning integration
+### Prerequisites
 
-🚧 **Next: Monarch Money Integration**
+1. **Go 1.21+** installed
+2. **Monarch Money** account with API access
+3. **OpenAI API** key
+4. **Walmart** account
 
-## Quick Start
+### Installation
 
 ```bash
-# Install dependencies and development tools
-make deps
-make install-tools
+# Clone the repository
+git clone https://github.com/eshaffer321/monarchmoney-sync-backend
+cd monarchmoney-sync-backend
 
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your API keys
-
-# Run tests (TDD workflow)
-make test
-# Or with coverage
-make coverage
-
-# Check code quality
-make check  # Runs fmt, vet, lint, test
-
-# Build and run
-make build
-make run
-# Or for development with hot reload
-make run-watch
+# Install dependencies
+go mod download
 ```
 
-## Development Workflow
+### Configuration
 
-### Available Make Commands
+1. **Set Environment Variables**
 
 ```bash
-# Development
-make help           # Show all available commands
-make deps           # Download and tidy dependencies
-make install-tools  # Install development tools (golangci-lint, etc.)
-
-# Code Quality
-make fmt           # Format code with gofmt and goimports
-make fmt-check     # Check if code is formatted
-make vet           # Run go vet
-make lint          # Run golangci-lint
-make check         # Run all checks (fmt, vet, lint, test)
-
-# Testing
-make test          # Run all tests
-make test-short    # Run tests in short mode
-make coverage      # Run tests with coverage report
-make benchmark     # Run benchmarks
-
-# Building
-make build         # Build binary
-make release       # Build release binaries for all platforms
-make clean         # Clean build artifacts
-
-# Running
-make run           # Run the application
-make run-watch     # Run with hot reload (requires air)
-
-# Docker
-make docker-build  # Build Docker image
-make docker-run    # Run Docker container
-
-# CI/CD
-make pre-commit    # Run pre-commit checks
-make ci            # Run full CI pipeline locally
+export MONARCH_TOKEN="your_monarch_token"
+export OPENAI_APIKEY="your_openai_api_key"
 ```
 
-### TDD Workflow
-
-This project follows strict Test-Driven Development:
+2. **Initialize Walmart Cookies**
 
 ```bash
-# 1. Write test first
-# 2. Run test - watch it fail
-make test
+# 1. Log into walmart.com in your browser
+# 2. Go to your orders page  
+# 3. Open Developer Tools (F12)
+# 4. Go to Network tab
+# 5. Find any GraphQL request
+# 6. Right-click → Copy → Copy as cURL
+# 7. Save to a file called 'curl.txt'
 
-# 3. Implement feature
-# 4. Run test - watch it pass
-make test
-
-# 5. Check all code quality
-make check
+# Then run:
+go run cmd/test-walmart/main.go
 ```
 
-## API Endpoints
+## 💻 Usage
 
-- `GET /health` - Health check
-- `POST /api/walmart/orders` - Receive Walmart orders (requires `X-Extension-Key` header)
-
-See `/docs/api.md` for full API documentation.
-
-## Testing
+### Basic Sync (Dry Run)
 
 ```bash
-# Test health endpoint
-curl http://localhost:8080/health
-
-# Test order endpoint
-curl -X POST http://localhost:8080/api/walmart/orders \
-  -H "Content-Type: application/json" \
-  -H "X-Extension-Key: test-secret" \
-  -d @testdata/sample_order.json
+# Preview what would happen (no changes made)
+go run cmd/walmart-sync/main.go --dry-run --days 14
 ```
 
-## Documentation
-
-- `/docs/progress.md` - Development progress tracking
-- `/docs/api.md` - API documentation
-- `/docs/testing.md` - Testing strategy
-- `/docs/setup.md` - Setup instructions
-- `/docs/bug-fixes.md` - Bug fix log
-
-## Current Status
-
-✅ Phase 1 MVP Complete:
-- Health check endpoint
-- Walmart order receive endpoint
-- Authentication middleware
-- Sentry error tracking integration
-- Configuration management system
-- 77.4% test coverage for handlers
-- All tests passing (9/9)
-
-## Next Steps
-
-1. Integrate Monarch Money SDK (currently blocked - package unavailable)
-2. Add transaction matching logic
-3. Implement LLM categorization (Ollama for free local option)
-4. Add transaction splitting functionality
-
-## CI/CD Pipeline
-
-### GitHub Actions
-
-- **Continuous Integration**: Runs on every push/PR to main/develop
-  - Linting with golangci-lint
-  - Testing on multiple Go versions (1.21, 1.22, 1.23)
-  - Security scanning with Gosec and Trivy
-  - Docker image building
-  - Coverage reporting to Codecov
-
-- **Automated Releases**: Triggers on version tags (v*)
-  - Cross-platform binary builds (Linux, macOS, Windows)
-  - Docker image publishing to Docker Hub & GitHub Container Registry
-  - GitHub release creation with assets
-
-### Pre-commit Hooks
+### Apply Changes
 
 ```bash
-# Install pre-commit (requires Python)
-pip install pre-commit
-
-# Install hooks
-pre-commit install
-
-# Run manually
-pre-commit run --all-files
+# Actually update Monarch transactions
+go run cmd/walmart-sync/main.go --dry-run=false --days 14
 ```
 
-## Tech Stack
+### CLI Options
 
-- **Framework**: Gin
-- **Error Tracking**: Sentry
-- **Testing**: Testify
-- **Code Quality**: golangci-lint, gosec, pre-commit
-- **CI/CD**: GitHub Actions, Docker
-- **Configuration**: godotenv + custom config package
-- **Future**: Monarch SDK, Ollama/OpenAI, PostgreSQL, Redis
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | `true` | Preview changes without applying |
+| `--days` | `14` | Number of days to look back |
+| `--max` | `0` | Maximum orders to process (0 = all) |
+| `--verbose` | `false` | Show detailed output |
+| `--force` | `false` | Reprocess already processed orders |
+| `--log` | `processing_log.json` | Processing log file path |
+
+### Interactive Mode
+
+Test with a single order and confirm before applying:
+
+```bash
+go run cmd/walmart-sync-test/main.go
+```
+
+## 📋 Example Output
+
+```
+🛒 Walmart → Monarch Money Sync
+================================
+
+🔍 DRY RUN MODE - No changes will be made
+📅 Looking back 14 days for orders
+
+🛍️ Fetching Walmart orders...
+Found 3 orders
+
+💳 Fetching Monarch transactions...
+Found 5 Walmart transactions in Monarch
+
+🔄 Processing orders...
+======================================================================
+
+[1/3] Processing order 18420337004257359578
+  ✅ Matched with transaction: $7.57 on 2025-09-05
+  ✂️  Splitting into categories...
+  📊 Created 2 splits
+     • $5.28 - Great Value Cracker Cut Sliced 4 Cheese Tray...
+     • $2.29 - Great Value Birthday Party Candle, Multicolor...
+  🔍 [DRY RUN] Would apply 2 splits
+
+======================================================================
+📊 SUMMARY
+   Processed: 1 orders
+   Skipped:   0 orders
+   Errors:    0 orders
+```
+
+## 🧪 Development
+
+### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with coverage
+go test ./... -cover
+```
+
+### Test Individual Components
+
+```bash
+# Test Walmart data fetching
+go run cmd/test-walmart/main.go
+
+# Test transaction matching
+go run cmd/test-matching/main.go
+
+# Test splitting logic
+go run cmd/test-split-simple/main.go
+
+# Test OpenAI categorization
+go run cmd/test-categorization/main.go
+```
+
+### Project Structure
+
+```
+cmd/
+  walmart-sync/         # Main CLI tool
+  walmart-sync-test/    # Interactive test mode
+  test-walmart/         # Walmart cookie initialization
+  test-matching/        # Transaction matching test
+  test-split-simple/    # Split logic test
+
+categorizer/            # OpenAI categorization logic
+processor/              # Transaction matching
+splitter/               # Split creation logic
+queue/                  # Queue abstraction (Redis-ready)
+```
+
+## 🔧 Troubleshooting
+
+### "Walmart cookies not found"
+
+Re-run the cookie initialization:
+1. Get a fresh cURL command from walmart.com
+2. Save to `curl.txt`
+3. Run `go run cmd/test-walmart/main.go`
+
+### "No matching transaction found"
+
+- Transaction may not have posted in Monarch yet (wait 1-3 days)
+- Verify amounts match within $0.50
+- Check dates are within 3 days
+
+### "Transaction already has splits"
+
+The transaction was already processed. Use `--force` to reprocess.
+
+### Parsing errors for some orders
+
+Orders with weighted items (produce) may fail due to decimal quantities. This is a known limitation.
+
+## 🎯 How It Works
+
+1. **Fetch Orders**: Retrieves recent Walmart orders using saved browser cookies
+2. **Match Transactions**: Finds corresponding transactions in Monarch Money with fuzzy matching
+3. **Categorize Items**: Uses OpenAI to categorize each item based on your Monarch categories  
+4. **Create Splits**: Groups items by category and distributes tax proportionally
+5. **Update Monarch**: Applies the splits with detailed notes about what's in each category
+
+### Tax Distribution
+
+Tax is distributed proportionally based on each category's subtotal:
+- Category Tax = (Category Subtotal / Order Subtotal) × Total Tax
+- This approximates actual tax (some items may be tax-exempt)
+
+## 🚧 Limitations
+
+- Weighted items (produce sold by pound) may fail to parse
+- Tax distribution is proportional (doesn't account for tax-exempt items)
+- Requires manual cookie refresh periodically
+- OpenAI API costs apply (~$0.01 per order)
+
+## 🔮 Future Enhancements
+
+- [ ] Redis queue for distributed processing
+- [ ] Automatic cookie refresh
+- [ ] Web UI for monitoring and configuration
+- [ ] Support for Sam's Club and other retailers
+- [ ] Receipt OCR for accurate tax handling
+- [ ] Budget impact analysis
+- [ ] Scheduled/automated runs
+- [ ] Chrome extension for easier setup
+
+## 📄 License
+
+MIT
+
+## 🤝 Contributing
+
+Pull requests welcome! Please include tests for new features.
+
+## 🙏 Acknowledgments
+
+- [monarchmoney-go](https://github.com/eshaffer321/monarchmoney-go) SDK
+- OpenAI GPT-4 for categorization
+- Inspired by the need for better purchase tracking
