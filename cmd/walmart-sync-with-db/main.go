@@ -14,6 +14,7 @@ import (
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	walmartclient "github.com/eshaffer321/walmart-client"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/splitter"
@@ -31,35 +32,40 @@ type Config struct {
 }
 
 func main() {
-	config := parseFlags()
+	cmdConfig := parseFlags()
 
 	fmt.Println("🛒 Walmart → Monarch Money Sync (with Dashboard)")
 	fmt.Println("================================================\n")
 
-	if config.DryRun {
+	if cmdConfig.DryRun {
 		fmt.Println("🔍 DRY RUN MODE - No changes will be made")
 	}
-	fmt.Printf("📅 Looking back %d days for orders\n", config.LookbackDays)
-	fmt.Printf("💾 Using database: %s\n", config.DBPath)
+	fmt.Printf("📅 Looking back %d days for orders\n", cmdConfig.LookbackDays)
+
+	// Load centralized configuration
+	appConfig := config.LoadOrEnv()
+
+	// Get and validate required API keys
+	monarchToken, openaiKey, err := appConfig.MustGetAPIKeys()
+	if err != nil {
+		log.Fatalf("❌ %v", err)
+	}
+
+	// Use centralized config for database path (allow flag override)
+	dbPath := appConfig.Storage.DatabasePath
+	if cmdConfig.DBPath != "" && cmdConfig.DBPath != "processing.db" {
+		// User explicitly overrode the database path via flag
+		dbPath = cmdConfig.DBPath
+	}
+	fmt.Printf("💾 Using database: %s\n", dbPath)
 	fmt.Println()
 
 	// Initialize storage
-	store, err := storage.NewStorage(config.DBPath)
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		log.Fatalf("❌ Failed to initialize storage: %v", err)
 	}
 	defer store.Close()
-
-	// Load environment
-	monarchToken := os.Getenv("MONARCH_TOKEN")
-	openaiKey := os.Getenv("OPENAI_APIKEY")
-	if openaiKey == "" {
-		openaiKey = os.Getenv("OPENAI_API_KEY")
-	}
-
-	if monarchToken == "" || openaiKey == "" {
-		log.Fatal("❌ Required environment variables not set")
-	}
 
 	// Initialize clients
 	ctx := context.Background()
@@ -70,14 +76,14 @@ func main() {
 
 	// Get recent Walmart orders
 	fmt.Println("🛍️ Fetching Walmart orders...")
-	orders, err := fetchWalmartOrders(clients.walmart, config.LookbackDays)
+	orders, err := fetchWalmartOrders(clients.walmart, cmdConfig.LookbackDays)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch orders: %v", err)
 	}
 	fmt.Printf("Found %d orders\n", len(orders))
 
 	// Debug output for orders
-	if config.Verbose {
+	if cmdConfig.Verbose {
 		fmt.Printf("📦 Walmart Orders:\n")
 		for _, o := range orders {
 			fmt.Printf("   - Order %s: $%.2f on %s\n", o.OrderID, o.TotalAmount, o.OrderDate.Format("2006-01-02"))
@@ -87,14 +93,14 @@ func main() {
 
 	// Get Monarch transactions
 	fmt.Println("💳 Fetching Monarch transactions...")
-	transactions, err := fetchMonarchTransactions(ctx, clients.monarch, config.LookbackDays)
+	transactions, err := fetchMonarchTransactions(ctx, clients.monarch, cmdConfig.LookbackDays)
 	if err != nil {
 		log.Fatalf("❌ Failed to fetch transactions: %v", err)
 	}
 	fmt.Printf("Found %d Walmart transactions\n\n", len(transactions))
 
 	// Debug output for transactions
-	if config.Verbose {
+	if cmdConfig.Verbose {
 		fmt.Printf("📋 Monarch Walmart Transactions:\n")
 		for _, tx := range transactions {
 			fmt.Printf("   - $%.2f on %s", math.Abs(tx.Amount), tx.Date.Time.Format("2006-01-02"))
@@ -120,7 +126,7 @@ func main() {
 	split := splitter.NewSplitter(clients.categorizer, categories, strategy)
 
 	// Start sync run tracking
-	runID, _ := store.StartSyncRun(len(orders), config.DryRun, config.LookbackDays)
+	runID, _ := store.StartSyncRun(len(orders), cmdConfig.DryRun, cmdConfig.LookbackDays)
 
 	// Process orders
 	fmt.Println("🔄 Processing orders...")
@@ -130,13 +136,13 @@ func main() {
 	usedTransactionIDs := make(map[string]bool)
 
 	for i, order := range orders {
-		if config.MaxOrders > 0 && processedCount >= config.MaxOrders {
+		if cmdConfig.MaxOrders > 0 && processedCount >= cmdConfig.MaxOrders {
 			break
 		}
 
 		// Check if already processed
-		if !config.Force && store.IsProcessed(order.OrderID) {
-			if config.Verbose {
+		if !cmdConfig.Force && store.IsProcessed(order.OrderID) {
+			if cmdConfig.Verbose {
 				fmt.Printf("⏭️  Order %s already processed\n", order.OrderID)
 			}
 			skippedCount++
@@ -169,7 +175,7 @@ func main() {
 			fmt.Printf("  ❌ Matching error: %v\n", err)
 			record.Status = "error"
 			record.ErrorMessage = err.Error()
-			if !config.DryRun {
+			if !cmdConfig.DryRun {
 				store.SaveRecord(record)
 			}
 			continue
@@ -182,7 +188,7 @@ func main() {
 
 		if match == nil {
 			// Try using order ledger to find actual charges
-			if config.Verbose {
+			if cmdConfig.Verbose {
 				fmt.Printf("  🔍 No direct match found, checking order ledger...\n")
 			}
 
@@ -199,7 +205,7 @@ func main() {
 
 			if match == nil {
 				fmt.Printf("  ❌ No matching transaction found\n")
-				if config.Verbose {
+				if cmdConfig.Verbose {
 					// Show why no match found
 					fmt.Printf("     Expected: $%.2f ±$0.01\n", order.TotalAmount)
 					fmt.Printf("     Order date: %s (±3 days tolerance)\n", order.OrderDate.Format("2006-01-02"))
@@ -258,7 +264,7 @@ func main() {
 		fmt.Printf("     Order amount: $%.2f\n", order.TotalAmount)
 		
 		// Show item details if verbose
-		if config.Verbose && fullOrder != nil && len(fullOrder.Groups) > 0 {
+		if cmdConfig.Verbose && fullOrder != nil && len(fullOrder.Groups) > 0 {
 			fmt.Printf("     Items in order:\n")
 			for _, group := range fullOrder.Groups {
 				for _, item := range group.Items {
@@ -302,7 +308,7 @@ func main() {
 				}
 			}
 			fmt.Printf("       - %s: $%.2f", catName, math.Abs(s.Amount))
-			if s.Notes != "" && config.Verbose {
+			if s.Notes != "" && cmdConfig.Verbose {
 				fmt.Printf(" (%s)", s.Notes)
 			}
 			fmt.Println()
@@ -334,7 +340,7 @@ func main() {
 			record.SplitCount, strings.Join(categoryNames, ", "))
 
 		// Apply splits if not dry run
-		if !config.DryRun {
+		if !cmdConfig.DryRun {
 			err = clients.monarch.Transactions.UpdateSplits(ctx, match.ID, splitResult.Splits)
 			if err != nil {
 				fmt.Printf("  ❌ Failed to apply: %v\n", err)
@@ -395,15 +401,15 @@ func main() {
 }
 
 func parseFlags() Config {
-	config := Config{}
-	flag.BoolVar(&config.DryRun, "dry-run", true, "Run without making changes")
-	flag.IntVar(&config.LookbackDays, "days", 14, "Number of days to look back")
-	flag.StringVar(&config.DBPath, "db", "processing.db", "Database file path")
-	flag.BoolVar(&config.Verbose, "verbose", false, "Verbose output")
-	flag.BoolVar(&config.Force, "force", false, "Force reprocess")
-	flag.IntVar(&config.MaxOrders, "max", 0, "Maximum orders to process")
+	cmdConfig := Config{}
+	flag.BoolVar(&cmdConfig.DryRun, "dry-run", true, "Run without making changes")
+	flag.IntVar(&cmdConfig.LookbackDays, "days", 14, "Number of days to look back")
+	flag.StringVar(&cmdConfig.DBPath, "db", "processing.db", "Database file path")
+	flag.BoolVar(&cmdConfig.Verbose, "verbose", false, "Verbose output")
+	flag.BoolVar(&cmdConfig.Force, "force", false, "Force reprocess")
+	flag.IntVar(&cmdConfig.MaxOrders, "max", 0, "Maximum orders to process")
 	flag.Parse()
-	return config
+	return cmdConfig
 }
 
 // ClientSet holds all initialized clients
