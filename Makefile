@@ -229,5 +229,42 @@ version:
 	@echo "Git commit: $$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 	@echo "Build date: $$(date -u +%Y-%m-%d_%H:%M:%S)"
 
+## build-dashboard: Build React dashboard
+build-dashboard:
+	@echo "$(GREEN)Building React dashboard...$(NC)"
+	cd dashboard && npm run build
+
+## build-api: Build Go API server with embedded dashboard
+build-api: build-dashboard
+	@echo "$(GREEN)Building API server with embedded dashboard...$(NC)"
+	$(GOBUILD) -o bin/api-server cmd/api/main.go
+
+## build-sync: Build sync tools
+build-sync:
+	@echo "$(GREEN)Building sync tools...$(NC)"
+	$(GOBUILD) -o bin/sync cmd/sync/main.go
+	$(GOBUILD) -o bin/walmart-sync cmd/walmart-sync-with-db/main.go
+
+## run-api: Run API server in development mode
+run-api:
+	@echo "$(GREEN)Running API server...$(NC)"
+	ENV=development go run cmd/api/main.go
+
+## run-dashboard: Run dashboard development server
+run-dashboard:
+	@echo "$(GREEN)Running dashboard dev server...$(NC)"
+	cd dashboard && npm run dev
+
+## install-dashboard: Install dashboard dependencies
+install-dashboard:
+	@echo "$(GREEN)Installing dashboard dependencies...$(NC)"
+	cd dashboard && npm install
+
+## dev: Instructions for running development servers
+dev:
+	@echo "$(YELLOW)Starting development servers...$(NC)"
+	@echo "Run 'make run-api' in one terminal"
+	@echo "Run 'make run-dashboard' in another terminal"
+
 # Default target
 .DEFAULT_GOAL := help

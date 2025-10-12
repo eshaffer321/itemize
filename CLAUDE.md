@@ -1,7 +1,7 @@
-# Walmart-Monarch Money Sync Project
+# Monarch Money Sync Backend
 
 ## Project Vision
-Build a Chrome extension and Go backend that automatically syncs Walmart purchases with Monarch Money, intelligently categorizing and splitting transactions based on individual items purchased.
+A unified CLI application that automatically syncs purchases from multiple retailers (Walmart, Costco) with Monarch Money, intelligently categorizing and splitting transactions based on individual items purchased.
 
 ## Development Methodology: Test-Driven Development (TDD)
 
@@ -74,41 +74,62 @@ Transform single Walmart transactions in Monarch Money into properly categorized
 
 ## Architecture Overview
 ```
-Chrome Extension → Go Backend → LLM API → Monarch Money API
+CLI Application → Provider APIs → LLM API → Monarch Money API
      ↓                ↓            ↓            ↓
-Scrape Orders    Process      Categorize    Split & Update
-from Walmart      Orders        Items        Transactions
+Sync Orders      Process      Categorize    Split & Update
+from Retailers    Orders        Items        Transactions
+```
+
+## CLI Structure
+The application uses a unified CLI with subcommands:
+
+```bash
+monarch-sync <command> [options]
+
+# Provider-specific commands
+monarch-sync costco sync
+monarch-sync costco dry-run
+monarch-sync walmart sync
+
+# General commands  
+monarch-sync sync
+monarch-sync api
+monarch-sync audit
+monarch-sync consolidate
+monarch-sync enrich
 ```
 
 ## Phase 1: Basic Sync (MVP)
-**Goal**: Get Walmart order data and match with Monarch transactions
+**Goal**: Get retailer order data and match with Monarch transactions
 
-### Chrome Extension
-- [x] Fetch Walmart orders without requiring Walmart page open
-- [x] Parse order details (items, prices, dates)
-- [ ] Send data to Go backend
-- [ ] Show sync status in popup
+### CLI Application
+- [x] Unified CLI structure with subcommands
+- [x] Provider-specific commands (costco, walmart)
+- [x] General sync command for all providers
+- [x] Configuration management
+- [x] Database consolidation
 
-### Go Backend
-- [ ] Receive order data from extension
-- [ ] Use `github.com/eshaffer321/monarchmoney-go` SDK
-- [ ] Match Walmart orders with Monarch transactions by date/amount
-- [ ] Update transaction notes with item details
-- [ ] Basic authentication with extension
+### Provider Integration
+- [x] Costco provider with sync and dry-run modes
+- [x] Walmart provider integration
+- [x] Use `github.com/eshaffer321/monarchmoney-go` SDK
+- [x] Match orders with Monarch transactions by date/amount
+- [x] Update transaction notes with item details
 
 ### Deliverables
-- Working extension that fetches Walmart data
-- Go server that receives and logs data
+- Working CLI that syncs retailer data
+- Unified database for all processing history
 - Basic matching with Monarch transactions
+- Audit reporting and data consolidation
 
 ## Phase 2: Intelligent Categorization
-**Goal**: Use LLM to categorize Walmart items
+**Goal**: Use LLM to categorize retailer items
 
 ### Features
-- [ ] Integrate with OpenAI/Claude API for categorization
-- [ ] Fetch Monarch categories via SDK
-- [ ] Create mapping between Walmart items and Monarch categories
-- [ ] Cache categorization decisions for common items
+- [x] Integrate with OpenAI API for categorization
+- [x] Fetch Monarch categories via SDK
+- [x] Create mapping between retailer items and Monarch categories
+- [x] Cache categorization decisions for common items
 
 ### Example Flow
 1. Receive: "Great Value Milk 1 Gallon - $3.99"
@@ -116,13 +137,13 @@ from Walmart      Orders        Items        Transactions
 3. Cache: "Great Value Milk" → "Groceries" for future use
 
 ## Phase 3: Transaction Splitting
-**Goal**: Split single Walmart transactions into multiple categorized transactions
+**Goal**: Split single retailer transactions into multiple categorized transactions
 
 ### Features
-- [ ] Use Monarch SDK to split transactions
-- [ ] Group items by category
-- [ ] Create split transactions with proper categories
-- [ ] Maintain audit trail of original transaction
+- [x] Use Monarch SDK to split transactions
+- [x] Group items by category
+- [x] Create split transactions with proper categories
+- [x] Maintain audit trail of original transaction
 
 ### Example
 Original Transaction: Walmart - $150.00
@@ -150,16 +171,17 @@ Becomes:
 - No external dependencies
 
 ### Go Backend
-- **Framework**: Gin (`github.com/gin-gonic/gin`)
+- **Framework**: Unified CLI application
 - **Monarch SDK**: `github.com/eshaffer321/monarchmoney-go`
-- **LLM**: OpenAI Go SDK or Claude API
-- **Database**: PostgreSQL for caching/audit trail
-- **Cache**: Redis for category mappings
+- **LLM**: OpenAI Go SDK for categorization
+- **Database**: SQLite for processing history and audit trail
+- **Cache**: In-memory caching for category mappings
 
 ### APIs & Services
-- Walmart.com (scraping via extension)
+- Walmart.com (via provider client)
+- Costco.com (via provider client)
 - Monarch Money API (via SDK)
-- OpenAI/Claude API (for categorization)
+- OpenAI API (for categorization)
 
 ## Data Flow
 
@@ -285,33 +307,27 @@ REDIS_URL=redis://...
 ## Commands for Development
 
 ```bash
-# Extension
-cd extension/
-npm install  # If using build tools
-# Load unpacked extension in Chrome
+# Build the unified CLI
+go build -o monarch-sync ./cmd/monarch-sync/
 
-# Backend - TDD Workflow
-cd backend/
-go mod init walmart-monarch-sync
-go get github.com/gin-gonic/gin
-go get github.com/eshaffer321/monarchmoney-go
-go get github.com/stretchr/testify  # For better test assertions
+# Use the CLI
+./monarch-sync costco sync
+./monarch-sync costco dry-run
+./monarch-sync walmart sync
+./monarch-sync sync -config config.yaml
+./monarch-sync api
+./monarch-sync audit
+./monarch-sync consolidate
 
-# TDD Development Flow
+# Development workflow
 go test ./... -v              # Run all tests
-go test ./handlers -v          # Run specific package tests
-go test -run TestHealthCheck   # Run specific test
+go test ./internal/... -v     # Run specific package tests
+go test -run TestCostcoSync   # Run specific test
 go test ./... -cover          # Check test coverage
 go test ./... -race           # Check for race conditions
 
-# Run server (only after tests pass)
-go run main.go
-
-# Testing with curl
-curl -X POST http://localhost:8080/api/walmart/orders \
-  -H "Content-Type: application/json" \
-  -H "X-Extension-Key: secret" \
-  -d @sample-order.json
+# Run with config
+./monarch-sync sync -config config.yaml -verbose
 ```
 
 ## TDD Test Structure Example
@@ -345,13 +361,14 @@ func TestProcessWalmartOrder(t *testing.T) {
 
 ### Development Guidelines
 - Start with Phase 1 - get basic sync working
-- Extension is mostly complete, focus on Go backend
+- Focus on unified CLI application
 - Use the monarchmoney-go SDK for all Monarch interactions
 - Keep LLM integration simple initially (can be added later)
 - Prioritize working MVP over perfect architecture
-- Test with real Walmart data early and often
+- Test with real retailer data early and often
 - Maintain 80%+ test coverage
 - All tests must pass before committing code
+- Use single binary deployment model
 
 ### Session Handoff Protocol
 Before ending any session:
@@ -365,11 +382,11 @@ Before ending any session:
 4. Leave breadcrumbs for the next session
 
 ## Questions to Resolve
-1. Should we batch orders before sending to backend?
-2. How to handle partial matches (order split across multiple Monarch transactions)?
-3. Category mapping strategy - user-defined rules vs pure LLM?
-4. How to handle returns/refunds?
-5. Frequency of sync - real-time vs scheduled?
+1. How to handle partial matches (order split across multiple Monarch transactions)?
+2. Category mapping strategy - user-defined rules vs pure LLM?
+3. How to handle returns/refunds?
+4. Frequency of sync - real-time vs scheduled?
+5. Multi-provider sync coordination strategy?
 
 ---
 

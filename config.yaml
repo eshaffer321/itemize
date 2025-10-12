@@ -1,0 +1,48 @@
+# Monarch Money Sync Backend Configuration
+
+# Provider configurations
+providers:
+  walmart:
+    enabled: true
+    rate_limit: 2s
+    lookback_days: 14
+    max_orders: 0  # 0 = no limit
+    debug: false
+  
+  costco:
+    enabled: true
+    rate_limit: 2s
+    lookback_days: 14
+    max_orders: 0
+    debug: false
+    # Costco-specific settings (set via environment variables)
+    email: "${COSTCO_EMAIL}"
+    password: "${COSTCO_PASSWORD}"
+    warehouse_number: "${COSTCO_WAREHOUSE}"
+
+# Monarch Money API configuration
+monarch:
+  api_key: "${MONARCH_TOKEN}"
+
+# OpenAI configuration
+openai:
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-4o"
+
+# Storage configuration
+storage:
+  database_path: "monarch_sync.db"  # Consolidated database
+
+# Observability configuration
+observability:
+  logging:
+    level: "info"
+    format: "json"
+  
+  metrics:
+    enabled: true
+    port: 9090
+  
+  tracing:
+    enabled: false
+    endpoint: "localhost:4317"

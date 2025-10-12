@@ -37,7 +37,7 @@ func main() {
 
 	fmt.Println("🛒 Costco → Monarch Money Sync")
 	fmt.Println("=" + strings.Repeat("=", 50))
-	
+
 	if config.DryRun {
 		fmt.Println("🔍 DRY RUN MODE - No changes will be made")
 	} else {
@@ -61,7 +61,12 @@ func main() {
 	}
 
 	// Initialize storage
-	store, err := storage.NewStorage("costco_sync.db")
+	// Use config for database path, fallback to default
+	dbPath := cfg.Storage.DatabasePath
+	if dbPath == "" {
+		dbPath = "costco_sync.db"
+	}
+	store, err := storage.NewStorage(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
@@ -243,7 +248,7 @@ func main() {
 		}
 
 		fmt.Printf("      Created %d splits\n", len(splits))
-		
+
 		// Show category breakdown
 		categoryTotals := make(map[string]float64)
 		for _, s := range splits {
@@ -254,7 +259,7 @@ func main() {
 				}
 			}
 		}
-		
+
 		for category, total := range categoryTotals {
 			fmt.Printf("      - %s: $%.2f\n", category, total)
 		}
@@ -313,7 +318,7 @@ func main() {
 	fmt.Printf("   Processed: %d\n", processedCount)
 	fmt.Printf("   Skipped:   %d\n", skippedCount)
 	fmt.Printf("   Errors:    %d\n", errorCount)
-	
+
 	// Get stats from database
 	stats, _ := store.GetStats()
 	if stats != nil && stats.TotalProcessed > 0 {
@@ -393,7 +398,7 @@ func createSplits(
 	catCategories []categorizer.Category,
 	monarchCategories []*monarch.TransactionCategory,
 ) ([]*monarch.TransactionSplit, error) {
-	
+
 	// Convert items for categorization
 	items := make([]categorizer.Item, len(order.GetItems()))
 	for i, orderItem := range order.GetItems() {
@@ -413,7 +418,7 @@ func createSplits(
 	// Group items by category
 	categoryGroups := make(map[string][]categorizer.Item)
 	categoryIDs := make(map[string]string)
-	
+
 	// Map categorizations back to items
 	for i, cat := range result.Categorizations {
 		if i < len(items) {
@@ -432,14 +437,14 @@ func createSplits(
 
 	// Create splits
 	var splits []*monarch.TransactionSplit
-	
+
 	// If there's only one category, we need to create at least 2 splits for Monarch
 	if len(categoryGroups) == 1 {
 		for categoryName, items := range categoryGroups {
 			// Calculate total for this category
 			categorySubtotal := 0.0
 			itemDetails := []string{}
-			
+
 			for _, item := range items {
 				categorySubtotal += item.Price
 				// Include quantity if more than 1
@@ -449,32 +454,32 @@ func createSplits(
 					itemDetails = append(itemDetails, item.Name)
 				}
 			}
-			
+
 			// Add proportional tax
 			categoryTax := categorySubtotal * taxRate
 			categoryTotal := categorySubtotal + categoryTax
-			
+
 			// Monarch shows purchases as negative
 			if order.GetTotal() > 0 {
 				categoryTotal = -categoryTotal
 			}
-			
+
 			// Split into main and tax portions to have 2 splits
 			mainAmount := categorySubtotal
 			taxAmount := categoryTax
-			
+
 			if order.GetTotal() > 0 {
 				mainAmount = -mainAmount
 				taxAmount = -taxAmount
 			}
-			
+
 			// Main split
 			splits = append(splits, &monarch.TransactionSplit{
 				Amount:     mainAmount,
 				CategoryID: categoryIDs[categoryName],
 				Notes:      fmt.Sprintf("%s: %s", categoryName, strings.Join(itemDetails, ", ")),
 			})
-			
+
 			// Tax split (use same category)
 			if math.Abs(taxAmount) > 0.01 {
 				splits = append(splits, &monarch.TransactionSplit{
@@ -504,7 +509,7 @@ func createSplits(
 			// Calculate total for this category
 			categorySubtotal := 0.0
 			itemDetails := []string{}
-			
+
 			for _, item := range items {
 				categorySubtotal += item.Price
 				// Include quantity if more than 1
@@ -514,11 +519,11 @@ func createSplits(
 					itemDetails = append(itemDetails, item.Name)
 				}
 			}
-			
+
 			// Add proportional tax
 			categoryTax := categorySubtotal * taxRate
 			categoryTotal := categorySubtotal + categoryTax
-			
+
 			// Monarch shows purchases as negative (money leaving account)
 			// and returns as positive (money coming back)
 			if order.GetTotal() > 0 {
@@ -526,7 +531,7 @@ func createSplits(
 				categoryTotal = -categoryTotal
 			}
 			// For returns (order.GetTotal() < 0), keep positive
-			
+
 			// Create split with detailed notes
 			noteContent := strings.Join(itemDetails, ", ")
 			// Add item count if there are many items
@@ -538,7 +543,7 @@ func createSplits(
 				CategoryID: categoryIDs[categoryName],
 				Notes:      fmt.Sprintf("%s: %s", categoryName, noteContent),
 			}
-			
+
 			splits = append(splits, split)
 		}
 	}
@@ -548,7 +553,7 @@ func createSplits(
 	for _, s := range splits {
 		totalSplits += s.Amount
 	}
-	
+
 	diff := transaction.Amount - totalSplits
 	if math.Abs(diff) > 0.01 && len(splits) > 0 {
 		// Add difference to largest split
