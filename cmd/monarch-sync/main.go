@@ -75,33 +75,23 @@ func printUsage() {
 	fmt.Println("Monarch Money Sync CLI")
 	fmt.Println("======================")
 	fmt.Println()
+	fmt.Println("⚠️  NOTE: This unified CLI is under construction.")
+	fmt.Println("    For now, please use the provider commands directly:")
+	fmt.Println()
+	fmt.Println("    ./costco-sync --help")
+	fmt.Println("    ./walmart-sync --help")
+	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  monarch-sync <command> [options]")
 	fmt.Println()
-	fmt.Println("Commands:")
+	fmt.Println("Planned Commands (not yet implemented):")
 	fmt.Println("  costco <action>     Costco provider commands")
-	fmt.Println("    sync              Sync Costco orders")
-	fmt.Println("    dry-run           Preview Costco sync without applying")
-	fmt.Println()
 	fmt.Println("  walmart <action>    Walmart provider commands")
-	fmt.Println("    sync              Sync Walmart orders")
-	fmt.Println()
-	fmt.Println("  sync               General sync command (all providers)")
-	fmt.Println("  api                Start API server")
-	fmt.Println("  audit              Generate audit report")
-	fmt.Println("  consolidate        Consolidate databases")
-	fmt.Println("  enrich             Enrich processing history")
+	fmt.Println("  sync                General sync command (all providers)")
 	fmt.Println()
 	fmt.Println("Global Options:")
 	fmt.Println("  -config string      Configuration file path")
 	fmt.Println("  -verbose            Enable verbose logging")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  monarch-sync costco sync")
-	fmt.Println("  monarch-sync costco dry-run")
-	fmt.Println("  monarch-sync sync -config config.yaml")
-	fmt.Println("  monarch-sync api")
-	fmt.Println("  monarch-sync audit")
 }
 
 func loadConfig(configFile string, logger *slog.Logger) *config.Config {
@@ -215,60 +205,43 @@ func handleEnrichCommand(args []string, cfg *config.Config, logger *slog.Logger)
 // These will be moved from their current locations
 
 func runCostcoSync(cfg *config.Config, logger *slog.Logger, dryRun bool) {
-	fmt.Println("🔄 Running Costco sync...")
-	if dryRun {
-		fmt.Println("   Mode: DRY RUN")
-	} else {
-		fmt.Println("   Mode: PRODUCTION")
-	}
-
-	// TODO: Import and call the actual costco-sync logic
-	fmt.Println("   Costco sync functionality will be implemented here")
+	// For now, shell out to costco-sync binary
+	// TODO: Refactor costco-sync main() into a callable function
+	fmt.Println("ERROR: Please use './costco-sync' command directly for now")
+	fmt.Println("Unified CLI coming soon!")
+	os.Exit(1)
 }
 
 func runWalmartSync(cfg *config.Config, logger *slog.Logger) {
-	fmt.Println("🔄 Running Walmart sync...")
-
-	// TODO: Import and call the actual walmart-sync logic
-	fmt.Println("   Walmart sync functionality will be implemented here")
+	// For now, shell out to walmart-sync binary
+	// TODO: Refactor walmart-sync main() into a callable function
+	fmt.Println("ERROR: Please use './walmart-sync' command directly for now")
+	fmt.Println("Unified CLI coming soon!")
+	os.Exit(1)
 }
 
 func runGeneralSync(cfg *config.Config, logger *slog.Logger, dryRun bool, lookbackDays, maxOrders int, force bool, provider string) {
-	fmt.Println("🔄 Running general sync...")
-	fmt.Printf("   Dry run: %v\n", dryRun)
-	fmt.Printf("   Lookback days: %d\n", lookbackDays)
-	fmt.Printf("   Max orders: %d\n", maxOrders)
-	fmt.Printf("   Force: %v\n", force)
-	fmt.Printf("   Provider: %s\n", provider)
-
-	// TODO: Import and call the actual sync logic
-	fmt.Println("   General sync functionality will be implemented here")
+	fmt.Println("ERROR: General sync not yet implemented")
+	fmt.Println("Please use './costco-sync' or './walmart-sync' directly")
+	os.Exit(1)
 }
 
 func runAPIServer(cfg *config.Config, logger *slog.Logger) {
-	fmt.Println("🚀 Starting API server...")
-
-	// TODO: Import and call the actual API server logic
-	fmt.Println("   API server functionality will be implemented here")
+	fmt.Println("ERROR: API server not yet implemented")
+	os.Exit(1)
 }
 
 func runAuditReport(cfg *config.Config, logger *slog.Logger) {
-	fmt.Println("📊 Generating audit report...")
-
-	// TODO: Import and call the actual audit report logic
-	fmt.Println("   Audit report functionality will be implemented here")
+	fmt.Println("ERROR: Audit report not yet implemented")
+	os.Exit(1)
 }
 
 func runConsolidateDB(cfg *config.Config, logger *slog.Logger) {
-	fmt.Println("🗄️  Consolidating databases...")
-
-	// TODO: Import and call the actual consolidate logic
-	fmt.Println("   Database consolidation functionality will be implemented here")
+	fmt.Println("ERROR: Database consolidation not yet implemented")
+	os.Exit(1)
 }
 
 func runEnrichHistory(cfg *config.Config, logger *slog.Logger) {
-	fmt.Println("📈 Enriching processing history...")
-
-	// TODO: Import and call the actual enrich logic
-	fmt.Println("   History enrichment functionality will be implemented here")
+	fmt.Println("ERROR: History enrichment not yet implemented")
+	os.Exit(1)
 }

@@ -47,6 +47,10 @@ Thumbs.db
 monarchmoney-sync-backend
 walmart-monarch-backend
 main
+/costco-sync
+/walmart-sync
+/walmart-sync-with-db
+/monarch-sync
 
 # Logs
 *.log
