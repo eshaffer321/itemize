@@ -1,6 +1,6 @@
 # Variables
-BINARY_NAME=monarchmoney-sync-backend
-DOCKER_IMAGE=walmart-monarch-sync
+BINARY_NAME=monarch-sync
+DOCKER_IMAGE=monarch-sync
 GO_FILES=$(shell find . -name '*.go' -type f -not -path "./vendor/*")
 COVERAGE_FILE=coverage.out
 COVERAGE_HTML=coverage.html
@@ -31,10 +31,10 @@ help:
 ## all: Run tests, lint, and build
 all: check test build
 
-## build: Build the binary
+## build: Build the unified CLI binary
 build:
 	@echo "$(GREEN)Building $(BINARY_NAME)...$(NC)"
-	$(GOBUILD) -v -o $(BINARY_NAME) .
+	$(GOBUILD) -v -o $(BINARY_NAME) ./cmd/monarch-sync
 	@echo "$(GREEN)Build complete!$(NC)"
 
 ## clean: Remove build artifacts and temporary files
@@ -149,10 +149,20 @@ security:
 		echo "$(YELLOW)nancy not installed, skipping vulnerability scan...$(NC)"; \
 	fi
 
-## run: Run the application
+## run: Run the unified CLI (shows usage)
 run:
 	@echo "$(GREEN)Running $(BINARY_NAME)...$(NC)"
-	$(GOCMD) run main.go
+	$(GOCMD) run ./cmd/monarch-sync
+
+## run-costco: Run Costco sync in dry-run mode
+run-costco:
+	@echo "$(GREEN)Running Costco sync (dry-run)...$(NC)"
+	$(GOCMD) run ./cmd/monarch-sync costco -dry-run -verbose
+
+## run-costco-prod: Run Costco sync in production mode
+run-costco-prod:
+	@echo "$(RED)Running Costco sync (PRODUCTION MODE)...$(NC)"
+	$(GOCMD) run ./cmd/monarch-sync costco -verbose
 
 ## run-watch: Run with file watching (requires air)
 run-watch:
@@ -239,11 +249,10 @@ build-api: build-dashboard
 	@echo "$(GREEN)Building API server with embedded dashboard...$(NC)"
 	$(GOBUILD) -o bin/api-server cmd/api/main.go
 
-## build-sync: Build sync tools
+## build-sync: Build unified sync CLI
 build-sync:
-	@echo "$(GREEN)Building sync tools...$(NC)"
-	$(GOBUILD) -o bin/sync cmd/sync/main.go
-	$(GOBUILD) -o bin/walmart-sync cmd/walmart-sync-with-db/main.go
+	@echo "$(GREEN)Building unified sync CLI...$(NC)"
+	$(GOBUILD) -o bin/monarch-sync ./cmd/monarch-sync
 
 ## run-api: Run API server in development mode
 run-api:
