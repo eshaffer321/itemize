@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -338,4 +339,125 @@ func TestOrchestrator_Integration(t *testing.T) {
 	// - Real storage (test database)
 	// - Mock HTTP clients for APIs
 	// - Full flow from fetch to split
+}
+
+// MockMonarchClient is a mock for testing
+type MockMonarchClient struct {
+	mock.Mock
+}
+
+// MockTransactionsService is a mock for testing
+type MockTransactionsService struct {
+	mock.Mock
+}
+
+// MockTransactionQuery is a mock for testing
+type MockTransactionQuery struct {
+	mock.Mock
+}
+
+func (m *MockTransactionQuery) Between(start, end time.Time) *MockTransactionQuery {
+	m.Called(start, end)
+	return m
+}
+
+func (m *MockTransactionQuery) Limit(limit int) *MockTransactionQuery {
+	m.Called(limit)
+	return m
+}
+
+func (m *MockTransactionQuery) Execute(ctx context.Context) (*monarch.TransactionList, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*monarch.TransactionList), args.Error(1)
+}
+
+// TestOrchestrator_fetchOrders tests the order fetching functionality
+func TestOrchestrator_fetchOrders(t *testing.T) {
+	tests := []struct {
+		name          string
+		opts          Options
+		mockOrders    []providers.Order
+		mockErr       error
+		expectErr     bool
+		expectOrders  int
+		expectStartDays int
+	}{
+		{
+			name: "successful fetch with default lookback",
+			opts: Options{
+				LookbackDays: 7,
+				MaxOrders:    10,
+			},
+			mockOrders: []providers.Order{
+				&MockOrder{},
+			},
+			mockErr:      nil,
+			expectErr:    false,
+			expectOrders: 1,
+			expectStartDays: 7,
+		},
+		{
+			name: "successful fetch with 30 day lookback",
+			opts: Options{
+				LookbackDays: 30,
+				MaxOrders:    0,
+			},
+			mockOrders: []providers.Order{
+				&MockOrder{},
+				&MockOrder{},
+			},
+			mockErr:      nil,
+			expectErr:    false,
+			expectOrders: 2,
+			expectStartDays: 30,
+		},
+		{
+			name: "fetch returns error",
+			opts: Options{
+				LookbackDays: 7,
+			},
+			mockOrders:   nil,
+			mockErr:      errors.New("provider error"),
+			expectErr:    true,
+			expectOrders: 0,
+		},
+		{
+			name: "fetch returns empty orders",
+			opts: Options{
+				LookbackDays: 7,
+			},
+			mockOrders:   []providers.Order{},
+			mockErr:      nil,
+			expectErr:    false,
+			expectOrders: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			mockProvider := new(MockProvider)
+			mockProvider.On("FetchOrders", mock.Anything, mock.Anything).Return(tt.mockOrders, tt.mockErr)
+
+			logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+			orchestrator := NewOrchestrator(mockProvider, nil, nil, logger)
+
+			// Act
+			orders, err := orchestrator.fetchOrders(context.Background(), tt.opts)
+
+			// Assert
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.Nil(t, orders)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, orders)
+				assert.Len(t, orders, tt.expectOrders)
+			}
+			mockProvider.AssertExpectations(t)
+		})
+	}
 }
