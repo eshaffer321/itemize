@@ -14,24 +14,8 @@ import (
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/storage"
 )
 
-// Run executes the sync process for the configured provider
-func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
-	result := &Result{
-		Errors: make([]error, 0),
-	}
-
-	// Log configuration
-	if opts.Verbose {
-		o.logger.Info("Starting sync",
-			"provider", o.provider.DisplayName(),
-			"lookback_days", opts.LookbackDays,
-			"max_orders", opts.MaxOrders,
-			"dry_run", opts.DryRun,
-			"force", opts.Force,
-		)
-	}
-
-	// 1. Fetch orders from provider
+// fetchOrders fetches orders from the provider based on the given options
+func (o *Orchestrator) fetchOrders(ctx context.Context, opts Options) ([]providers.Order, error) {
 	endDate := time.Now()
 	startDate := endDate.AddDate(0, 0, -opts.LookbackDays)
 
@@ -56,6 +40,190 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		o.logger.Info("Fetched orders", "count", len(orders))
 	}
 
+	return orders, nil
+}
+
+// processOrder processes a single order, matching it to a transaction and creating splits
+// Returns (processed, skipped, error)
+func (o *Orchestrator) processOrder(
+	ctx context.Context,
+	order providers.Order,
+	providerTransactions []*monarch.Transaction,
+	usedTransactionIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	opts Options,
+) (bool, bool, error) {
+	if opts.Verbose {
+		o.logger.Info("Processing order",
+			"order_id", order.GetID(),
+			"order_date", order.GetDate().Format("2006-01-02"),
+			"order_total", order.GetTotal(),
+			"item_count", len(order.GetItems()),
+		)
+	}
+
+	// Check if already processed
+	if !opts.Force && o.storage != nil && o.storage.IsProcessed(order.GetID()) {
+		if opts.Verbose {
+			o.logger.Info("Skipping already processed order", "order_id", order.GetID())
+		}
+		return false, true, nil
+	}
+
+	// Match transaction
+	matcherConfig := matcher.Config{
+		AmountTolerance: 0.01,
+		DateTolerance:   5,
+	}
+	transactionMatcher := matcher.NewMatcher(matcherConfig)
+
+	matchResult, err := transactionMatcher.FindMatch(order, providerTransactions, usedTransactionIDs)
+	if err != nil {
+		o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
+		o.recordError(order, err.Error())
+		return false, false, fmt.Errorf("matching error: %w", err)
+	}
+
+	var match *monarch.Transaction
+	var daysDiff float64
+	if matchResult != nil {
+		match = matchResult.Transaction
+		daysDiff = matchResult.DateDiff
+	}
+
+	if match == nil {
+		o.logger.Warn("No matching transaction found", "order_id", order.GetID())
+		o.recordError(order, "No matching transaction")
+		return false, false, fmt.Errorf("no matching transaction")
+	}
+
+	if opts.Verbose {
+		o.logger.Info("Matched transaction",
+			"order_id", order.GetID(),
+			"transaction_id", match.ID,
+			"amount", math.Abs(match.Amount),
+			"date_diff_days", daysDiff,
+		)
+	}
+
+	// Mark transaction as used
+	usedTransactionIDs[match.ID] = true
+
+	// Check if already has splits
+	if match.HasSplits {
+		if opts.Verbose {
+			o.logger.Info("Transaction already has splits", "transaction_id", match.ID)
+		}
+		return false, true, nil
+	}
+
+	// Create splits
+	if opts.Verbose {
+		o.logger.Info("Creating splits",
+			"order_id", order.GetID(),
+			"transaction_amount", match.Amount,
+			"order_subtotal", order.GetSubtotal(),
+			"order_tax", order.GetTax(),
+		)
+	}
+
+	splits, err := o.createSplits(ctx, order, match, catCategories, monarchCategories)
+	if err != nil {
+		o.logger.Error("Failed to create splits", "order_id", order.GetID(), "error", err)
+		o.recordError(order, err.Error())
+		return false, false, fmt.Errorf("failed to create splits: %w", err)
+	}
+
+	if opts.Verbose {
+		o.logger.Info("Created splits", "order_id", order.GetID(), "split_count", len(splits))
+	}
+
+	// Apply splits if not dry run
+	if !opts.DryRun {
+		if opts.Verbose {
+			o.logger.Info("Applying splits to Monarch", "transaction_id", match.ID)
+		}
+		err = o.clients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splits)
+		if err != nil {
+			o.logger.Error("Failed to apply splits", "order_id", order.GetID(), "error", err)
+			o.recordError(order, err.Error())
+			return false, false, fmt.Errorf("failed to apply splits: %w", err)
+		}
+		if opts.Verbose {
+			o.logger.Info("Successfully applied splits", "order_id", order.GetID())
+		}
+	} else {
+		if opts.Verbose {
+			o.logger.Info("[DRY RUN] Would apply splits", "order_id", order.GetID(), "split_count", len(splits))
+		}
+	}
+
+	// Record success
+	o.recordSuccess(order, match, splits, daysDiff, opts.DryRun)
+	return true, false, nil
+}
+
+// recordError records a processing error to storage
+func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
+	if o.storage != nil {
+		record := &storage.ProcessingRecord{
+			OrderID:      order.GetID(),
+			OrderDate:    order.GetDate(),
+			OrderAmount:  order.GetTotal(),
+			ItemCount:    len(order.GetItems()),
+			ProcessedAt:  time.Now(),
+			Status:       "failed",
+			ErrorMessage: errorMsg,
+		}
+		o.storage.SaveRecord(record)
+	}
+}
+
+// recordSuccess records a successful processing to storage
+func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch.Transaction, splits []*monarch.TransactionSplit, confidence float64, dryRun bool) {
+	if o.storage != nil {
+		record := &storage.ProcessingRecord{
+			OrderID:         order.GetID(),
+			TransactionID:   transaction.ID,
+			OrderDate:       order.GetDate(),
+			OrderAmount:     order.GetTotal(),
+			ItemCount:       len(order.GetItems()),
+			SplitCount:      len(splits),
+			ProcessedAt:     time.Now(),
+			Status:          "success",
+			MatchConfidence: confidence,
+		}
+		if dryRun {
+			record.Status = "dry-run"
+		}
+		o.storage.SaveRecord(record)
+	}
+}
+
+// Run executes the sync process for the configured provider
+func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
+	result := &Result{
+		Errors: make([]error, 0),
+	}
+
+	// Log configuration
+	if opts.Verbose {
+		o.logger.Info("Starting sync",
+			"provider", o.provider.DisplayName(),
+			"lookback_days", opts.LookbackDays,
+			"max_orders", opts.MaxOrders,
+			"dry_run", opts.DryRun,
+			"force", opts.Force,
+		)
+	}
+
+	// 1. Fetch orders from provider
+	orders, err := o.fetchOrders(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
 	// 2. Fetch Monarch transactions
 	// If no clients configured, return early (testing mode)
 	if o.clients == nil {
@@ -65,6 +233,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	if opts.Verbose {
 		o.logger.Info("Fetching Monarch transactions")
 	}
+
+	endDate := time.Now()
+	startDate := endDate.AddDate(0, 0, -opts.LookbackDays)
 
 	txList, err := o.clients.Monarch.Transactions.Query().
 		Between(startDate.AddDate(0, 0, -7), endDate). // Add buffer for date matching
@@ -131,182 +302,22 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 			o.logger.Info("Processing order",
 				"index", i+1,
 				"total", len(orders),
-				"order_id", order.GetID(),
-				"order_date", order.GetDate().Format("2006-01-02"),
-				"order_total", order.GetTotal(),
-				"item_count", len(order.GetItems()),
 			)
 		}
 
-		// Check if already processed
-		if !opts.Force && o.storage != nil && o.storage.IsProcessed(order.GetID()) {
-			if opts.Verbose {
-				o.logger.Info("Skipping already processed order", "order_id", order.GetID())
-			}
-			result.SkippedCount++
-			continue
-		}
-
-		// Match transaction
-		matcherConfig := matcher.Config{
-			AmountTolerance: 0.01,
-			DateTolerance:   5, // 5 days tolerance
-		}
-		transactionMatcher := matcher.NewMatcher(matcherConfig)
-
-		matchResult, err := transactionMatcher.FindMatch(order, providerTransactions, usedTransactionIDs)
+		processed, skipped, err := o.processOrder(ctx, order, providerTransactions, usedTransactionIDs, catCategories, categories, opts)
 		if err != nil {
-			o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
-			if o.storage != nil {
-				record := &storage.ProcessingRecord{
-					OrderID:      order.GetID(),
-					OrderDate:    order.GetDate(),
-					OrderAmount:  order.GetTotal(),
-					ItemCount:    len(order.GetItems()),
-					ProcessedAt:  time.Now(),
-					Status:       "error",
-					ErrorMessage: err.Error(),
-				}
-				o.storage.SaveRecord(record)
-			}
 			result.ErrorCount++
 			result.Errors = append(result.Errors, fmt.Errorf("order %s: %w", order.GetID(), err))
 			continue
 		}
 
-		var match *monarch.Transaction
-		var daysDiff float64
-		if matchResult != nil {
-			match = matchResult.Transaction
-			daysDiff = matchResult.DateDiff
+		if processed {
+			result.ProcessedCount++
 		}
-
-		if match == nil {
-			o.logger.Warn("No matching transaction found", "order_id", order.GetID())
-			if o.storage != nil {
-				record := &storage.ProcessingRecord{
-					OrderID:      order.GetID(),
-					OrderDate:    order.GetDate(),
-					OrderAmount:  order.GetTotal(),
-					ItemCount:    len(order.GetItems()),
-					ProcessedAt:  time.Now(),
-					Status:       "failed",
-					ErrorMessage: "No matching transaction",
-				}
-				o.storage.SaveRecord(record)
-			}
-			result.ErrorCount++
-			result.Errors = append(result.Errors, fmt.Errorf("order %s: no matching transaction", order.GetID()))
-			continue
-		}
-
-		if opts.Verbose {
-			o.logger.Info("Matched transaction",
-				"order_id", order.GetID(),
-				"transaction_id", match.ID,
-				"amount", math.Abs(match.Amount),
-				"date_diff_days", daysDiff,
-			)
-		}
-
-		// Mark transaction as used
-		usedTransactionIDs[match.ID] = true
-
-		// Check if already has splits
-		if match.HasSplits {
-			if opts.Verbose {
-				o.logger.Info("Transaction already has splits", "transaction_id", match.ID)
-			}
+		if skipped {
 			result.SkippedCount++
-			continue
 		}
-
-		// Create splits
-		if opts.Verbose {
-			o.logger.Info("Creating splits",
-				"order_id", order.GetID(),
-				"transaction_amount", match.Amount,
-				"order_subtotal", order.GetSubtotal(),
-				"order_tax", order.GetTax(),
-			)
-		}
-
-		splits, err := o.createSplits(ctx, order, match, catCategories, categories)
-		if err != nil {
-			o.logger.Error("Failed to create splits", "order_id", order.GetID(), "error", err)
-			if o.storage != nil {
-				record := &storage.ProcessingRecord{
-					OrderID:      order.GetID(),
-					OrderDate:    order.GetDate(),
-					OrderAmount:  order.GetTotal(),
-					ItemCount:    len(order.GetItems()),
-					ProcessedAt:  time.Now(),
-					Status:       "failed",
-					ErrorMessage: err.Error(),
-				}
-				o.storage.SaveRecord(record)
-			}
-			result.ErrorCount++
-			result.Errors = append(result.Errors, fmt.Errorf("order %s: failed to split: %w", order.GetID(), err))
-			continue
-		}
-
-		if opts.Verbose {
-			o.logger.Info("Created splits", "order_id", order.GetID(), "split_count", len(splits))
-		}
-
-		// Apply splits if not dry run
-		if !opts.DryRun {
-			if opts.Verbose {
-				o.logger.Info("Applying splits to Monarch", "transaction_id", match.ID)
-			}
-			err = o.clients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splits)
-			if err != nil {
-				o.logger.Error("Failed to apply splits", "order_id", order.GetID(), "error", err)
-				if o.storage != nil {
-					record := &storage.ProcessingRecord{
-						OrderID:      order.GetID(),
-						OrderDate:    order.GetDate(),
-						OrderAmount:  order.GetTotal(),
-						ItemCount:    len(order.GetItems()),
-						ProcessedAt:  time.Now(),
-						Status:       "failed",
-						ErrorMessage: err.Error(),
-					}
-					o.storage.SaveRecord(record)
-				}
-				result.ErrorCount++
-				result.Errors = append(result.Errors, fmt.Errorf("order %s: failed to apply splits: %w", order.GetID(), err))
-				continue
-			}
-			if opts.Verbose {
-				o.logger.Info("Successfully applied splits", "order_id", order.GetID())
-			}
-		} else {
-			if opts.Verbose {
-				o.logger.Info("[DRY RUN] Would apply splits", "order_id", order.GetID(), "split_count", len(splits))
-			}
-		}
-
-		// Record success
-		if o.storage != nil {
-			record := &storage.ProcessingRecord{
-				OrderID:         order.GetID(),
-				TransactionID:   match.ID,
-				OrderDate:       order.GetDate(),
-				OrderAmount:     order.GetTotal(),
-				ItemCount:       len(order.GetItems()),
-				SplitCount:      len(splits),
-				ProcessedAt:     time.Now(),
-				Status:          "success",
-				MatchConfidence: daysDiff,
-			}
-			if opts.DryRun {
-				record.Status = "dry-run"
-			}
-			o.storage.SaveRecord(record)
-		}
-		result.ProcessedCount++
 	}
 
 	// Complete sync run
