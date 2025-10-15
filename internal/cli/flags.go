@@ -3,7 +3,7 @@ package cli
 import (
 	"flag"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/sync"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
 )
 
 // SyncFlags are common flags for all sync commands

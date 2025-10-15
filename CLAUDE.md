@@ -304,30 +304,57 @@ REDIS_URL=redis://...
 - Phase 3: Split transactions with 95% accuracy
 - Phase 4: Reduce manual categorization by 80%
 
+## Project Architecture (Refactored October 2024)
+
+The project follows a **layered architecture** with clear separation of concerns:
+
+```
+internal/
+├── application/         # Workflow orchestration
+│   └── sync/           # Main sync orchestrator
+├── domain/             # Business logic (pure functions)
+│   ├── categorizer/    # AI-powered categorization
+│   ├── matcher/        # Transaction matching
+│   └── splitter/       # Transaction splitting
+├── adapters/           # External system integrations
+│   ├── providers/      # Retailer APIs (Costco, Walmart)
+│   └── clients/        # API clients (Monarch, OpenAI)
+├── infrastructure/     # Technical foundations
+│   ├── config/         # Configuration management
+│   ├── storage/        # SQLite persistence
+│   └── logging/        # Structured logging
+└── cli/                # Command-line interface
+```
+
+**Dependency Flow:**
+```
+CLI → Application → Domain (pure logic)
+          ↓
+      Adapters → Infrastructure
+```
+
 ## Commands for Development
 
 ```bash
 # Build the unified CLI
 go build -o monarch-sync ./cmd/monarch-sync/
 
-# Use the CLI
-./monarch-sync costco sync
-./monarch-sync costco dry-run
-./monarch-sync walmart sync
-./monarch-sync sync -config config.yaml
-./monarch-sync api
-./monarch-sync audit
-./monarch-sync consolidate
+# Use the CLI (current commands)
+./monarch-sync costco -dry-run -days 14 -verbose
+./monarch-sync walmart -dry-run -days 14 -verbose
+./monarch-sync costco -days 14 -max 10    # Apply changes
+./monarch-sync walmart -force              # Reprocess all orders
 
 # Development workflow
-go test ./... -v              # Run all tests
-go test ./internal/... -v     # Run specific package tests
-go test -run TestCostcoSync   # Run specific test
-go test ./... -cover          # Check test coverage
-go test ./... -race           # Check for race conditions
+go test ./... -v                         # Run all tests
+go test ./internal/domain/... -v         # Test domain logic
+go test ./internal/adapters/... -v       # Test adapters
+go test -run TestCostcoProvider          # Run specific test
+go test ./... -cover                     # Check test coverage
+go test ./... -race                      # Check for race conditions
 
-# Run with config
-./monarch-sync sync -config config.yaml -verbose
+# Run with custom config
+./monarch-sync costco -config custom-config.yaml -verbose
 ```
 
 ## TDD Test Structure Example

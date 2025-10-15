@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/storage"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/sync"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
 )
 
 // PrintHeader prints the application header
@@ -50,11 +50,15 @@ func PrintSyncSummary(result *sync.Result, store *storage.Storage, dryRun bool) 
 	if store != nil {
 		stats, _ := store.GetStats()
 		if stats != nil && stats.TotalProcessed > 0 {
+			successRate := 0.0
+			if stats.TotalProcessed > 0 {
+				successRate = float64(stats.SuccessCount) / float64(stats.TotalProcessed) * 100
+			}
 			fmt.Printf("\n📈 ALL TIME STATS\n")
 			fmt.Printf("   Total Orders: %d\n", stats.TotalProcessed)
 			fmt.Printf("   Total Splits: %d\n", stats.TotalSplits)
 			fmt.Printf("   Total Amount: $%.2f\n", stats.TotalAmount)
-			fmt.Printf("   Success Rate: %.1f%%\n", stats.SuccessRate)
+			fmt.Printf("   Success Rate: %.1f%%\n", successRate)
 		}
 	}
 

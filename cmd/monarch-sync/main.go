@@ -6,13 +6,13 @@ import (
 	"log"
 	"os"
 
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/cli"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/clients"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/observability"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/storage"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/sync"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 )
 
 func main() {
@@ -43,7 +43,7 @@ func main() {
 	}
 	defer store.Close()
 
-	logger := observability.NewLogger(cfg.Observability.Logging)
+	logger := logging.NewLogger(cfg.Observability.Logging)
 	ctx := context.Background()
 
 	// Create provider based on subcommand
