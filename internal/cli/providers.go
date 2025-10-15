@@ -9,10 +9,10 @@ import (
 
 	costcogo "github.com/costco-go/pkg/costco"
 	walmartclient "github.com/eshaffer321/walmart-client"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers/costco"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/providers/walmart"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/costco"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/walmart"
 )
 
 // NewCostcoProvider creates a new Costco provider
