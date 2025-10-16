@@ -180,6 +180,25 @@ func (o *Orchestrator) processOrder(
 	// Handle multi-category (create splits)
 	if opts.Verbose {
 		o.logger.Info("Multiple categories detected - creating splits", "order_id", order.GetID(), "split_count", len(splits))
+
+		// Log detailed split information
+		for i, split := range splits {
+			// Extract category name from notes (format: "CategoryName: items...")
+			categoryName := ""
+			if split.Category != nil {
+				categoryName = split.Category.Name
+			} else if colonIdx := strings.Index(split.Notes, ":"); colonIdx > 0 {
+				categoryName = split.Notes[:colonIdx]
+			}
+
+			o.logger.Info("Split details",
+				"split_index", i+1,
+				"category_id", split.CategoryID,
+				"category_name", categoryName,
+				"amount", split.Amount,
+				"notes", split.Notes,
+			)
+		}
 	}
 
 	if !opts.DryRun {
