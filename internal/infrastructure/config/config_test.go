@@ -13,9 +13,9 @@ func TestLoadFromYAML(t *testing.T) {
 	// Test loading from config.yaml - find it relative to project root
 	// Try common locations
 	configPaths := []string{
-		"../../../config.yaml",  // From internal/infrastructure/config
-		"../../config.yaml",     // If directory structure changes
-		"config.yaml",           // From root
+		"../../../config.yaml", // From internal/infrastructure/config
+		"../../config.yaml",    // If directory structure changes
+		"config.yaml",          // From root
 	}
 
 	var cfg *Config

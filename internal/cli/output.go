@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
 // PrintHeader prints the application header

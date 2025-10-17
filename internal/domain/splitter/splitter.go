@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 )
 
 // Categorizer interface for dependency injection
@@ -18,9 +18,9 @@ type Categorizer interface {
 
 // Splitter creates transaction splits from categorized orders
 type Splitter struct {
-	categorizer        Categorizer
-	lastResult         *categorizer.CategorizationResult // Cache last categorization
-	lastOrderID        string                             // Track which order was cached
+	categorizer Categorizer
+	lastResult  *categorizer.CategorizationResult // Cache last categorization
+	lastOrderID string                            // Track which order was cached
 }
 
 // NewSplitter creates a new splitter

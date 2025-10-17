@@ -12,21 +12,21 @@ import (
 
 // Mock order for testing
 type mockOrder struct {
-	id     string
-	date   time.Time
-	total  float64
+	id    string
+	date  time.Time
+	total float64
 }
 
-func (m *mockOrder) GetID() string           { return m.id }
-func (m *mockOrder) GetDate() time.Time      { return m.date }
-func (m *mockOrder) GetTotal() float64       { return m.total }
-func (m *mockOrder) GetSubtotal() float64    { return m.total * 0.9 }
-func (m *mockOrder) GetTax() float64         { return m.total * 0.1 }
-func (m *mockOrder) GetTip() float64         { return 0 }
-func (m *mockOrder) GetFees() float64        { return 0 }
+func (m *mockOrder) GetID() string                   { return m.id }
+func (m *mockOrder) GetDate() time.Time              { return m.date }
+func (m *mockOrder) GetTotal() float64               { return m.total }
+func (m *mockOrder) GetSubtotal() float64            { return m.total * 0.9 }
+func (m *mockOrder) GetTax() float64                 { return m.total * 0.1 }
+func (m *mockOrder) GetTip() float64                 { return 0 }
+func (m *mockOrder) GetFees() float64                { return 0 }
 func (m *mockOrder) GetItems() []providers.OrderItem { return nil }
-func (m *mockOrder) GetProviderName() string { return "test" }
-func (m *mockOrder) GetRawData() interface{} { return nil }
+func (m *mockOrder) GetProviderName() string         { return "test" }
+func (m *mockOrder) GetRawData() interface{}         { return nil }
 
 // Helper to create test transaction
 func makeTransaction(id string, amount float64, date time.Time) *monarch.Transaction {

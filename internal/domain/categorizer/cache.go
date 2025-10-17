@@ -21,7 +21,7 @@ func NewMemoryCache() *MemoryCache {
 func (c *MemoryCache) Get(key string) (string, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	value, found := c.store[key]
 	return value, found
 }
@@ -30,7 +30,7 @@ func (c *MemoryCache) Get(key string) (string, bool) {
 func (c *MemoryCache) Set(key string, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.store[key] = value
 }
 
@@ -38,7 +38,7 @@ func (c *MemoryCache) Set(key string, value string) {
 func (c *MemoryCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.store = make(map[string]string)
 }
 
@@ -46,6 +46,6 @@ func (c *MemoryCache) Clear() {
 func (c *MemoryCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return len(c.store)
 }

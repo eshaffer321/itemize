@@ -29,7 +29,7 @@ func TestProvider_Capabilities(t *testing.T) {
 	provider := &Provider{
 		rateLimit: 3 * time.Second,
 	}
-	
+
 	assert.False(t, provider.SupportsDeliveryTips())
 	assert.False(t, provider.SupportsRefunds())
 	assert.True(t, provider.SupportsBulkFetch())
@@ -50,7 +50,7 @@ func TestCostcoOrder_Methods(t *testing.T) {
 			quantity: 2,
 		},
 	}
-	
+
 	order := &CostcoOrder{
 		id:           "TEST123",
 		date:         testDate,
@@ -63,7 +63,7 @@ func TestCostcoOrder_Methods(t *testing.T) {
 		providerName: "Costco",
 		orderType:    "receipt",
 	}
-	
+
 	assert.Equal(t, "TEST123", order.GetID())
 	assert.Equal(t, testDate, order.GetDate())
 	assert.Equal(t, 100.50, order.GetTotal())
@@ -90,7 +90,7 @@ func TestCostcoOrderItem_Methods(t *testing.T) {
 		sku:         "KS12345",
 		category:    "Dairy",
 	}
-	
+
 	assert.Equal(t, "Kirkland Milk", item.GetName())
 	assert.Equal(t, 15.99, item.GetPrice())
 	assert.Equal(t, 3.0, item.GetQuantity())
@@ -103,7 +103,7 @@ func TestCostcoOrderItem_Methods(t *testing.T) {
 func TestConvertReceipt_DateParsing(t *testing.T) {
 	logger := slog.Default()
 	provider := NewProvider(nil, logger)
-	
+
 	// Test data with different date formats
 	testCases := []struct {
 		name            string
@@ -130,7 +130,7 @@ func TestConvertReceipt_DateParsing(t *testing.T) {
 			expectValid:     false,
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// This would require mocking the costco client types
@@ -144,7 +144,7 @@ func TestProvider_FetchOrders_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test")
 	}
-	
+
 	// This test would require a real Costco client
 	// It's here as a placeholder for integration testing
 	t.Skip("Integration test requires real Costco credentials")
@@ -156,7 +156,7 @@ func TestProvider_NewProvider(t *testing.T) {
 	assert.NotNil(t, provider)
 	assert.NotNil(t, provider.logger)
 	assert.Equal(t, 3*time.Second, provider.rateLimit)
-	
+
 	// Test with custom logger
 	customLogger := slog.Default().With(slog.String("test", "true"))
 	provider2 := NewProvider(nil, customLogger)

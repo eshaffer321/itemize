@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"time"
 
-	walmartclient "github.com/eshaffer321/walmart-client"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	walmartclient "github.com/eshaffer321/walmart-client"
 )
 
 // Order wraps a Walmart order and implements providers.Order interface
@@ -24,10 +24,10 @@ func (o *Order) GetID() string {
 func (o *Order) GetDate() time.Time {
 	// Try multiple date formats that Walmart uses
 	formats := []string{
-		time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
-		"2006-01-02T15:04:05.000-0700",  // Walmart's format with milliseconds and timezone
-		"2006-01-02T15:04:05-0700",      // Without milliseconds
-		"2006-01-02",                     // Date only
+		time.RFC3339,                   // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04:05.000-0700", // Walmart's format with milliseconds and timezone
+		"2006-01-02T15:04:05-0700",     // Without milliseconds
+		"2006-01-02",                   // Date only
 	}
 
 	for _, format := range formats {

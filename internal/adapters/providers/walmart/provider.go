@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	walmartclient "github.com/eshaffer321/walmart-client"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	walmartclient "github.com/eshaffer321/walmart-client"
 )
 
 // Provider implements the OrderProvider interface for Walmart
