@@ -103,7 +103,7 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 	var uncachedItems []Item
 	for _, item := range items {
 		normalizedName := c.normalizeItemName(item.Name)
-		
+
 		// Check cache
 		if categoryID, found := c.cache.Get(normalizedName); found {
 			// Use cached categorization
@@ -135,7 +135,7 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 		// Cache the result
 		normalizedName := c.normalizeItemName(cat.ItemName)
 		c.cache.Set(normalizedName, cat.CategoryID)
-		
+
 		// Add to results
 		result.Categorizations = append(result.Categorizations, cat)
 	}
@@ -146,10 +146,10 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 // callOpenAI makes the actual API call to OpenAI
 func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
 	prompt := c.buildPrompt(items, categories)
-	
+
 	request := ChatCompletionRequest{
 		Model:       "gpt-4o", // Using GPT-4o for better performance and lower cost
-		Temperature: 0.1, // Low temperature for consistent categorization
+		Temperature: 0.1,      // Low temperature for consistent categorization
 		ResponseFormat: &ResponseFormat{
 			Type: "json_object",
 		},

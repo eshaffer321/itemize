@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -322,8 +322,8 @@ func TestSplitter_ItemDetailsInNotes(t *testing.T) {
 		subtotal: 80.00,
 		tax:      8.00,
 		items: []providers.OrderItem{
-			&mockOrderItem{name: "Milk", price: 4.00, quantity: 2},   // Should show (x2)
-			&mockOrderItem{name: "Bread", price: 2.50, quantity: 1},  // No quantity
+			&mockOrderItem{name: "Milk", price: 4.00, quantity: 2},       // Should show (x2)
+			&mockOrderItem{name: "Bread", price: 2.50, quantity: 1},      // No quantity
 			&mockOrderItem{name: "USB Cable", price: 10.00, quantity: 3}, // Should show (x3)
 		},
 	}

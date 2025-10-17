@@ -2,8 +2,8 @@ package clients
 
 import (
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
 )
 
 type Clients struct {

@@ -51,6 +51,8 @@ main
 /walmart-sync
 /walmart-sync-with-db
 /monarch-sync
+bin/
+dist/
 
 # Logs
 *.log

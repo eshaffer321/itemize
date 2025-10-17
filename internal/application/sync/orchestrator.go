@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/matcher"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
 // fetchOrders fetches orders from the provider based on the given options

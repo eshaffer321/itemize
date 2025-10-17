@@ -48,7 +48,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	)
 
 	var allOrders []providers.Order
-	
+
 	// Fetch online orders
 	onlineOrders, err := p.fetchOnlineOrders(ctx, opts)
 	if err != nil {
@@ -57,7 +57,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	} else {
 		allOrders = append(allOrders, onlineOrders...)
 	}
-	
+
 	// Fetch in-store receipts
 	receipts, err := p.fetchReceipts(ctx, opts)
 	if err != nil {
@@ -65,52 +65,52 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	} else {
 		allOrders = append(allOrders, receipts...)
 	}
-	
+
 	// Apply max orders limit if specified
 	if opts.MaxOrders > 0 && len(allOrders) > opts.MaxOrders {
 		allOrders = allOrders[:opts.MaxOrders]
 	}
-	
+
 	p.logger.Info("fetched orders",
 		slog.Int("total", len(allOrders)),
 	)
-	
+
 	return allOrders, nil
 }
 
 func (p *Provider) fetchOnlineOrders(ctx context.Context, opts providers.FetchOptions) ([]providers.Order, error) {
 	startDate := opts.StartDate.Format("2006-01-02")
 	endDate := opts.EndDate.Format("2006-01-02")
-	
+
 	pageSize := 10
 	if opts.MaxOrders > 0 && opts.MaxOrders < pageSize {
 		pageSize = opts.MaxOrders
 	}
-	
+
 	response, err := p.client.GetOnlineOrders(ctx, startDate, endDate, 1, pageSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get online orders: %w", err)
 	}
-	
+
 	var orders []providers.Order
 	for _, onlineOrder := range response.BCOrders {
 		order := p.convertOnlineOrder(&onlineOrder, opts.IncludeDetails)
 		orders = append(orders, order)
 	}
-	
+
 	return orders, nil
 }
 
 func (p *Provider) fetchReceipts(ctx context.Context, opts providers.FetchOptions) ([]providers.Order, error) {
 	startDate := opts.StartDate.Format("2006-01-02")
 	endDate := opts.EndDate.Format("2006-01-02")
-	
+
 	// Fetch warehouse receipts
 	response, err := p.client.GetReceipts(ctx, startDate, endDate, "all", "all")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get receipts: %w", err)
 	}
-	
+
 	var orders []providers.Order
 	for _, receipt := range response.Receipts {
 		// If we need details, always fetch the full receipt (items from GetReceipts are just placeholders)
@@ -120,7 +120,7 @@ func (p *Provider) fetchReceipts(ctx context.Context, opts providers.FetchOption
 			if receipt.DocumentType == "FuelReceipts" {
 				documentType = "fuel"
 			}
-			
+
 			fullReceipt, err := p.client.GetReceiptDetail(ctx, receipt.TransactionBarcode, documentType)
 			if err != nil {
 				p.logger.Warn("failed to get receipt details",
@@ -141,7 +141,7 @@ func (p *Provider) fetchReceipts(ctx context.Context, opts providers.FetchOption
 			orders = append(orders, order)
 		}
 	}
-	
+
 	return orders, nil
 }
 
@@ -150,7 +150,7 @@ func (p *Provider) GetOrderDetails(ctx context.Context, orderID string) (provide
 	// Try to parse as online order first
 	// For now, we'll need to determine if this is a receipt barcode or online order ID
 	// This is a simplified implementation
-	
+
 	// Assume it's a receipt barcode if it looks like one
 	if len(orderID) > 10 {
 		receipt, err := p.client.GetReceiptDetail(ctx, orderID, "warehouse")
@@ -159,7 +159,7 @@ func (p *Provider) GetOrderDetails(ctx context.Context, orderID string) (provide
 		}
 		return p.convertReceipt(receipt, true), nil
 	}
-	
+
 	// Otherwise treat as online order (would need to implement proper lookup)
 	return nil, fmt.Errorf("online order detail lookup not yet implemented")
 }
@@ -189,7 +189,7 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	// Try to fetch a minimal amount of data to verify connection
 	endDate := time.Now().Format("2006-01-02")
 	startDate := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	
+
 	_, err := p.client.GetOnlineOrders(ctx, startDate, endDate, 1, 1)
 	if err != nil {
 		return fmt.Errorf("health check failed: %w", err)
@@ -200,7 +200,7 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 // convertOnlineOrder converts a Costco online order to the generic Order interface
 func (p *Provider) convertOnlineOrder(order *costcogo.OnlineOrder, includeDetails bool) providers.Order {
 	orderDate, _ := time.Parse("2006-01-02T15:04:05", order.OrderPlacedDate)
-	
+
 	var items []providers.OrderItem
 	if includeDetails {
 		for _, lineItem := range order.OrderLineItems {
@@ -212,7 +212,7 @@ func (p *Provider) convertOnlineOrder(order *costcogo.OnlineOrder, includeDetail
 			})
 		}
 	}
-	
+
 	return &CostcoOrder{
 		id:           order.OrderNumber,
 		date:         orderDate,
@@ -229,7 +229,7 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 	// Try different date formats
 	var receiptDate time.Time
 	var err error
-	
+
 	// Try ISO date format first
 	receiptDate, err = time.Parse("2006-01-02", receipt.TransactionDate)
 	if err != nil {
@@ -240,7 +240,7 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 			receiptDate = time.Now()
 		}
 	}
-	
+
 	var items []providers.OrderItem
 	if hasDetails {
 		for _, item := range receipt.ItemArray {
@@ -254,7 +254,7 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 			})
 		}
 	}
-	
+
 	return &CostcoOrder{
 		id:           receipt.TransactionBarcode,
 		date:         receiptDate,

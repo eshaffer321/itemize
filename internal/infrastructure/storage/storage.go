@@ -220,71 +220,10 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	return record, nil
 }
 
-// GetRecentRecords retrieves recent enhanced records
-func (s *Storage) GetRecentRecords(limit int) ([]*ProcessingRecord, error) {
-	query := `
-	SELECT id, order_id, provider, transaction_id, order_date, processed_at, 
-	       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
-	       split_count, status, error_message, item_count, match_confidence,
-	       dry_run, items_json, splits_json
-	FROM processing_records 
-	ORDER BY processed_at DESC
-	LIMIT ?
-	`
-
-	rows, err := s.db.Query(query, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var records []*ProcessingRecord
-	for rows.Next() {
-		record := &ProcessingRecord{}
-		err := rows.Scan(
-			&record.ID,
-			&record.OrderID,
-			&record.Provider,
-			&record.TransactionID,
-			&record.OrderDate,
-			&record.ProcessedAt,
-			&record.OrderTotal,
-			&record.OrderSubtotal,
-			&record.OrderTax,
-			&record.OrderTip,
-			&record.TransactionAmount,
-			&record.SplitCount,
-			&record.Status,
-			&record.ErrorMessage,
-			&record.ItemCount,
-			&record.MatchConfidence,
-			&record.DryRun,
-			&record.ItemsJSON,
-			&record.SplitsJSON,
-		)
-		if err != nil {
-			continue
-		}
-
-		// Unmarshal JSON fields
-		if record.ItemsJSON != "" {
-			json.Unmarshal([]byte(record.ItemsJSON), &record.Items)
-		}
-		if record.SplitsJSON != "" {
-			json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
-		}
-
-		records = append(records, record)
-	}
-
-	return records, nil
-}
-
 // GetStats returns enhanced statistics
 func (s *Storage) GetStats() (*Stats, error) {
 	stats := &Stats{
-		CategoryBreakdown: make(map[string]CategoryStats),
-		ProviderStats:     make(map[string]ProviderStats),
+		ProviderStats: make(map[string]ProviderStats),
 	}
 
 	// Overall stats
@@ -351,14 +290,7 @@ type Stats struct {
 	TotalAmount        float64                  `json:"total_amount"`
 	AverageOrderAmount float64                  `json:"average_order_amount"`
 	TotalSplits        int                      `json:"total_splits"`
-	CategoryBreakdown  map[string]CategoryStats `json:"category_breakdown"`
 	ProviderStats      map[string]ProviderStats `json:"provider_stats"`
-}
-
-// CategoryStats contains per-category statistics
-type CategoryStats struct {
-	Count       int     `json:"count"`
-	TotalAmount float64 `json:"total_amount"`
 }
 
 // ProviderStats contains per-provider statistics

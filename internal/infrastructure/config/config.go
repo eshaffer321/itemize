@@ -167,7 +167,8 @@ func getEnvInt(key string, fallback int) int {
 
 // GetAPIKey retrieves an API key from config first, then tries multiple environment variable names
 // Usage: GetAPIKey(cfg.Monarch.APIKey, "MONARCH_TOKEN")
-//        GetAPIKey(cfg.OpenAI.APIKey, "OPENAI_API_KEY", "OPENAI_APIKEY")
+//
+//	GetAPIKey(cfg.OpenAI.APIKey, "OPENAI_API_KEY", "OPENAI_APIKEY")
 func (c *Config) GetAPIKey(configValue string, envVarNames ...string) string {
 	// First, try the config value
 	if configValue != "" {
@@ -182,20 +183,4 @@ func (c *Config) GetAPIKey(configValue string, envVarNames ...string) string {
 	}
 
 	return ""
-}
-
-// MustGetAPIKeys validates that required API keys are present and returns them
-// Returns (monarchToken, openaiKey, error)
-func (c *Config) MustGetAPIKeys() (string, string, error) {
-	monarchToken := c.GetAPIKey(c.Monarch.APIKey, "MONARCH_TOKEN")
-	openaiKey := c.GetAPIKey(c.OpenAI.APIKey, "OPENAI_API_KEY", "OPENAI_APIKEY")
-
-	if monarchToken == "" {
-		return "", "", fmt.Errorf("MONARCH_TOKEN not found in config or environment")
-	}
-	if openaiKey == "" {
-		return "", "", fmt.Errorf("OPENAI_API_KEY not found in config or environment")
-	}
-
-	return monarchToken, openaiKey, nil
 }

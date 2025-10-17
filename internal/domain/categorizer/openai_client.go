@@ -68,12 +68,12 @@ func (c *RealOpenAIClient) CreateChatCompletion(ctx context.Context, request Cha
 				Code    string `json:"code"`
 			} `json:"error"`
 		}
-		
+
 		if err := json.Unmarshal(body, &errorResp); err == nil && errorResp.Error.Message != "" {
-			return nil, fmt.Errorf("OpenAI API error: %s (type: %s, code: %s)", 
+			return nil, fmt.Errorf("OpenAI API error: %s (type: %s, code: %s)",
 				errorResp.Error.Message, errorResp.Error.Type, errorResp.Error.Code)
 		}
-		
+
 		return nil, fmt.Errorf("OpenAI API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -84,19 +84,4 @@ func (c *RealOpenAIClient) CreateChatCompletion(ctx context.Context, request Cha
 	}
 
 	return &response, nil
-}
-
-// OpenAIConfig holds configuration for OpenAI integration
-type OpenAIConfig struct {
-	APIKey      string
-	Model       string
-	Temperature float64
-}
-
-// DefaultOpenAIConfig returns default configuration
-func DefaultOpenAIConfig() OpenAIConfig {
-	return OpenAIConfig{
-		Model:       "gpt-4o",
-		Temperature: 0.1,
-	}
 }

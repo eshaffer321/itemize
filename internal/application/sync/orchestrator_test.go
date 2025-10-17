@@ -377,12 +377,12 @@ func (m *MockTransactionQuery) Execute(ctx context.Context) (*monarch.Transactio
 // TestOrchestrator_fetchOrders tests the order fetching functionality
 func TestOrchestrator_fetchOrders(t *testing.T) {
 	tests := []struct {
-		name          string
-		opts          Options
-		mockOrders    []providers.Order
-		mockErr       error
-		expectErr     bool
-		expectOrders  int
+		name            string
+		opts            Options
+		mockOrders      []providers.Order
+		mockErr         error
+		expectErr       bool
+		expectOrders    int
 		expectStartDays int
 	}{
 		{
@@ -394,9 +394,9 @@ func TestOrchestrator_fetchOrders(t *testing.T) {
 			mockOrders: []providers.Order{
 				&MockOrder{},
 			},
-			mockErr:      nil,
-			expectErr:    false,
-			expectOrders: 1,
+			mockErr:         nil,
+			expectErr:       false,
+			expectOrders:    1,
 			expectStartDays: 7,
 		},
 		{
@@ -409,9 +409,9 @@ func TestOrchestrator_fetchOrders(t *testing.T) {
 				&MockOrder{},
 				&MockOrder{},
 			},
-			mockErr:      nil,
-			expectErr:    false,
-			expectOrders: 2,
+			mockErr:         nil,
+			expectErr:       false,
+			expectOrders:    2,
 			expectStartDays: 30,
 		},
 		{
