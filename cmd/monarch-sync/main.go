@@ -43,16 +43,15 @@ func main() {
 	}
 	defer store.Close()
 
-	logger := logging.NewLogger(cfg.Observability.Logging)
 	ctx := context.Background()
 
 	// Create provider based on subcommand
 	var provider providers.OrderProvider
 	switch providerName {
 	case "costco":
-		provider, err = cli.NewCostcoProvider(cfg, logger)
+		provider, err = cli.NewCostcoProvider(cfg)
 	case "walmart":
-		provider, err = cli.NewWalmartProvider(cfg, logger)
+		provider, err = cli.NewWalmartProvider(cfg)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -67,14 +66,15 @@ func main() {
 	cli.PrintHeader(provider.DisplayName(), flags.DryRun)
 
 	// Print database info
-	fmt.Printf("💾 Using database: %s\n", cfg.Storage.DatabasePath)
+	fmt.Printf("Database: %s\n", cfg.Storage.DatabasePath)
 
 	// Print configuration
 	cli.PrintConfiguration(provider.DisplayName(), flags.LookbackDays, flags.MaxOrders, flags.Force)
 
-	// Create orchestrator and run
+	// Create orchestrator with sync-scoped logger and run
 	opts := flags.ToSyncOptions()
-	orchestrator := sync.NewOrchestrator(provider, serviceClients, store, logger)
+	syncLogger := logging.NewLoggerWithSystem(cfg.Observability.Logging, "sync")
+	orchestrator := sync.NewOrchestrator(provider, serviceClients, store, syncLogger)
 	result, err := orchestrator.Run(ctx, opts)
 
 	if err != nil {
