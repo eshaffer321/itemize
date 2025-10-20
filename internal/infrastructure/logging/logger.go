@@ -1,7 +1,7 @@
-// Package observability provides simple logging utilities.
+// Package logging provides structured logging utilities.
 //
-// This is a minimal implementation focused on structured logging with slog.
-// Metrics and tracing can be added later when needed.
+// Logs are formatted in Maven-style with colors:
+// [LEVEL] [SYSTEM] [HH:MM:SS] message key=value
 package logging
 
 import (
@@ -29,13 +29,15 @@ func NewLogger(cfg config.LoggingConfig) *slog.Logger {
 		Level: level,
 	}
 
-	// Choose format
-	var handler slog.Handler
-	if cfg.Format == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	}
+	// Use Maven-style handler for better readability
+	handler := NewMavenHandler(os.Stdout, opts)
 
 	return slog.New(handler)
+}
+
+// NewLoggerWithSystem creates a logger with a system prefix (e.g., "sync", "costco", "walmart")
+// This is useful for creating scoped loggers that can be injected into external libraries
+func NewLoggerWithSystem(cfg config.LoggingConfig, system string) *slog.Logger {
+	logger := NewLogger(cfg)
+	return logger.With("system", system)
 }

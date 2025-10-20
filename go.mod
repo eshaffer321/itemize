@@ -6,7 +6,7 @@ replace github.com/costco-go => /Users/erickshaffer/code/costco-go
 
 replace (
 	github.com/eshaffer321/monarchmoney-go => /Users/erickshaffer/code/monarchmoney-go
-	github.com/eshaffer321/walmart-client => /Users/erickshaffer/code/walmart-api/walmart-client
+	github.com/eshaffer321/walmart-client => /Users/erickshaffer/code/walmart-go/walmart-client
 )
 
 require (
@@ -15,6 +15,7 @@ require (
 	github.com/eshaffer321/walmart-client v0.0.0-00010101000000-000000000000
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/term v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
