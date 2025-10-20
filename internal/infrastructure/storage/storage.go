@@ -336,10 +336,10 @@ func (s *Storage) migrateFromV1() error {
 	return err
 }
 
-// IsProcessed checks if an order has already been processed
+// IsProcessed checks if an order has already been successfully processed (non-dry-run)
 func (s *Storage) IsProcessed(orderID string) bool {
 	var count int
-	query := `SELECT COUNT(*) FROM processing_records WHERE order_id = ?`
+	query := `SELECT COUNT(*) FROM processing_records WHERE order_id = ? AND dry_run = 0 AND status = 'success'`
 	err := s.db.QueryRow(query, orderID).Scan(&count)
 	return err == nil && count > 0
 }
