@@ -2,15 +2,12 @@ module github.com/eshaffer321/monarchmoney-sync-backend
 
 go 1.24.0
 
-replace (
-	github.com/eshaffer321/monarchmoney-go => /Users/erickshaffer/code/monarchmoney-go
-	github.com/eshaffer321/walmart-client => /Users/erickshaffer/code/walmart-go/walmart-client
-)
+replace github.com/eshaffer321/monarchmoney-go => /Users/erickshaffer/code/monarchmoney-go
 
 require (
 	github.com/eshaffer321/costco-go v0.2.1
 	github.com/eshaffer321/monarchmoney-go v0.0.0
-	github.com/eshaffer321/walmart-client v0.0.0-00010101000000-000000000000
+	github.com/eshaffer321/walmart-client-go v1.0.1
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.35.0
