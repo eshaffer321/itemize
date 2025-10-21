@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	costcogo "github.com/costco-go/pkg/costco"
+	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 )
 
