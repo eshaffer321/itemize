@@ -26,7 +26,7 @@ func PrintConfiguration(providerName string, lookbackDays, maxOrders int, force 
 	if force {
 		fmt.Printf(" | Force: true")
 	}
-	fmt.Println("\n")
+	fmt.Println()
 }
 
 // PrintSyncSummary prints the sync result summary
