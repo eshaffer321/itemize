@@ -7,7 +7,7 @@ replace github.com/eshaffer321/monarchmoney-go => /Users/erickshaffer/code/monar
 require (
 	github.com/eshaffer321/costco-go v0.2.1
 	github.com/eshaffer321/monarchmoney-go v0.0.0
-	github.com/eshaffer321/walmart-client-go v1.0.1
+	github.com/eshaffer321/walmart-client-go v1.0.2
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.35.0
