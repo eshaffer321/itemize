@@ -16,15 +16,19 @@ import (
 )
 
 // NewCostcoProvider creates a new Costco provider with a system-scoped logger
-func NewCostcoProvider(cfg *config.Config) (providers.OrderProvider, error) {
+func NewCostcoProvider(cfg *config.Config, verbose bool) (providers.OrderProvider, error) {
 	// Load Costco config
 	savedConfig, err := costcogo.LoadConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Costco config: %w", err)
 	}
 
-	// Create a costco-scoped logger
-	costcoLogger := logging.NewLoggerWithSystem(cfg.Observability.Logging, "costco")
+	// Create a costco-scoped logger with verbose flag
+	loggingCfg := cfg.Observability.Logging
+	if verbose {
+		loggingCfg.Level = "debug"
+	}
+	costcoLogger := logging.NewLoggerWithSystem(loggingCfg, "costco")
 
 	costcoConfig := costcogo.Config{
 		Email:           savedConfig.Email,
@@ -38,14 +42,18 @@ func NewCostcoProvider(cfg *config.Config) (providers.OrderProvider, error) {
 }
 
 // NewWalmartProvider creates a new Walmart provider with a system-scoped logger
-func NewWalmartProvider(cfg *config.Config) (providers.OrderProvider, error) {
+func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvider, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	// Create a walmart-scoped logger
-	walmartLogger := logging.NewLoggerWithSystem(cfg.Observability.Logging, "walmart")
+	// Create a walmart-scoped logger with verbose flag
+	loggingCfg := cfg.Observability.Logging
+	if verbose {
+		loggingCfg.Level = "debug"
+	}
+	walmartLogger := logging.NewLoggerWithSystem(loggingCfg, "walmart")
 
 	walmartConfig := walmartclient.ClientConfig{
 		RateLimit:  2 * time.Second,

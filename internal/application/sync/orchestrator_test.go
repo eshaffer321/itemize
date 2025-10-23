@@ -132,6 +132,7 @@ func (m *MockOrder) GetRawData() interface{} {
 func TestOrchestrator_Run_EmptyOrders(t *testing.T) {
 	// Arrange
 	mockProvider := new(MockProvider)
+	mockProvider.On("DisplayName").Return("TestProvider")
 	mockProvider.On("FetchOrders", mock.Anything, mock.Anything).Return([]providers.Order{}, nil)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -163,6 +164,7 @@ func TestOrchestrator_Run_EmptyOrders(t *testing.T) {
 func TestOrchestrator_Run_FetchOrdersError(t *testing.T) {
 	// Arrange
 	mockProvider := new(MockProvider)
+	mockProvider.On("DisplayName").Return("TestProvider")
 	expectedErr := errors.New("failed to fetch orders")
 	mockProvider.On("FetchOrders", mock.Anything, mock.Anything).Return(nil, expectedErr)
 
@@ -188,6 +190,7 @@ func TestOrchestrator_Run_FetchOrdersError(t *testing.T) {
 func TestOrchestrator_Run_DryRun(t *testing.T) {
 	// Arrange
 	mockProvider := new(MockProvider)
+	mockProvider.On("DisplayName").Return("TestProvider")
 	mockOrder := new(MockOrder)
 
 	mockOrder.On("GetID").Return("order123")

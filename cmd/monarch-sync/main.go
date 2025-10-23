@@ -49,9 +49,9 @@ func main() {
 	var provider providers.OrderProvider
 	switch providerName {
 	case "costco":
-		provider, err = cli.NewCostcoProvider(cfg)
+		provider, err = cli.NewCostcoProvider(cfg, flags.Verbose)
 	case "walmart":
-		provider, err = cli.NewWalmartProvider(cfg)
+		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -73,7 +73,11 @@ func main() {
 
 	// Create orchestrator with sync-scoped logger and run
 	opts := flags.ToSyncOptions()
-	syncLogger := logging.NewLoggerWithSystem(cfg.Observability.Logging, "sync")
+	loggingCfg := cfg.Observability.Logging
+	if flags.Verbose {
+		loggingCfg.Level = "debug"
+	}
+	syncLogger := logging.NewLoggerWithSystem(loggingCfg, "sync")
 	orchestrator := sync.NewOrchestrator(provider, serviceClients, store, syncLogger)
 	result, err := orchestrator.Run(ctx, opts)
 

@@ -185,6 +185,43 @@ Supports both YAML and environment variables:
 - Env vars for production/containers
 - Graceful fallback and validation
 
+### Logging Pattern
+**Use proper log levels, not conditional logging:**
+
+```go
+// ❌ WRONG - Don't do this
+if opts.Verbose {
+    logger.Info("Processing order", "id", order.ID)
+}
+
+// ✅ RIGHT - Use appropriate log level
+logger.Debug("Processing order", "id", order.ID)
+```
+
+**Log Level Guidelines:**
+- `logger.Debug()` - Detailed diagnostics, shown only with `-verbose` flag
+- `logger.Info()` - Normal operations, always shown
+- `logger.Warn()` - Recoverable issues or unexpected conditions
+- `logger.Error()` - Failures requiring attention
+
+**How It Works:**
+- Loggers are created with level control via `config.LoggingConfig.Level`
+- When `-verbose` flag is set, level is set to `"debug"` before logger creation
+- slog's `HandlerOptions.Level` filters which messages are displayed
+- Each system (sync, costco, walmart) has its own logger with proper level
+
+**Implementation:**
+```go
+// In CLI layer (providers.go)
+loggingCfg := cfg.Observability.Logging
+if verbose {
+    loggingCfg.Level = "debug"
+}
+logger := logging.NewLoggerWithSystem(loggingCfg, "system-name")
+```
+
+This gives us clean code with proper level-based filtering instead of scattered conditionals.
+
 ## File Organization
 
 ### Where Things Live
