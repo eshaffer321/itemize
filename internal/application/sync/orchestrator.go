@@ -19,12 +19,10 @@ func (o *Orchestrator) fetchOrders(ctx context.Context, opts Options) ([]provide
 	endDate := time.Now()
 	startDate := endDate.AddDate(0, 0, -opts.LookbackDays)
 
-	if opts.Verbose {
-		o.logger.Info("Fetching orders",
-			"start_date", startDate.Format("2006-01-02"),
-			"end_date", endDate.Format("2006-01-02"),
-		)
-	}
+	o.logger.Debug("Fetching orders",
+		"start_date", startDate.Format("2006-01-02"),
+		"end_date", endDate.Format("2006-01-02"),
+	)
 
 	orders, err := o.provider.FetchOrders(ctx, providers.FetchOptions{
 		StartDate:      startDate,
@@ -36,9 +34,7 @@ func (o *Orchestrator) fetchOrders(ctx context.Context, opts Options) ([]provide
 		return nil, fmt.Errorf("failed to fetch orders: %w", err)
 	}
 
-	if opts.Verbose {
-		o.logger.Info("Fetched orders", "count", len(orders))
-	}
+	o.logger.Debug("Fetched orders", "count", len(orders))
 
 	return orders, nil
 }
@@ -54,20 +50,16 @@ func (o *Orchestrator) processOrder(
 	monarchCategories []*monarch.TransactionCategory,
 	opts Options,
 ) (bool, bool, error) {
-	if opts.Verbose {
-		o.logger.Info("Processing order",
-			"order_id", order.GetID(),
-			"order_date", order.GetDate().Format("2006-01-02"),
-			"order_total", order.GetTotal(),
-			"item_count", len(order.GetItems()),
-		)
-	}
+	o.logger.Debug("Processing order",
+		"order_id", order.GetID(),
+		"order_date", order.GetDate().Format("2006-01-02"),
+		"order_total", order.GetTotal(),
+		"item_count", len(order.GetItems()),
+	)
 
 	// Check if already processed
 	if !opts.Force && o.storage != nil && o.storage.IsProcessed(order.GetID()) {
-		if opts.Verbose {
-			o.logger.Info("Skipping already processed order", "order_id", order.GetID())
-		}
+		o.logger.Debug("Skipping already processed order", "order_id", order.GetID())
 		return false, true, nil
 	}
 
@@ -98,35 +90,29 @@ func (o *Orchestrator) processOrder(
 		return false, false, fmt.Errorf("no matching transaction")
 	}
 
-	if opts.Verbose {
-		o.logger.Info("Matched transaction",
-			"order_id", order.GetID(),
-			"transaction_id", match.ID,
-			"amount", math.Abs(match.Amount),
-			"date_diff_days", daysDiff,
-		)
-	}
+	o.logger.Debug("Matched transaction",
+		"order_id", order.GetID(),
+		"transaction_id", match.ID,
+		"amount", math.Abs(match.Amount),
+		"date_diff_days", daysDiff,
+	)
 
 	// Mark transaction as used
 	usedTransactionIDs[match.ID] = true
 
 	// Check if already has splits
 	if match.HasSplits {
-		if opts.Verbose {
-			o.logger.Info("Transaction already has splits", "transaction_id", match.ID)
-		}
+		o.logger.Debug("Transaction already has splits", "transaction_id", match.ID)
 		return false, true, nil
 	}
 
 	// Categorize and split transaction
-	if opts.Verbose {
-		o.logger.Info("Processing transaction",
-			"order_id", order.GetID(),
-			"transaction_amount", match.Amount,
-			"order_subtotal", order.GetSubtotal(),
-			"order_tax", order.GetTax(),
-		)
-	}
+	o.logger.Debug("Processing transaction",
+		"order_id", order.GetID(),
+		"transaction_amount", match.Amount,
+		"order_subtotal", order.GetSubtotal(),
+		"order_tax", order.GetTax(),
+	)
 
 	// Use splitter to determine if this is single or multi-category
 	splits, err := o.splitter.CreateSplits(ctx, order, match, catCategories, monarchCategories)
@@ -138,9 +124,7 @@ func (o *Orchestrator) processOrder(
 
 	// Handle single category (no splits needed)
 	if splits == nil {
-		if opts.Verbose {
-			o.logger.Info("Single category detected - updating transaction category", "order_id", order.GetID())
-		}
+		o.logger.Debug("Single category detected - updating transaction category", "order_id", order.GetID())
 
 		categoryID, notes, err := o.splitter.GetSingleCategoryInfo(ctx, order, catCategories)
 		if err != nil {
@@ -150,9 +134,7 @@ func (o *Orchestrator) processOrder(
 		}
 
 		if !opts.DryRun {
-			if opts.Verbose {
-				o.logger.Info("Updating transaction category", "transaction_id", match.ID, "category_id", categoryID)
-			}
+			o.logger.Debug("Updating transaction category", "transaction_id", match.ID, "category_id", categoryID)
 			params := &monarch.UpdateTransactionParams{
 				CategoryID: &categoryID,
 				Notes:      &notes,
@@ -163,13 +145,9 @@ func (o *Orchestrator) processOrder(
 				o.recordError(order, err.Error())
 				return false, false, fmt.Errorf("failed to update transaction: %w", err)
 			}
-			if opts.Verbose {
-				o.logger.Info("Successfully updated transaction category", "order_id", order.GetID())
-			}
+			o.logger.Debug("Successfully updated transaction category", "order_id", order.GetID())
 		} else {
-			if opts.Verbose {
-				o.logger.Info("[DRY RUN] Would update transaction category", "order_id", order.GetID(), "category_id", categoryID)
-			}
+			o.logger.Debug("[DRY RUN] Would update transaction category", "order_id", order.GetID(), "category_id", categoryID)
 		}
 
 		// Record success (no splits)
@@ -178,46 +156,38 @@ func (o *Orchestrator) processOrder(
 	}
 
 	// Handle multi-category (create splits)
-	if opts.Verbose {
-		o.logger.Info("Multiple categories detected - creating splits", "order_id", order.GetID(), "split_count", len(splits))
+	o.logger.Debug("Multiple categories detected - creating splits", "order_id", order.GetID(), "split_count", len(splits))
 
-		// Log detailed split information
-		for i, split := range splits {
-			// Extract category name from notes (format: "CategoryName: items...")
-			categoryName := ""
-			if split.Category != nil {
-				categoryName = split.Category.Name
-			} else if colonIdx := strings.Index(split.Notes, ":"); colonIdx > 0 {
-				categoryName = split.Notes[:colonIdx]
-			}
-
-			o.logger.Info("Split details",
-				"split_index", i+1,
-				"category_id", split.CategoryID,
-				"category_name", categoryName,
-				"amount", split.Amount,
-				"notes", split.Notes,
-			)
+	// Log detailed split information
+	for i, split := range splits {
+		// Extract category name from notes (format: "CategoryName: items...")
+		categoryName := ""
+		if split.Category != nil {
+			categoryName = split.Category.Name
+		} else if colonIdx := strings.Index(split.Notes, ":"); colonIdx > 0 {
+			categoryName = split.Notes[:colonIdx]
 		}
+
+		o.logger.Debug("Split details",
+			"split_index", i+1,
+			"category_id", split.CategoryID,
+			"category_name", categoryName,
+			"amount", split.Amount,
+			"notes", split.Notes,
+		)
 	}
 
 	if !opts.DryRun {
-		if opts.Verbose {
-			o.logger.Info("Applying splits to Monarch", "transaction_id", match.ID)
-		}
+		o.logger.Debug("Applying splits to Monarch", "transaction_id", match.ID)
 		err = o.clients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splits)
 		if err != nil {
 			o.logger.Error("Failed to apply splits", "order_id", order.GetID(), "error", err)
 			o.recordError(order, err.Error())
 			return false, false, fmt.Errorf("failed to apply splits: %w", err)
 		}
-		if opts.Verbose {
-			o.logger.Info("Successfully applied splits", "order_id", order.GetID())
-		}
+		o.logger.Debug("Successfully applied splits", "order_id", order.GetID())
 	} else {
-		if opts.Verbose {
-			o.logger.Info("[DRY RUN] Would apply splits", "order_id", order.GetID(), "split_count", len(splits))
-		}
+		o.logger.Debug("[DRY RUN] Would apply splits", "order_id", order.GetID(), "split_count", len(splits))
 	}
 
 	// Record success
@@ -273,15 +243,13 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// Log configuration
-	if opts.Verbose {
-		o.logger.Info("Starting sync",
-			"provider", o.provider.DisplayName(),
-			"lookback_days", opts.LookbackDays,
-			"max_orders", opts.MaxOrders,
-			"dry_run", opts.DryRun,
-			"force", opts.Force,
-		)
-	}
+	o.logger.Debug("Starting sync",
+		"provider", o.provider.DisplayName(),
+		"lookback_days", opts.LookbackDays,
+		"max_orders", opts.MaxOrders,
+		"dry_run", opts.DryRun,
+		"force", opts.Force,
+	)
 
 	// 1. Fetch orders from provider
 	orders, err := o.fetchOrders(ctx, opts)
@@ -295,9 +263,7 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		return result, nil
 	}
 
-	if opts.Verbose {
-		o.logger.Info("Fetching Monarch transactions")
-	}
+	o.logger.Debug("Fetching Monarch transactions")
 
 	endDate := time.Now()
 	startDate := endDate.AddDate(0, 0, -opts.LookbackDays)
@@ -323,26 +289,20 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
-	if opts.Verbose {
-		o.logger.Info("Fetched transactions",
-			"total", len(txList.Transactions),
-			"provider_transactions", len(providerTransactions),
-		)
-	}
+	o.logger.Debug("Fetched transactions",
+		"total", len(txList.Transactions),
+		"provider_transactions", len(providerTransactions),
+	)
 
 	// 3. Get Monarch categories
-	if opts.Verbose {
-		o.logger.Info("Loading Monarch categories")
-	}
+	o.logger.Debug("Loading Monarch categories")
 
 	categories, err := o.clients.Monarch.Transactions.Categories().List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load categories: %w", err)
 	}
 
-	if opts.Verbose {
-		o.logger.Info("Loaded categories", "count", len(categories))
-	}
+	o.logger.Debug("Loaded categories", "count", len(categories))
 
 	// Convert to categorizer format
 	catCategories := make([]categorizer.Category, len(categories))
@@ -363,12 +323,10 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	usedTransactionIDs := make(map[string]bool)
 
 	for i, order := range orders {
-		if opts.Verbose {
-			o.logger.Info("Processing order",
-				"index", i+1,
-				"total", len(orders),
-			)
-		}
+		o.logger.Debug("Processing order",
+			"index", i+1,
+			"total", len(orders),
+		)
 
 		processed, skipped, err := o.processOrder(ctx, order, providerTransactions, usedTransactionIDs, catCategories, categories, opts)
 		if err != nil {
