@@ -331,7 +331,11 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		processed, skipped, err := o.processOrder(ctx, order, providerTransactions, usedTransactionIDs, catCategories, categories, opts)
 		if err != nil {
 			result.ErrorCount++
-			result.Errors = append(result.Errors, fmt.Errorf("order %s: %w", order.GetID(), err))
+			result.Errors = append(result.Errors, fmt.Errorf("order %s (%s, $%.2f): %w",
+				order.GetID(),
+				order.GetDate().Format("2006-01-02"),
+				order.GetTotal(),
+				err))
 			continue
 		}
 
