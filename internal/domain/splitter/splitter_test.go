@@ -518,6 +518,136 @@ func TestSplitter_RoundingAdjustment(t *testing.T) {
 		"Splits must sum to transaction amount (rounding adjustment should keep it within 1 cent)")
 }
 
+// TestSplitter_NotesFormatting tests the new newline-delimited format with prices
+func TestSplitter_NotesFormatting(t *testing.T) {
+	// Arrange: Order with multiple items to test note formatting
+	order := &mockOrder{
+		id:       "ORDER_NOTES",
+		date:     time.Date(2024, 2, 20, 0, 0, 0, 0, time.UTC),
+		total:    110.00,
+		subtotal: 100.00,
+		tax:      10.00,
+		items: []providers.OrderItem{
+			&mockOrderItem{name: "GUAC BOWL", price: 9.99, quantity: 1},
+			&mockOrderItem{name: "MILK", price: 5.00, quantity: 2},    // Quantity > 1
+			&mockOrderItem{name: "BREAD", price: 3.50, quantity: 1},
+			&mockOrderItem{name: "USB CABLE", price: 12.00, quantity: 3}, // Electronics
+		},
+	}
+
+	transaction := &monarch.Transaction{
+		ID:     "TXN_NOTES",
+		Amount: -110.00,
+	}
+
+	categories := []categorizer.Category{
+		{ID: "cat_groceries", Name: "Groceries"},
+		{ID: "cat_electronics", Name: "Electronics"},
+	}
+
+	monarchCategories := []*monarch.TransactionCategory{
+		{ID: "cat_groceries", Name: "Groceries"},
+		{ID: "cat_electronics", Name: "Electronics"},
+	}
+
+	mockCat := &mockCategorizer{
+		result: &categorizer.CategorizationResult{
+			Categorizations: []categorizer.ItemCategorization{
+				{ItemName: "GUAC BOWL", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "MILK", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "BREAD", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "USB CABLE", CategoryID: "cat_electronics", CategoryName: "Electronics", Confidence: 1.0},
+			},
+		},
+	}
+
+	splitter := NewSplitter(mockCat)
+	ctx := context.Background()
+
+	// Act
+	splits, err := splitter.CreateSplits(ctx, order, transaction, categories, monarchCategories)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, splits)
+	assert.Len(t, splits, 2)
+
+	// Find the Groceries split
+	var groceriesSplit *monarch.TransactionSplit
+	for _, split := range splits {
+		if split.CategoryID == "cat_groceries" {
+			groceriesSplit = split
+			break
+		}
+	}
+	require.NotNil(t, groceriesSplit, "Should have a Groceries split")
+
+	// Verify new format: newline-delimited with prices
+	assert.Contains(t, groceriesSplit.Notes, "Groceries:\n", "Should have category header with newline")
+	assert.Contains(t, groceriesSplit.Notes, "- GUAC BOWL $9.99", "Should show item with price")
+	assert.Contains(t, groceriesSplit.Notes, "- MILK (x2) $5.00", "Should show quantity and price")
+	assert.Contains(t, groceriesSplit.Notes, "- BREAD $3.50", "Should show item with price")
+
+	// Verify items are on separate lines (not comma-separated)
+	assert.NotContains(t, groceriesSplit.Notes, "GUAC BOWL, MILK", "Should NOT be comma-separated")
+
+	// Find Electronics split
+	var electronicsSplit *monarch.TransactionSplit
+	for _, split := range splits {
+		if split.CategoryID == "cat_electronics" {
+			electronicsSplit = split
+			break
+		}
+	}
+	require.NotNil(t, electronicsSplit, "Should have an Electronics split")
+	assert.Contains(t, electronicsSplit.Notes, "- USB CABLE (x3) $12.00", "Should show quantity and price")
+}
+
+// TestSplitter_SingleCategoryNoteFormatting tests note formatting for single-category orders
+func TestSplitter_SingleCategoryNoteFormatting(t *testing.T) {
+	// Arrange
+	order := &mockOrder{
+		id:       "ORDER_SINGLE_NOTES",
+		date:     time.Date(2024, 2, 22, 0, 0, 0, 0, time.UTC),
+		total:    33.00,
+		subtotal: 30.00,
+		tax:      3.00,
+		items: []providers.OrderItem{
+			&mockOrderItem{name: "EGGS", price: 4.99, quantity: 1},
+			&mockOrderItem{name: "CHEESE", price: 8.00, quantity: 2},
+		},
+	}
+
+	categories := []categorizer.Category{
+		{ID: "cat_groceries", Name: "Groceries"},
+	}
+
+	mockCat := &mockCategorizer{
+		result: &categorizer.CategorizationResult{
+			Categorizations: []categorizer.ItemCategorization{
+				{ItemName: "EGGS", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "CHEESE", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+			},
+		},
+	}
+
+	splitter := NewSplitter(mockCat)
+	ctx := context.Background()
+
+	// Act: Get single category info
+	categoryID, notes, err := splitter.GetSingleCategoryInfo(ctx, order, categories)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "cat_groceries", categoryID)
+
+	// Verify new format for single-category notes
+	assert.Contains(t, notes, "Groceries:\n", "Should have category header with newline")
+	assert.Contains(t, notes, "- EGGS $4.99", "Should show item with price")
+	assert.Contains(t, notes, "- CHEESE (x2) $8.00", "Should show quantity and price")
+	assert.NotContains(t, notes, "EGGS, CHEESE", "Should NOT be comma-separated")
+}
+
 // TestSplitter_RoundingAdjustment_LargeDiscrepancy tests handling of larger rounding errors
 func TestSplitter_RoundingAdjustment_LargeDiscrepancy(t *testing.T) {
 	// Arrange: Simulate a scenario where calculated splits differ from transaction by 0.05

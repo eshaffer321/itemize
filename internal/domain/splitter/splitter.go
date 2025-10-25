@@ -160,26 +160,29 @@ func (s *Splitter) createMultiCategorySplits(
 			categoryTotal = math.Abs(categoryTotal)
 		}
 
-		// Build item details for notes
+		// Build item details for notes with prices
 		itemDetails := []string{}
 		for _, item := range group.items {
 			if item.Quantity > 1 {
-				itemDetails = append(itemDetails, fmt.Sprintf("%s (x%d)", item.Name, item.Quantity))
+				itemDetails = append(itemDetails, fmt.Sprintf("- %s (x%d) $%.2f", item.Name, item.Quantity, item.Price))
 			} else {
-				itemDetails = append(itemDetails, item.Name)
+				itemDetails = append(itemDetails, fmt.Sprintf("- %s $%.2f", item.Name, item.Price))
 			}
 		}
 
-		// Create split with detailed notes
-		noteContent := strings.Join(itemDetails, ", ")
+		// Create split with detailed notes (newline-delimited)
+		noteContent := strings.Join(itemDetails, "\n")
+		var notes string
 		if len(group.items) > 3 {
-			noteContent = fmt.Sprintf("(%d items) %s", len(group.items), noteContent)
+			notes = fmt.Sprintf("%s: (%d items)\n%s", group.categoryName, len(group.items), noteContent)
+		} else {
+			notes = fmt.Sprintf("%s:\n%s", group.categoryName, noteContent)
 		}
 
 		split := &monarch.TransactionSplit{
 			Amount:     categoryTotal,
 			CategoryID: group.categoryID,
-			Notes:      fmt.Sprintf("%s: %s", group.categoryName, noteContent),
+			Notes:      notes,
 		}
 
 		splits = append(splits, split)
@@ -244,18 +247,18 @@ func (s *Splitter) GetSingleCategoryInfo(
 	categoryID = result.Categorizations[0].CategoryID
 	categoryName := result.Categorizations[0].CategoryName
 
-	// Build item details for notes
+	// Build item details for notes with prices
 	orderItems := order.GetItems()
 	itemDetails := []string{}
 	for _, orderItem := range orderItems {
 		if orderItem.GetQuantity() > 1 {
-			itemDetails = append(itemDetails, fmt.Sprintf("%s (x%.0f)", orderItem.GetName(), orderItem.GetQuantity()))
+			itemDetails = append(itemDetails, fmt.Sprintf("- %s (x%.0f) $%.2f", orderItem.GetName(), orderItem.GetQuantity(), orderItem.GetPrice()))
 		} else {
-			itemDetails = append(itemDetails, orderItem.GetName())
+			itemDetails = append(itemDetails, fmt.Sprintf("- %s $%.2f", orderItem.GetName(), orderItem.GetPrice()))
 		}
 	}
 
-	notes = fmt.Sprintf("%s: %s", categoryName, strings.Join(itemDetails, ", "))
+	notes = fmt.Sprintf("%s:\n%s", categoryName, strings.Join(itemDetails, "\n"))
 
 	return categoryID, notes, nil
 }
