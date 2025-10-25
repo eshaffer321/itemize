@@ -3,7 +3,7 @@ module github.com/eshaffer321/monarchmoney-sync-backend
 go 1.24.0
 
 require (
-	github.com/eshaffer321/costco-go v0.2.1
+	github.com/eshaffer321/costco-go v0.3.1
 	github.com/eshaffer321/monarchmoney-go v1.0.0
 	github.com/eshaffer321/walmart-client-go v1.0.2
 	github.com/mattn/go-sqlite3 v1.14.32

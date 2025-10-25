@@ -243,15 +243,44 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 
 	var items []providers.OrderItem
 	if hasDetails {
+		// Build a map to net out discount line items
+		itemMap := make(map[string]*CostcoOrderItem)
+
+		// First pass: collect all non-discount items
 		for _, item := range receipt.ItemArray {
-			items = append(items, &CostcoOrderItem{
-				name:        item.ItemDescription01,
-				price:       item.Amount,
-				quantity:    float64(item.Unit),
-				unitPrice:   item.ItemUnitPriceAmount,
-				sku:         item.ItemNumber,
-				description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
-			})
+			if !item.IsDiscount() {
+				itemMap[item.ItemNumber] = &CostcoOrderItem{
+					name:        item.ItemDescription01,
+					price:       item.Amount,
+					quantity:    float64(item.Unit),
+					unitPrice:   item.ItemUnitPriceAmount,
+					sku:         item.ItemNumber,
+					description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
+				}
+			}
+		}
+
+		// Second pass: apply discounts to parent items
+		for _, item := range receipt.ItemArray {
+			if item.IsDiscount() {
+				parentNum := item.GetParentItemNumber()
+				if parentItem, exists := itemMap[parentNum]; exists {
+					// Apply discount (item.Amount is already negative)
+					parentItem.price += item.Amount
+				} else {
+					// Orphaned discount - log warning and skip
+					p.logger.Warn("found orphaned discount with no matching parent item",
+						"discount_item", item.ItemNumber,
+						"parent_item_ref", parentNum,
+						"discount_amount", item.Amount,
+					)
+				}
+			}
+		}
+
+		// Convert map to slice
+		for _, item := range itemMap {
+			items = append(items, item)
 		}
 	}
 
