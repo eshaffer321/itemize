@@ -56,11 +56,13 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 	walmartLogger := logging.NewLoggerWithSystem(loggingCfg, "walmart")
 
 	walmartConfig := walmartclient.ClientConfig{
-		RateLimit:  2 * time.Second,
-		AutoSave:   true,
-		CookieDir:  filepath.Join(homeDir, ".walmart-api"),
-		CookieFile: filepath.Join(homeDir, ".walmart-api", "cookies.json"),
-		Logger:     walmartLogger,
+		RateLimit:       2 * time.Second,  // General rate limit for orders
+		LedgerRateLimit: 30 * time.Second, // Stricter limit for ledger API (v1.0.6)
+		MaxRetries:      3,                 // Auto-retry on 429 with exponential backoff (v1.0.6)
+		AutoSave:        true,
+		CookieDir:       filepath.Join(homeDir, ".walmart-api"),
+		CookieFile:      filepath.Join(homeDir, ".walmart-api", "cookies.json"),
+		Logger:          walmartLogger,
 	}
 
 	walmartClient, err := walmartclient.NewWalmartClient(walmartConfig)

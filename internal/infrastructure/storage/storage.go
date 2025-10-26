@@ -42,6 +42,11 @@ func NewStorage(dbPath string) (*Storage, error) {
 		}
 	}
 
+	// Check if multi_delivery_data column exists, add if missing
+	if err := s.ensureMultiDeliveryColumn(); err != nil {
+		return nil, err
+	}
+
 	return s, nil
 }
 
@@ -75,6 +80,9 @@ type ProcessingRecord struct {
 	Splits     []SplitDetail `json:"splits"`
 	ItemsJSON  string        `json:"-"` // For DB storage
 	SplitsJSON string        `json:"-"` // For DB storage
+
+	// Multi-delivery tracking (JSON)
+	MultiDeliveryData string `json:"multi_delivery_data,omitempty"` // For DB storage
 }
 
 // OrderItem represents an item in the order
@@ -93,6 +101,44 @@ type SplitDetail struct {
 	Amount       float64     `json:"amount"`
 	Items        []OrderItem `json:"items"`
 	Notes        string      `json:"notes"`
+}
+
+// MultiDeliveryInfo tracks multi-delivery consolidation metadata
+type MultiDeliveryInfo struct {
+	IsMultiDelivery           bool      `json:"is_multi_delivery"`
+	ChargeCount               int       `json:"charge_count"`
+	OriginalTransactionIDs    []string  `json:"original_transaction_ids"`
+	ChargeAmounts             []float64 `json:"charge_amounts"`
+	ConsolidatedTransactionID string    `json:"consolidated_transaction_id"`
+}
+
+// SetMultiDeliveryInfo serializes multi-delivery metadata to JSON for storage
+func (r *ProcessingRecord) SetMultiDeliveryInfo(info *MultiDeliveryInfo) error {
+	if info == nil {
+		r.MultiDeliveryData = ""
+		return nil
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	r.MultiDeliveryData = string(data)
+	return nil
+}
+
+// GetMultiDeliveryInfo deserializes multi-delivery metadata from JSON
+func (r *ProcessingRecord) GetMultiDeliveryInfo() (*MultiDeliveryInfo, error) {
+	if r.MultiDeliveryData == "" {
+		return nil, nil
+	}
+
+	var info MultiDeliveryInfo
+	err := json.Unmarshal([]byte(r.MultiDeliveryData), &info)
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
 
 // CreateTables creates enhanced tables with more detail
@@ -117,7 +163,8 @@ func (s *Storage) CreateTables() error {
 			match_confidence REAL DEFAULT 0,
 			dry_run BOOLEAN DEFAULT 0,
 			items_json TEXT,
-			splits_json TEXT
+			splits_json TEXT,
+			multi_delivery_data TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_order_id ON processing_records(order_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_processed_at ON processing_records(processed_at)`,
@@ -140,12 +187,12 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 	splitsJSON, _ := json.Marshal(record.Splits)
 
 	query := `
-	INSERT OR REPLACE INTO processing_records 
-	(order_id, provider, transaction_id, order_date, processed_at, 
+	INSERT OR REPLACE INTO processing_records
+	(order_id, provider, transaction_id, order_date, processed_at,
 	 order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	 split_count, status, error_message, item_count, match_confidence,
-	 dry_run, items_json, splits_json)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	 dry_run, items_json, splits_json, multi_delivery_data)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.Exec(query,
@@ -167,6 +214,7 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 		record.DryRun,
 		string(itemsJSON),
 		string(splitsJSON),
+		record.MultiDeliveryData,
 	)
 
 	return err
@@ -175,14 +223,15 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 // GetRecord retrieves an enhanced record by order ID
 func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	query := `
-	SELECT id, order_id, provider, transaction_id, order_date, processed_at, 
+	SELECT id, order_id, provider, transaction_id, order_date, processed_at,
 	       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	       split_count, status, error_message, item_count, match_confidence,
-	       dry_run, items_json, splits_json
+	       dry_run, items_json, splits_json, multi_delivery_data
 	FROM processing_records WHERE order_id = ?
 	`
 
 	record := &ProcessingRecord{}
+	var multiDeliveryData sql.NullString
 	err := s.db.QueryRow(query, orderID).Scan(
 		&record.ID,
 		&record.OrderID,
@@ -203,6 +252,7 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		&record.DryRun,
 		&record.ItemsJSON,
 		&record.SplitsJSON,
+		&multiDeliveryData,
 	)
 
 	if err != nil {
@@ -215,6 +265,9 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	}
 	if record.SplitsJSON != "" {
 		json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
+	}
+	if multiDeliveryData.Valid {
+		record.MultiDeliveryData = multiDeliveryData.String
 	}
 
 	return record, nil
@@ -334,6 +387,20 @@ func (s *Storage) migrateFromV1() error {
 	// Drop old table
 	_, err = s.db.Exec("DROP TABLE processing_records_old")
 	return err
+}
+
+// ensureMultiDeliveryColumn adds multi_delivery_data column if it doesn't exist
+func (s *Storage) ensureMultiDeliveryColumn() error {
+	// Try to select from the column to check if it exists
+	_, err := s.db.Exec("SELECT multi_delivery_data FROM processing_records LIMIT 1")
+	if err != nil {
+		// Column doesn't exist - add it
+		_, err = s.db.Exec("ALTER TABLE processing_records ADD COLUMN multi_delivery_data TEXT")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // IsProcessed checks if an order has already been successfully processed (non-dry-run)
