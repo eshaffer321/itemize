@@ -1,6 +1,7 @@
 package walmart
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,11 @@ type Order struct {
 	walmartOrder *walmartclient.Order
 	client       *walmartclient.WalmartClient
 	logger       *slog.Logger
+
+	// ledgerCache stores the order ledger to avoid duplicate API calls.
+	// Note: Assumes single-threaded access per Order instance.
+	// The sync orchestrator processes orders sequentially, so no mutex needed.
+	ledgerCache *walmartclient.OrderLedger
 }
 
 // GetID returns the order ID
@@ -181,4 +187,62 @@ func (i *OrderItem) GetSKU() string {
 func (i *OrderItem) GetCategory() string {
 	// Walmart API doesn't provide category in order items
 	return ""
+}
+
+// GetFinalCharges returns the actual bank charges for this order
+// Returns multiple charges for multi-delivery orders
+// Uses cached ledger result to avoid duplicate API calls
+func (o *Order) GetFinalCharges() ([]float64, error) {
+	var ledger *walmartclient.OrderLedger
+
+	// Check cache first
+	if o.ledgerCache != nil {
+		ledger = o.ledgerCache
+	} else {
+		// Client is required for ledger API
+		if o.client == nil {
+			return nil, fmt.Errorf("client not available")
+		}
+
+		// Fetch ledger from API
+		var err error
+		ledger, err = o.client.GetOrderLedger(o.GetID())
+		if err != nil {
+			return nil, fmt.Errorf("failed to get order ledger: %w", err)
+		}
+
+		// Cache for future calls
+		o.ledgerCache = ledger
+	}
+
+	// Extract and validate charges
+	if len(ledger.PaymentMethods) == 0 {
+		return nil, fmt.Errorf("no payment methods in ledger")
+	}
+
+	charges := ledger.PaymentMethods[0].FinalCharges
+
+	// Validate charges
+	if len(charges) == 0 {
+		return nil, fmt.Errorf("no final charges in ledger")
+	}
+
+	// Check for malformed data
+	for i, charge := range charges {
+		if charge <= 0 {
+			return nil, fmt.Errorf("invalid charge at index %d: %.2f (must be positive)", i, charge)
+		}
+	}
+
+	return charges, nil
+}
+
+// IsMultiDelivery checks if order was split into multiple deliveries
+// Returns true if there are multiple final charges
+func (o *Order) IsMultiDelivery() (bool, error) {
+	charges, err := o.GetFinalCharges()
+	if err != nil {
+		return false, err
+	}
+	return len(charges) > 1, nil
 }

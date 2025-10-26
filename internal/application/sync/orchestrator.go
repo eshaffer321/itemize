@@ -10,7 +10,6 @@ import (
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
@@ -63,14 +62,26 @@ func (o *Orchestrator) processOrder(
 		return false, true, nil
 	}
 
-	// Match transaction
-	matcherConfig := matcher.Config{
-		AmountTolerance: 0.01,
-		DateTolerance:   5,
+	// Check if this is a multi-delivery order (Walmart specific)
+	type MultiDeliveryOrder interface {
+		providers.Order
+		IsMultiDelivery() (bool, error)
+		GetFinalCharges() ([]float64, error)
 	}
-	transactionMatcher := matcher.NewMatcher(matcherConfig)
 
-	matchResult, err := transactionMatcher.FindMatch(order, providerTransactions, usedTransactionIDs)
+	if mdOrder, ok := order.(MultiDeliveryOrder); ok {
+		isMulti, err := mdOrder.IsMultiDelivery()
+		if err != nil {
+			o.logger.Error("Failed to check multi-delivery status", "order_id", order.GetID(), "error", err)
+			// Fall through to regular processing
+		} else if isMulti {
+			o.logger.Info("Detected multi-delivery order", "order_id", order.GetID())
+			return o.processMultiDeliveryOrder(ctx, mdOrder, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts)
+		}
+	}
+
+	// Match transaction (regular single-delivery order)
+	matchResult, err := o.matcher.FindMatch(order, providerTransactions, usedTransactionIDs)
 	if err != nil {
 		o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
 		o.recordError(order, err.Error())
@@ -100,22 +111,142 @@ func (o *Orchestrator) processOrder(
 	// Mark transaction as used
 	usedTransactionIDs[match.ID] = true
 
+	// Apply categorization and splits to matched transaction
+	return o.categorizeAndApplySplits(ctx, order, match, catCategories, monarchCategories, opts, nil)
+}
+
+// processMultiDeliveryOrder handles orders with multiple charge transactions
+func (o *Orchestrator) processMultiDeliveryOrder(
+	ctx context.Context,
+	order interface {
+		providers.Order
+		IsMultiDelivery() (bool, error)
+		GetFinalCharges() ([]float64, error)
+	},
+	providerTransactions []*monarch.Transaction,
+	usedTransactionIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	opts Options,
+) (bool, bool, error) {
+	o.logger.Info("Processing multi-delivery order",
+		"order_id", order.GetID(),
+		"order_total", order.GetTotal(),
+	)
+
+	// Get charge amounts
+	charges, err := order.GetFinalCharges()
+	if err != nil {
+		o.logger.Error("Failed to get final charges", "order_id", order.GetID(), "error", err)
+		o.recordError(order, err.Error())
+		return false, false, fmt.Errorf("failed to get final charges: %w", err)
+	}
+
+	o.logger.Info("Found multiple charges", "count", len(charges), "charges", charges)
+
+	// Find matching transactions for each charge
+	multiMatchResult, err := o.matcher.FindMultipleMatches(order, providerTransactions, usedTransactionIDs, charges)
+	if err != nil {
+		o.logger.Error("Multi-match error", "order_id", order.GetID(), "error", err)
+		o.recordError(order, err.Error())
+		return false, false, fmt.Errorf("multi-match error: %w", err)
+	}
+
+	if !multiMatchResult.AllFound {
+		o.logger.Warn("Could not find all matching transactions",
+			"order_id", order.GetID(),
+			"expected", len(charges),
+			"found", len(multiMatchResult.Matches),
+		)
+		o.recordError(order, "Incomplete multi-transaction match")
+		return false, false, fmt.Errorf("incomplete multi-transaction match")
+	}
+
+	// Extract matched transactions
+	matchedTransactions := make([]*monarch.Transaction, 0, len(multiMatchResult.Matches))
+	originalTransactionIDs := make([]string, 0, len(multiMatchResult.Matches))
+	for i, match := range multiMatchResult.Matches {
+		if match == nil {
+			o.logger.Error("Nil match in result", "index", i)
+			continue
+		}
+		matchedTransactions = append(matchedTransactions, match.Transaction)
+		originalTransactionIDs = append(originalTransactionIDs, match.Transaction.ID)
+		o.logger.Debug("Matched charge transaction",
+			"charge_index", i,
+			"charge_amount", charges[i],
+			"transaction_id", match.Transaction.ID,
+			"transaction_amount", math.Abs(match.Transaction.Amount),
+			"date_diff_days", match.DateDiff,
+		)
+	}
+
+	// Mark all transactions as used
+	for _, txnID := range originalTransactionIDs {
+		usedTransactionIDs[txnID] = true
+	}
+
+	// Consolidate transactions into one
+	consolidationResult, err := o.consolidator.ConsolidateTransactions(ctx, matchedTransactions, order, opts.DryRun)
+	if err != nil {
+		o.logger.Error("Failed to consolidate transactions", "order_id", order.GetID(), "error", err)
+		o.recordError(order, err.Error())
+		return false, false, fmt.Errorf("failed to consolidate transactions: %w", err)
+	}
+
+	consolidatedTxn := consolidationResult.ConsolidatedTransaction
+
+	if len(consolidationResult.FailedDeletions) > 0 {
+		o.logger.Warn("Some transactions failed to delete (manual cleanup required)",
+			"order_id", order.GetID(),
+			"failed_transaction_ids", consolidationResult.FailedDeletions,
+		)
+	}
+
+	o.logger.Info("Consolidated transactions",
+		"order_id", order.GetID(),
+		"consolidated_id", consolidatedTxn.ID,
+		"original_ids", originalTransactionIDs,
+		"failed_deletions", len(consolidationResult.FailedDeletions),
+	)
+
+	// Apply categorization and splits to consolidated transaction
+	return o.categorizeAndApplySplits(ctx, order, consolidatedTxn, catCategories, monarchCategories, opts, &storage.MultiDeliveryInfo{
+		IsMultiDelivery:           true,
+		ChargeCount:               len(charges),
+		OriginalTransactionIDs:    originalTransactionIDs,
+		ChargeAmounts:             charges,
+		ConsolidatedTransactionID: consolidatedTxn.ID,
+	})
+}
+
+// categorizeAndApplySplits applies categorization and splits to a transaction
+// This is shared logic used by both regular and multi-delivery order processing
+func (o *Orchestrator) categorizeAndApplySplits(
+	ctx context.Context,
+	order providers.Order,
+	transaction *monarch.Transaction,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	opts Options,
+	multiDeliveryInfo *storage.MultiDeliveryInfo,
+) (bool, bool, error) {
 	// Check if already has splits
-	if match.HasSplits {
-		o.logger.Debug("Transaction already has splits", "transaction_id", match.ID)
+	if transaction.HasSplits {
+		o.logger.Debug("Transaction already has splits", "transaction_id", transaction.ID)
 		return false, true, nil
 	}
 
 	// Categorize and split transaction
 	o.logger.Debug("Processing transaction",
 		"order_id", order.GetID(),
-		"transaction_amount", match.Amount,
+		"transaction_amount", transaction.Amount,
 		"order_subtotal", order.GetSubtotal(),
 		"order_tax", order.GetTax(),
 	)
 
 	// Use splitter to determine if this is single or multi-category
-	splits, err := o.splitter.CreateSplits(ctx, order, match, catCategories, monarchCategories)
+	splits, err := o.splitter.CreateSplits(ctx, order, transaction, catCategories, monarchCategories)
 	if err != nil {
 		o.logger.Error("Failed to categorize order", "order_id", order.GetID(), "error", err)
 		o.recordError(order, err.Error())
@@ -134,12 +265,12 @@ func (o *Orchestrator) processOrder(
 		}
 
 		if !opts.DryRun {
-			o.logger.Debug("Updating transaction category", "transaction_id", match.ID, "category_id", categoryID)
+			o.logger.Debug("Updating transaction category", "transaction_id", transaction.ID, "category_id", categoryID)
 			params := &monarch.UpdateTransactionParams{
 				CategoryID: &categoryID,
 				Notes:      &notes,
 			}
-			_, err = o.clients.Monarch.Transactions.Update(ctx, match.ID, params)
+			_, err = o.clients.Monarch.Transactions.Update(ctx, transaction.ID, params)
 			if err != nil {
 				o.logger.Error("Failed to update transaction", "order_id", order.GetID(), "error", err)
 				o.recordError(order, err.Error())
@@ -151,7 +282,7 @@ func (o *Orchestrator) processOrder(
 		}
 
 		// Record success (no splits)
-		o.recordSuccess(order, match, nil, daysDiff, opts.DryRun)
+		o.recordSuccessWithMultiDelivery(order, transaction, nil, 0.0, opts.DryRun, multiDeliveryInfo)
 		return true, false, nil
 	}
 
@@ -178,8 +309,8 @@ func (o *Orchestrator) processOrder(
 	}
 
 	if !opts.DryRun {
-		o.logger.Debug("Applying splits to Monarch", "transaction_id", match.ID)
-		err = o.clients.Monarch.Transactions.UpdateSplits(ctx, match.ID, splits)
+		o.logger.Debug("Applying splits to Monarch", "transaction_id", transaction.ID)
+		err = o.clients.Monarch.Transactions.UpdateSplits(ctx, transaction.ID, splits)
 		if err != nil {
 			o.logger.Error("Failed to apply splits", "order_id", order.GetID(), "error", err)
 			o.recordError(order, err.Error())
@@ -191,7 +322,7 @@ func (o *Orchestrator) processOrder(
 	}
 
 	// Record success
-	o.recordSuccess(order, match, splits, daysDiff, opts.DryRun)
+	o.recordSuccessWithMultiDelivery(order, transaction, splits, 0.0, opts.DryRun, multiDeliveryInfo)
 	return true, false, nil
 }
 
@@ -214,6 +345,18 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 
 // recordSuccess records a successful processing to storage
 func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch.Transaction, splits []*monarch.TransactionSplit, confidence float64, dryRun bool) {
+	o.recordSuccessWithMultiDelivery(order, transaction, splits, confidence, dryRun, nil)
+}
+
+// recordSuccessWithMultiDelivery records a successful processing with optional multi-delivery info
+func (o *Orchestrator) recordSuccessWithMultiDelivery(
+	order providers.Order,
+	transaction *monarch.Transaction,
+	splits []*monarch.TransactionSplit,
+	confidence float64,
+	dryRun bool,
+	multiDeliveryInfo *storage.MultiDeliveryInfo,
+) {
 	if o.storage != nil {
 		record := &storage.ProcessingRecord{
 			OrderID:           order.GetID(),
@@ -232,6 +375,14 @@ func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch
 		if dryRun {
 			record.Status = "dry-run"
 		}
+
+		// Add multi-delivery metadata if provided
+		if multiDeliveryInfo != nil {
+			if err := record.SetMultiDeliveryInfo(multiDeliveryInfo); err != nil {
+				o.logger.Error("Failed to set multi-delivery info", "error", err)
+			}
+		}
+
 		o.storage.SaveRecord(record)
 	}
 }

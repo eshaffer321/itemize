@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/eshaffer321/costco-go v0.3.1
 	github.com/eshaffer321/monarchmoney-go v1.0.0
-	github.com/eshaffer321/walmart-client-go v1.0.2
+	github.com/eshaffer321/walmart-client-go v1.0.7
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.35.0
