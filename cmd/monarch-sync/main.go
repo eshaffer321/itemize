@@ -102,4 +102,5 @@ func printUsage() {
 	fmt.Println("  -max int         Maximum orders to process (default 0 = all)")
 	fmt.Println("  -force           Force reprocess already processed orders")
 	fmt.Println("  -verbose         Verbose output")
+	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
 }
