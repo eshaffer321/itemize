@@ -13,6 +13,7 @@ type SyncFlags struct {
 	MaxOrders    int
 	Force        bool
 	Verbose      bool
+	OrderID      string
 }
 
 // ParseSyncFlags parses common sync flags from command line
@@ -23,6 +24,7 @@ func ParseSyncFlags() SyncFlags {
 	flag.IntVar(&flags.MaxOrders, "max", 0, "Maximum orders to process (0 = all)")
 	flag.BoolVar(&flags.Force, "force", false, "Force reprocess already processed orders")
 	flag.BoolVar(&flags.Verbose, "verbose", false, "Verbose output")
+	flag.StringVar(&flags.OrderID, "order-id", "", "Process only this specific order ID (limits blast radius)")
 	flag.Parse()
 	return flags
 }
@@ -35,5 +37,6 @@ func (f SyncFlags) ToSyncOptions() sync.Options {
 		MaxOrders:    f.MaxOrders,
 		Force:        f.Force,
 		Verbose:      f.Verbose,
+		OrderID:      f.OrderID,
 	}
 }

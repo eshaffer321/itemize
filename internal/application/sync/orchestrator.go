@@ -474,6 +474,15 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	usedTransactionIDs := make(map[string]bool)
 
 	for i, order := range orders {
+		// If OrderID filter is set, skip all other orders
+		if opts.OrderID != "" && order.GetID() != opts.OrderID {
+			o.logger.Debug("Skipping order (not matching -order-id filter)",
+				"order_id", order.GetID(),
+				"filter", opts.OrderID,
+			)
+			continue
+		}
+
 		o.logger.Debug("Processing order",
 			"index", i+1,
 			"total", len(orders),

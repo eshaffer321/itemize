@@ -17,6 +17,7 @@ type Options struct {
 	MaxOrders    int
 	Force        bool
 	Verbose      bool
+	OrderID      string // If set, only process this specific order (for testing)
 }
 
 // Result holds sync results
