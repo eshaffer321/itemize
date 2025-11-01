@@ -37,6 +37,7 @@ type Orchestrator struct {
 	consolidator *Consolidator
 	storage      *storage.Storage
 	logger       *slog.Logger
+	runID        int64 // Current sync run ID for API logging
 }
 
 // NewOrchestrator creates a new sync orchestrator
@@ -62,7 +63,7 @@ func NewOrchestrator(
 	// Create consolidator (if clients available)
 	var consolidator *Consolidator
 	if clients != nil && clients.Monarch != nil {
-		consolidator = NewConsolidator(clients.Monarch, logger)
+		consolidator = NewConsolidator(clients.Monarch, logger, storage, 0)
 	}
 
 	return &Orchestrator{
