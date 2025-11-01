@@ -175,7 +175,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{
 			id:    "ORDER123",
@@ -209,7 +209,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{
 			id:    "ORDER456",
@@ -238,7 +238,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{
 			id:    "ORDER789",
@@ -267,7 +267,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{
 			id:    "ORDER999",
@@ -291,7 +291,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{
 			id:    "ORDER111",
@@ -319,7 +319,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{id: "ORDER", total: 100}
 		transactions := []*monarch.Transaction{}
@@ -336,7 +336,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{total: 126.98}
 		transactions := []*monarch.Transaction{
@@ -356,7 +356,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{total: 100.00}
 		transactions := []*monarch.Transaction{
@@ -387,7 +387,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		client := &monarch.Client{
 			Transactions: mockClient,
 		}
-		consolidator := NewConsolidator(client, logger)
+		consolidator := NewConsolidator(client, logger, nil, 0)
 
 		order := &mockOrder{total: 126.98}
 		transactions := []*monarch.Transaction{
@@ -410,7 +410,7 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 
 // TestConsolidator_buildConsolidationNote tests note generation
 func TestConsolidator_buildConsolidationNote(t *testing.T) {
-	consolidator := NewConsolidator(nil, nil)
+	consolidator := NewConsolidator(nil, nil, nil, 0)
 
 	t.Run("two charges", func(t *testing.T) {
 		transactions := []*monarch.Transaction{

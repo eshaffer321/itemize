@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -20,30 +21,17 @@ func NewStorage(dbPath string) (*Storage, error) {
 		return nil, err
 	}
 
+	// Enable foreign key constraints (SQLite-specific)
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+	}
+
 	s := &Storage{db: db}
 
-	// Check if we need to migrate from old schema
-	needsMigration := false
-	var col string
-	err = db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='processing_records'").Scan(&col)
-	if err == nil {
-		// Table exists - check if it has the 'provider' column
-		_, err = db.Exec("SELECT provider FROM processing_records LIMIT 1")
-		needsMigration = (err != nil)
-	}
-
-	if needsMigration {
-		if err := s.migrateFromV1(); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := s.CreateTables(); err != nil {
-			return nil, err
-		}
-	}
-
-	// Check if multi_delivery_data column exists, add if missing
-	if err := s.ensureMultiDeliveryColumn(); err != nil {
+	// Run all pending migrations
+	if err := s.runMigrations(); err != nil {
+		db.Close()
 		return nil, err
 	}
 
@@ -139,46 +127,6 @@ func (r *ProcessingRecord) GetMultiDeliveryInfo() (*MultiDeliveryInfo, error) {
 		return nil, err
 	}
 	return &info, nil
-}
-
-// CreateTables creates enhanced tables with more detail
-func (s *Storage) CreateTables() error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS processing_records (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			order_id TEXT UNIQUE NOT NULL,
-			provider TEXT DEFAULT 'walmart',
-			transaction_id TEXT,
-			order_date DATETIME,
-			processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			order_total REAL,
-			order_subtotal REAL,
-			order_tax REAL,
-			order_tip REAL,
-			transaction_amount REAL,
-			split_count INTEGER DEFAULT 0,
-			status TEXT,
-			error_message TEXT,
-			item_count INTEGER DEFAULT 0,
-			match_confidence REAL DEFAULT 0,
-			dry_run BOOLEAN DEFAULT 0,
-			items_json TEXT,
-			splits_json TEXT,
-			multi_delivery_data TEXT
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_order_id ON processing_records(order_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_processed_at ON processing_records(processed_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_status ON processing_records(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_provider ON processing_records(provider)`,
-	}
-
-	for _, query := range queries {
-		if _, err := s.db.Exec(query); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // SaveRecord saves an enhanced processing record
@@ -353,56 +301,6 @@ type ProviderStats struct {
 	TotalAmount  float64 `json:"total_amount"`
 }
 
-// migrateFromV1 migrates data from the old schema to the new one
-func (s *Storage) migrateFromV1() error {
-	// Rename old table
-	_, err := s.db.Exec("ALTER TABLE processing_records RENAME TO processing_records_old")
-	if err != nil {
-		return err
-	}
-
-	// Create new table with v2 schema
-	if err := s.CreateTables(); err != nil {
-		return err
-	}
-
-	// Migrate records from old table to new table (skip duplicates)
-	query := `
-	INSERT OR IGNORE INTO processing_records
-	(order_id, provider, transaction_id, order_date, processed_at,
-	 order_total, split_count, status, error_message, item_count,
-	 match_confidence, items_json)
-	SELECT
-		order_id, 'walmart', transaction_id, order_date, processed_at,
-		order_amount, split_count, status, COALESCE(error_message, ''), item_count,
-		COALESCE(match_confidence, 0), COALESCE(item_details, '[]')
-	FROM processing_records_old
-	`
-
-	_, err = s.db.Exec(query)
-	if err != nil {
-		return err
-	}
-
-	// Drop old table
-	_, err = s.db.Exec("DROP TABLE processing_records_old")
-	return err
-}
-
-// ensureMultiDeliveryColumn adds multi_delivery_data column if it doesn't exist
-func (s *Storage) ensureMultiDeliveryColumn() error {
-	// Try to select from the column to check if it exists
-	_, err := s.db.Exec("SELECT multi_delivery_data FROM processing_records LIMIT 1")
-	if err != nil {
-		// Column doesn't exist - add it
-		_, err = s.db.Exec("ALTER TABLE processing_records ADD COLUMN multi_delivery_data TEXT")
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // IsProcessed checks if an order has already been successfully processed (non-dry-run)
 func (s *Storage) IsProcessed(orderID string) bool {
 	var count int
@@ -411,15 +309,142 @@ func (s *Storage) IsProcessed(orderID string) bool {
 	return err == nil && count > 0
 }
 
-// StartSyncRun records the start of a sync run (optional feature)
-func (s *Storage) StartSyncRun(orderCount int, dryRun bool, lookbackDays int) (int64, error) {
-	// This is a placeholder - sync runs tracking is optional
-	// For now, just return a fake ID
-	return 1, nil
+// StartSyncRun records the start of a sync run
+func (s *Storage) StartSyncRun(provider string, lookbackDays int, dryRun bool) (int64, error) {
+	query := `
+		INSERT INTO sync_runs (provider, lookback_days, dry_run, status)
+		VALUES (?, ?, ?, 'running')
+	`
+
+	result, err := s.db.Exec(query, provider, lookbackDays, dryRun)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.LastInsertId()
 }
 
-// CompleteSyncRun records the completion of a sync run (optional feature)
-func (s *Storage) CompleteSyncRun(runID int64, processed, skipped, errors int) error {
-	// This is a placeholder - sync runs tracking is optional
-	return nil
+// CompleteSyncRun records the completion of a sync run
+func (s *Storage) CompleteSyncRun(runID int64, ordersFound, processed, skipped, errors int) error {
+	query := `
+		UPDATE sync_runs
+		SET completed_at = CURRENT_TIMESTAMP,
+		    orders_found = ?,
+		    orders_processed = ?,
+		    orders_skipped = ?,
+		    orders_errored = ?,
+		    status = CASE WHEN ? > 0 THEN 'completed_with_errors' ELSE 'completed' END
+		WHERE id = ?
+	`
+
+	_, err := s.db.Exec(query, ordersFound, processed, skipped, errors, errors, runID)
+	return err
+}
+
+// APICall represents a logged API call
+type APICall struct {
+	RunID        int64
+	OrderID      string
+	Method       string
+	RequestJSON  string
+	ResponseJSON string
+	Error        string
+	DurationMs   int64
+}
+
+// LogAPICall logs an API call to the database
+func (s *Storage) LogAPICall(call *APICall) error {
+	query := `
+		INSERT INTO api_calls
+		(run_id, order_id, method, request_json, response_json, error, duration_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := s.db.Exec(query,
+		call.RunID,
+		call.OrderID,
+		call.Method,
+		call.RequestJSON,
+		call.ResponseJSON,
+		call.Error,
+		call.DurationMs,
+	)
+
+	return err
+}
+
+// GetAPICallsByOrderID retrieves all API calls for a specific order
+func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
+	query := `
+		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp
+		FROM api_calls
+		WHERE order_id = ?
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := s.db.Query(query, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var calls []APICall
+	for rows.Next() {
+		var call APICall
+		var timestamp string
+		err := rows.Scan(
+			&call.RunID,
+			&call.OrderID,
+			&call.Method,
+			&call.RequestJSON,
+			&call.ResponseJSON,
+			&call.Error,
+			&call.DurationMs,
+			&timestamp,
+		)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, call)
+	}
+
+	return calls, rows.Err()
+}
+
+// GetAPICallsByRunID retrieves all API calls for a specific sync run
+func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
+	query := `
+		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp
+		FROM api_calls
+		WHERE run_id = ?
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := s.db.Query(query, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var calls []APICall
+	for rows.Next() {
+		var call APICall
+		var timestamp string
+		err := rows.Scan(
+			&call.RunID,
+			&call.OrderID,
+			&call.Method,
+			&call.RequestJSON,
+			&call.ResponseJSON,
+			&call.Error,
+			&call.DurationMs,
+			&timestamp,
+		)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, call)
+	}
+
+	return calls, rows.Err()
 }

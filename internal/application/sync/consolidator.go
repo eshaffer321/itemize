@@ -2,29 +2,79 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
 // Consolidator handles transaction consolidation for multi-delivery orders
 type Consolidator struct {
-	client *monarch.Client
-	logger *slog.Logger
+	client  *monarch.Client
+	logger  *slog.Logger
+	storage *storage.Storage
+	runID   int64
 }
 
 // NewConsolidator creates a new consolidator
-func NewConsolidator(client *monarch.Client, logger *slog.Logger) *Consolidator {
+func NewConsolidator(client *monarch.Client, logger *slog.Logger, store *storage.Storage, runID int64) *Consolidator {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Consolidator{
-		client: client,
-		logger: logger.With(slog.String("component", "consolidator")),
+		client:  client,
+		logger:  logger.With(slog.String("component", "consolidator")),
+		storage: store,
+		runID:   runID,
+	}
+}
+
+// SetRunID updates the run ID for API logging (called after orchestrator creates sync run)
+func (c *Consolidator) SetRunID(runID int64) {
+	c.runID = runID
+}
+
+// logAPICall logs an API call to the database
+func (c *Consolidator) logAPICall(orderID, method string, request, response interface{}, err error, durationMs int64) {
+	if c.storage == nil || c.runID == 0 {
+		return // No storage or no run ID, skip logging
+	}
+
+	requestJSON, marshalErr := json.Marshal(request)
+	if marshalErr != nil {
+		c.logger.Warn("Failed to marshal request for API log", "method", method, "error", marshalErr)
+		requestJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal: %v"}`, marshalErr))
+	}
+
+	responseJSON, marshalErr := json.Marshal(response)
+	if marshalErr != nil {
+		c.logger.Warn("Failed to marshal response for API log", "method", method, "error", marshalErr)
+		responseJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal: %v"}`, marshalErr))
+	}
+
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+
+	apiCall := &storage.APICall{
+		RunID:        c.runID,
+		OrderID:      orderID,
+		Method:       method,
+		RequestJSON:  string(requestJSON),
+		ResponseJSON: string(responseJSON),
+		Error:        errStr,
+		DurationMs:   durationMs,
+	}
+
+	if logErr := c.storage.LogAPICall(apiCall); logErr != nil {
+		c.logger.Warn("Failed to log API call", "method", method, "error", logErr)
 	}
 }
 
@@ -75,7 +125,7 @@ func (c *Consolidator) ConsolidateTransactions(
 	}
 
 	// Delete extra transactions
-	failedDeletions, err := c.deleteExtraTransactions(ctx, extras, dryRun)
+	failedDeletions, err := c.deleteExtraTransactions(ctx, extras, order, dryRun)
 	if err != nil {
 		c.logger.Warn("Some transactions failed to delete",
 			"failed_count", len(failedDeletions),
@@ -143,7 +193,13 @@ func (c *Consolidator) updatePrimaryTransaction(
 		Notes:  &note,
 	}
 
+	start := time.Now()
 	updated, err := c.client.Transactions.Update(ctx, primary.ID, params)
+	duration := time.Since(start).Milliseconds()
+
+	// Log API call
+	c.logAPICall(order.GetID(), "Transactions.Update", params, updated, err, duration)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to update transaction %s: %w", primary.ID, err)
 	}
@@ -161,6 +217,7 @@ func (c *Consolidator) updatePrimaryTransaction(
 func (c *Consolidator) deleteExtraTransactions(
 	ctx context.Context,
 	extras []*monarch.Transaction,
+	order providers.Order,
 	dryRun bool,
 ) ([]string, error) {
 	var failedDeletions []string
@@ -188,7 +245,13 @@ func (c *Consolidator) deleteExtraTransactions(
 		}
 
 		// Delete via Monarch API
+		start := time.Now()
 		err := c.client.Transactions.Delete(ctx, txn.ID)
+		duration := time.Since(start).Milliseconds()
+
+		// Log API call
+		c.logAPICall(order.GetID(), "Transactions.Delete", map[string]string{"transaction_id": txn.ID}, nil, err, duration)
+
 		if err != nil {
 			c.logger.Error("Failed to delete transaction",
 				"transaction_id", txn.ID,

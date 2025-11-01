@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -270,7 +271,14 @@ func (o *Orchestrator) categorizeAndApplySplits(
 				CategoryID: &categoryID,
 				Notes:      &notes,
 			}
-			_, err = o.clients.Monarch.Transactions.Update(ctx, transaction.ID, params)
+
+			start := time.Now()
+			result, err := o.clients.Monarch.Transactions.Update(ctx, transaction.ID, params)
+			duration := time.Since(start).Milliseconds()
+
+			// Log API call
+			o.logAPICall(order.GetID(), "Transactions.Update", params, result, err, duration)
+
 			if err != nil {
 				o.logger.Error("Failed to update transaction", "order_id", order.GetID(), "error", err)
 				o.recordError(order, err.Error())
@@ -310,7 +318,14 @@ func (o *Orchestrator) categorizeAndApplySplits(
 
 	if !opts.DryRun {
 		o.logger.Debug("Applying splits to Monarch", "transaction_id", transaction.ID)
+
+		start := time.Now()
 		err = o.clients.Monarch.Transactions.UpdateSplits(ctx, transaction.ID, splits)
+		duration := time.Since(start).Milliseconds()
+
+		// Log API call
+		o.logAPICall(order.GetID(), "Transactions.UpdateSplits", splits, nil, err, duration)
+
 		if err != nil {
 			o.logger.Error("Failed to apply splits", "order_id", order.GetID(), "error", err)
 			o.recordError(order, err.Error())
@@ -465,9 +480,17 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// Start sync run
-	var runID int64
 	if o.storage != nil {
-		runID, _ = o.storage.StartSyncRun(len(orders), opts.DryRun, opts.LookbackDays)
+		var err error
+		o.runID, err = o.storage.StartSyncRun(o.provider.DisplayName(), opts.LookbackDays, opts.DryRun)
+		if err != nil {
+			o.logger.Warn("Failed to start sync run tracking", "error", err)
+			// Continue anyway - tracking failure shouldn't block sync
+		}
+		// Set runID on consolidator for API logging
+		if o.consolidator != nil {
+			o.consolidator.SetRunID(o.runID)
+		}
 	}
 
 	// 4. Process orders
@@ -508,9 +531,47 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// Complete sync run
-	if o.storage != nil && runID > 0 {
-		o.storage.CompleteSyncRun(runID, result.ProcessedCount, result.SkippedCount, result.ErrorCount)
+	if o.storage != nil && o.runID > 0 {
+		o.storage.CompleteSyncRun(o.runID, len(orders), result.ProcessedCount, result.SkippedCount, result.ErrorCount)
 	}
 
 	return result, nil
+}
+
+// logAPICall logs an API call to the database for audit trail
+func (o *Orchestrator) logAPICall(orderID, method string, request, response interface{}, err error, durationMs int64) {
+	if o.storage == nil || o.runID == 0 {
+		return // No storage or no run ID, skip logging
+	}
+
+	requestJSON, marshalErr := json.Marshal(request)
+	if marshalErr != nil {
+		o.logger.Warn("Failed to marshal request for API log", "method", method, "error", marshalErr)
+		requestJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal: %v"}`, marshalErr))
+	}
+
+	responseJSON, marshalErr := json.Marshal(response)
+	if marshalErr != nil {
+		o.logger.Warn("Failed to marshal response for API log", "method", method, "error", marshalErr)
+		responseJSON = []byte(fmt.Sprintf(`{"error": "failed to marshal: %v"}`, marshalErr))
+	}
+
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+
+	apiCall := &storage.APICall{
+		RunID:        o.runID,
+		OrderID:      orderID,
+		Method:       method,
+		RequestJSON:  string(requestJSON),
+		ResponseJSON: string(responseJSON),
+		Error:        errStr,
+		DurationMs:   durationMs,
+	}
+
+	if err := o.storage.LogAPICall(apiCall); err != nil {
+		o.logger.Warn("Failed to log API call", "method", method, "error", err)
+	}
 }
