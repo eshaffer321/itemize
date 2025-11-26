@@ -220,13 +220,6 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 		return nil, fmt.Errorf("no payment methods in ledger")
 	}
 
-	charges := ledger.PaymentMethods[0].FinalCharges
-
-	// Validate charges
-	if len(charges) == 0 {
-		return nil, fmt.Errorf("no final charges in ledger")
-	}
-
 	// TODO: Handle refund transactions (negative charges)
 	// Currently we skip negative charges in the ledger, which means refund
 	// transactions in Monarch Money won't be categorized. Future enhancement:
@@ -234,23 +227,39 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	// 2. Determine which item(s) were refunded from the ledger
 	// 3. Categorize the refund with the same category as the refunded item
 
-	// Filter to positive charges only (actual bank charges)
-	// Skip negative charges (refunds/credits) and zero charges
+	// Collect positive charges from credit card payment methods only
+	// Gift cards don't appear in bank transactions, so skip them
 	var positiveCharges []float64
-	for _, charge := range charges {
-		if charge > 0 {
-			positiveCharges = append(positiveCharges, charge)
-		} else if charge < 0 {
+	for _, pm := range ledger.PaymentMethods {
+		// Only include credit card charges (bank transactions)
+		// Gift cards and store credit don't appear in bank statements
+		if pm.PaymentType != "CREDITCARD" {
 			if o.logger != nil {
-				o.logger.Warn("Skipping refund in ledger (not yet supported)",
+				o.logger.Debug("Skipping non-credit-card payment (won't appear in bank)",
 					"order_id", o.GetID(),
-					"refund_amount", charge)
+					"payment_type", pm.PaymentType,
+					"amount", pm.TotalCharged)
+			}
+			continue
+		}
+
+		// Filter to positive charges only (actual bank charges)
+		// Skip negative charges (refunds/credits) and zero charges
+		for _, charge := range pm.FinalCharges {
+			if charge > 0 {
+				positiveCharges = append(positiveCharges, charge)
+			} else if charge < 0 {
+				if o.logger != nil {
+					o.logger.Warn("Skipping refund in ledger (not yet supported)",
+						"order_id", o.GetID(),
+						"refund_amount", charge)
+				}
 			}
 		}
 	}
 
 	if len(positiveCharges) == 0 {
-		return nil, fmt.Errorf("no positive charges found (order may be fully refunded)")
+		return nil, fmt.Errorf("no positive charges found (order may be fully refunded or paid entirely with gift card)")
 	}
 
 	return positiveCharges, nil
