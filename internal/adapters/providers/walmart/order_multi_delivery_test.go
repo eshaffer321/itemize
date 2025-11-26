@@ -64,6 +64,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 				OrderID: "TEST789",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{100.00},
 						TotalCharged: 100.00,
 					},
@@ -115,6 +116,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 				OrderID: "TEST002",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{},
 						TotalCharged: 0,
 					},
@@ -124,7 +126,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 
 		_, err := order.GetFinalCharges()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no final charges in ledger")
+		assert.Contains(t, err.Error(), "no positive charges found")
 	})
 
 	t.Run("filters negative charge amounts (refunds)", func(t *testing.T) {
@@ -134,6 +136,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 				OrderID: "TEST003",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{100.00, -50.00},
 						TotalCharged: 50.00,
 					},
@@ -154,6 +157,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 				OrderID: "TEST004",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{100.00, 0.00},
 						TotalCharged: 100.00,
 					},
@@ -204,6 +208,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 				OrderID: "TEST005",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{-100.00, -50.00},
 						TotalCharged: -150.00,
 					},
@@ -214,6 +219,35 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		_, err := order.GetFinalCharges()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no positive charges found")
+	})
+
+	t.Run("filters gift card payments (only returns credit card)", func(t *testing.T) {
+		// Order 200014031633755 - gift card $1.50, VISA $64.36
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "200014031633755"},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID: "200014031633755",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{
+					{
+						PaymentType:  "GIFTCARD",
+						CardType:     "WMTRC",
+						FinalCharges: []float64{1.5},
+						TotalCharged: 1.5,
+					},
+					{
+						PaymentType:  "CREDITCARD",
+						CardType:     "VISA",
+						FinalCharges: []float64{64.36},
+						TotalCharged: 64.36,
+					},
+				},
+			},
+		}
+
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Len(t, charges, 1, "should only return credit card charge, not gift card")
+		assert.Equal(t, 64.36, charges[0], "should return VISA charge, not gift card")
 	})
 }
 
@@ -226,6 +260,7 @@ func TestOrder_IsMultiDelivery(t *testing.T) {
 				OrderID: "SINGLE",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{126.98},
 						TotalCharged: 126.98,
 					},
@@ -245,6 +280,7 @@ func TestOrder_IsMultiDelivery(t *testing.T) {
 				OrderID: "MULTI",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{118.67, 8.31},
 						TotalCharged: 126.98,
 					},
@@ -264,6 +300,7 @@ func TestOrder_IsMultiDelivery(t *testing.T) {
 				OrderID: "TRIPLE",
 				PaymentMethods: []walmartclient.PaymentMethodCharges{
 					{
+						PaymentType:  "CREDITCARD",
 						FinalCharges: []float64{50.00, 30.00, 20.00},
 						TotalCharged: 100.00,
 					},
