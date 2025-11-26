@@ -127,7 +127,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		assert.Contains(t, err.Error(), "no final charges in ledger")
 	})
 
-	t.Run("error - negative charge amount", func(t *testing.T) {
+	t.Run("filters negative charge amounts (refunds)", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST003"},
 			ledgerCache: &walmartclient.OrderLedger{
@@ -141,12 +141,13 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 			},
 		}
 
-		_, err := order.GetFinalCharges()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid charge at index 1")
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Len(t, charges, 1, "should filter out negative charges")
+		assert.Equal(t, 100.00, charges[0], "should return only positive charge")
 	})
 
-	t.Run("error - zero charge amount", func(t *testing.T) {
+	t.Run("filters zero charge amounts", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST004"},
 			ledgerCache: &walmartclient.OrderLedger{
@@ -160,9 +161,59 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 			},
 		}
 
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Len(t, charges, 1, "should filter out zero charges")
+		assert.Equal(t, 100.00, charges[0], "should return only positive charge")
+	})
+
+	t.Run("real world - order with refund and gift card", func(t *testing.T) {
+		// Based on actual order 200013800734485:
+		// - VISA charge: $95.90
+		// - Refund: -$4.63
+		// - Gift card: $5.00
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "200013800734485"},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID: "200013800734485",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{
+					{
+						PaymentType:  "CREDITCARD",
+						FinalCharges: []float64{-4.63, 95.9},
+						TotalCharged: 91.27,
+					},
+					{
+						PaymentType:  "GIFTCARD",
+						FinalCharges: []float64{5.0},
+						TotalCharged: 5.0,
+					},
+				},
+			},
+		}
+
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Len(t, charges, 1, "should only return VISA charge (gift card doesn't appear in bank)")
+		assert.Equal(t, 95.9, charges[0], "should return the VISA charge, not the refund")
+	})
+
+	t.Run("error - all charges are negative (full refund)", func(t *testing.T) {
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "TEST005"},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID: "TEST005",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{
+					{
+						FinalCharges: []float64{-100.00, -50.00},
+						TotalCharged: -150.00,
+					},
+				},
+			},
+		}
+
 		_, err := order.GetFinalCharges()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid charge at index 1")
+		assert.Contains(t, err.Error(), "no positive charges found")
 	})
 }
 

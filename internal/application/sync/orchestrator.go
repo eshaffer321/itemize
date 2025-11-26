@@ -63,7 +63,7 @@ func (o *Orchestrator) processOrder(
 		return false, true, nil
 	}
 
-	// Check if this is a multi-delivery order (Walmart specific)
+	// Check if this is a multi-delivery order or has ledger-based amounts (Walmart specific)
 	type MultiDeliveryOrder interface {
 		providers.Order
 		IsMultiDelivery() (bool, error)
@@ -71,13 +71,63 @@ func (o *Orchestrator) processOrder(
 	}
 
 	if mdOrder, ok := order.(MultiDeliveryOrder); ok {
-		isMulti, err := mdOrder.IsMultiDelivery()
+		charges, err := mdOrder.GetFinalCharges()
 		if err != nil {
-			o.logger.Error("Failed to check multi-delivery status", "order_id", order.GetID(), "error", err)
-			// Fall through to regular processing
-		} else if isMulti {
+			o.logger.Error("Failed to get ledger charges", "order_id", order.GetID(), "error", err)
+			// Fall through to regular processing using GetTotal()
+		} else if len(charges) > 1 {
+			// Multiple charges - multi-delivery order
 			o.logger.Info("Detected multi-delivery order", "order_id", order.GetID())
 			return o.processMultiDeliveryOrder(ctx, mdOrder, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts)
+		} else if len(charges) == 1 {
+			chargeAmount := charges[0]
+			orderTotal := order.GetTotal()
+
+			// Check if ledger amount differs from order total (gift card, refund, etc.)
+			const epsilon = 0.01 // Allow 1 cent difference for floating point
+			if math.Abs(chargeAmount-orderTotal) > epsilon {
+				o.logger.Info("Using ledger amount for matching (differs from order total)",
+					"order_id", order.GetID(),
+					"order_total", orderTotal,
+					"ledger_charge", chargeAmount,
+					"difference", math.Abs(chargeAmount-orderTotal))
+
+				// Create a wrapper order that returns the ledger amount as its total
+				wrappedOrder := &ledgerAmountOrder{
+					Order:        order,
+					ledgerAmount: chargeAmount,
+				}
+
+				// Use wrapped order for matching
+				matchResult, err := o.matcher.FindMatch(wrappedOrder, providerTransactions, usedTransactionIDs)
+				if err != nil {
+					o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
+					o.recordError(order, err.Error())
+					return false, false, fmt.Errorf("matching error: %w", err)
+				}
+
+				if matchResult == nil {
+					o.logger.Warn("No matching transaction found for ledger amount",
+						"order_id", order.GetID(),
+						"ledger_amount", chargeAmount)
+					o.recordError(order, "no matching transaction")
+					return false, false, fmt.Errorf("no matching transaction")
+				}
+
+				o.logger.Debug("Matched transaction using ledger amount",
+					"order_id", order.GetID(),
+					"transaction_id", matchResult.Transaction.ID,
+					"ledger_amount", chargeAmount,
+					"transaction_amount", math.Abs(matchResult.Transaction.Amount),
+					"date_diff_days", matchResult.DateDiff)
+
+				// Mark as used
+				usedTransactionIDs[matchResult.Transaction.ID] = true
+
+				// Apply categorization and splits using original order (not wrapped)
+				return o.categorizeAndApplySplits(ctx, order, matchResult.Transaction, catCategories, monarchCategories, opts, nil)
+			}
+			// else: ledger amount equals order total, fall through to regular processing
 		}
 	}
 
@@ -574,4 +624,17 @@ func (o *Orchestrator) logAPICall(orderID, method string, request, response inte
 	if err := o.storage.LogAPICall(apiCall); err != nil {
 		o.logger.Warn("Failed to log API call", "method", method, "error", err)
 	}
+}
+
+// ledgerAmountOrder wraps an order to override GetTotal() with a ledger-based amount
+// This is used when the actual bank charge differs from the order total
+// (e.g., due to gift cards, refunds, or other adjustments)
+type ledgerAmountOrder struct {
+	providers.Order
+	ledgerAmount float64
+}
+
+// GetTotal returns the ledger amount instead of the original order total
+func (l *ledgerAmountOrder) GetTotal() float64 {
+	return l.ledgerAmount
 }
