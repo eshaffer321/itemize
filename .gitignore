@@ -21,6 +21,7 @@ results.sarif
 
 # Dependency directories
 vendor/
+node_modules/
 
 # Go workspace file
 go.work
@@ -46,6 +47,12 @@ Thumbs.db
 monarchmoney-sync-backend
 walmart-monarch-backend
 main
+/costco-sync
+/walmart-sync
+/walmart-sync-with-db
+/monarch-sync
+bin/
+dist/
 
 # Logs
 *.log

@@ -1,376 +1,395 @@
-# Walmart-Monarch Money Sync Project
+# Developer Guide for AI Assistants
 
-## Project Vision
-Build a Chrome extension and Go backend that automatically syncs Walmart purchases with Monarch Money, intelligently categorizing and splitting transactions based on individual items purchased.
+**Last Updated:** October 2024
+**Project Status:** Production-ready CLI application
 
-## Development Methodology: Test-Driven Development (TDD)
+## What This Project Is
 
-### Core TDD Workflow
-1. **Write the test first** - Define expected behavior
-2. **Run test and watch it fail** - Verify test is actually testing something
-3. **Write minimal code** - Just enough to make test pass
-4. **Run test and watch it pass** - Verify implementation works
+A working CLI application that syncs Walmart and Costco purchases with Monarch Money, automatically categorizing items and splitting transactions. **This is NOT a web server or API** - it's a command-line tool that runs locally.
+
+## Quick Reference
+
+### Build and Run
+```bash
+# Build
+go build -o monarch-sync ./cmd/monarch-sync/
+
+# Run with dry-run (preview, no changes)
+./monarch-sync walmart -dry-run -days 14 -verbose
+./monarch-sync costco -dry-run -days 7
+
+# Apply changes
+./monarch-sync walmart -days 14
+./monarch-sync costco -days 7 -max 10
+
+# Force reprocess already-processed orders
+./monarch-sync walmart -force
+```
+
+### Test
+```bash
+# All tests
+go test ./... -v
+
+# Specific layer
+go test ./internal/domain/... -v
+go test ./internal/adapters/providers/walmart/... -v
+
+# Coverage
+go test ./... -cover
+
+# Race detection
+go test ./... -race
+```
+
+### Configuration
+The app reads from `config.yaml` or environment variables:
+- `MONARCH_TOKEN` - Monarch Money API token (required)
+- `OPENAI_APIKEY` or `OPENAI_API_KEY` - OpenAI API key (required)
+- Database at `monarch_sync.db` (auto-created)
+
+## Architecture at a Glance
+
+**Layered architecture** with clear separation of concerns:
+
+```
+internal/
+├── application/sync/      # Orchestrator - coordinates the workflow
+├── domain/                # Pure business logic (no dependencies)
+│   ├── categorizer/       # AI categorization with OpenAI
+│   ├── matcher/           # Fuzzy transaction matching
+│   └── splitter/          # Transaction split creation
+├── adapters/              # External integrations
+│   ├── providers/         # Costco & Walmart order fetching
+│   └── clients/           # Monarch & OpenAI client builders
+├── infrastructure/        # Technical foundations
+│   ├── config/            # YAML/env config loading
+│   ├── storage/           # SQLite for deduplication
+│   └── logging/           # Structured logging (slog)
+└── cli/                   # Command-line interface
+```
+
+**Dependency flow:** CLI → Application → Domain ← Adapters → Infrastructure
+
+See [docs/architecture.md](docs/architecture.md) for complete details.
+
+## Development Methodology: TDD
+
+### Core Workflow
+1. **Write test first** - Define expected behavior
+2. **Run test, watch it fail** - Verify test actually tests something
+3. **Write minimal code** - Just enough to pass
+4. **Run test, watch it pass** - Verify implementation
 5. **Refactor** - Clean up while keeping tests green
 
-### Bug Fixing Process (MANDATORY)
-When ANY bug is discovered:
-1. **STOP** - Don't fix the bug yet
-2. **Write a failing test** - Reproduce the bug in a test
-3. **Run the test** - Confirm it fails for the right reason
-4. **Fix the bug** - Implement the minimum fix
-5. **Run the test** - Confirm it now passes
+### Bug Fixing (MANDATORY)
+When you discover a bug:
+1. **STOP** - Don't fix it yet
+2. **Write failing test** - Reproduce the bug
+3. **Run test** - Confirm it fails as expected
+4. **Fix the bug** - Minimal implementation
+5. **Run test** - Confirm it passes
 6. **Run all tests** - Ensure no regression
-7. **Document** - Add to `/docs/bug-fixes.md` with test case
+7. **Document** in [docs/bug-fixes.md](docs/bug-fixes.md)
 
-### Documentation Structure
-```
-/docs/
-├── progress.md          # Current development status (UPDATE CONTINUOUSLY)
-├── api.md              # API documentation
-├── testing.md          # Testing strategy and guidelines
-├── bug-fixes.md        # Log of bugs and their test cases
-├── architecture.md     # System design decisions
-└── setup.md           # Development environment setup
-```
+### Test Requirements
+- **All tests must pass** before committing
+- **Maintain 80%+ coverage**
+- **Domain layer:** Unit tests, no mocks (pure functions)
+- **Application layer:** Integration tests with mock clients
+- **No skipped tests** in CI (integration tests can be skipped locally)
 
-### Progress Tracking
-**CRITICAL**: Maintain `/docs/progress.md` with:
-- Current task being worked on
-- Tests written today
-- Tests passing/failing
-- Next steps
-- Blockers or questions
-- Handoff notes for next session
+See [docs/testing.md](docs/testing.md) for detailed guidelines.
 
-Example entry:
-```markdown
-## 2024-01-15 Session
-### Completed
-- [x] Created health check endpoint
-- [x] Tests: TestHealthCheck (passing)
-- [x] Created order validation
-- [x] Tests: TestOrderValidation (passing)
+## How the Sync Works
 
-### In Progress
-- [ ] Monarch API integration
-- [ ] Test: TestMonarchConnection (written, failing)
+### End-to-End Flow
+1. **Fetch orders** from provider (Walmart/Costco) with item details
+2. **Fetch Monarch transactions** filtered by merchant name
+3. **Match orders to transactions** using fuzzy matching (amount ± $0.50, date ± 5 days)
+4. **Categorize items** with OpenAI (cached to reduce API calls)
+5. **Create splits** grouping items by category with proportional tax
+6. **Update Monarch** via monarchmoney-go SDK
+7. **Save to SQLite** for deduplication and audit trail
 
-### Next Steps
-1. Fix authentication in Monarch client
-2. Complete TestMonarchConnection
-3. Write TestTransactionMatching
+### Key Files
+- **Orchestrator:** [internal/application/sync/orchestrator.go](internal/application/sync/orchestrator.go)
+- **Matcher:** [internal/domain/matcher/matcher.go](internal/domain/matcher/matcher.go)
+- **Categorizer:** [internal/domain/categorizer/categorizer.go](internal/domain/categorizer/categorizer.go)
+- **Splitter:** [internal/domain/splitter/splitter.go](internal/domain/splitter/splitter.go)
+- **Storage:** [internal/infrastructure/storage/storage.go](internal/infrastructure/storage/storage.go)
 
-### Notes for Next Session
-- MonarchClient.Connect() returns 401, check API key format
-- See test file: handlers/walmart_test.go line 45
-```
+## Common Tasks
 
-## Ultimate Goal
-Transform single Walmart transactions in Monarch Money into properly categorized, split transactions that accurately reflect what was purchased. For example, a $150 Walmart transaction becomes:
-- $50 - Groceries (milk, bread, eggs)
-- $30 - Home & Garden (cleaning supplies)
-- $40 - Electronics (phone charger, batteries)
-- $30 - Personal Care (shampoo, toothpaste)
+### Adding a New Provider
+See [docs/adding-providers.md](docs/adding-providers.md) for complete guide.
 
-## Architecture Overview
-```
-Chrome Extension → Go Backend → LLM API → Monarch Money API
-     ↓                ↓            ↓            ↓
-Scrape Orders    Process      Categorize    Split & Update
-from Walmart      Orders        Items        Transactions
-```
+Quick steps:
+1. Create `internal/adapters/providers/newprovider/`
+2. Implement `OrderProvider` interface from [types.go](internal/adapters/providers/types.go)
+3. Add config struct in [internal/infrastructure/config/config.go](internal/infrastructure/config/config.go)
+4. Register provider in [internal/cli/providers.go](internal/cli/providers.go)
+5. Add test in `provider_test.go`
 
-## Phase 1: Basic Sync (MVP)
-**Goal**: Get Walmart order data and match with Monarch transactions
+### Modifying Matching Logic
+1. Update [internal/domain/matcher/matcher.go](internal/domain/matcher/matcher.go)
+2. Add tests in `matcher_test.go`
+3. Adjust `Config` struct for tolerance settings
 
-### Chrome Extension
-- [x] Fetch Walmart orders without requiring Walmart page open
-- [x] Parse order details (items, prices, dates)
-- [ ] Send data to Go backend
-- [ ] Show sync status in popup
+### Changing Categorization
+1. Core logic in [internal/domain/categorizer/categorizer.go](internal/domain/categorizer/categorizer.go)
+2. OpenAI integration in `openai_client.go`
+3. Caching in `cache.go` (in-memory for now)
+4. Consider cache invalidation strategy
 
-### Go Backend
-- [ ] Receive order data from extension
-- [ ] Use `github.com/eshaffer321/monarchmoney-go` SDK
-- [ ] Match Walmart orders with Monarch transactions by date/amount
-- [ ] Update transaction notes with item details
-- [ ] Basic authentication with extension
+### Modifying Split Logic
+1. Update [internal/domain/splitter/splitter.go](internal/domain/splitter/splitter.go)
+2. Tax distribution is proportional: `(category_subtotal / total_subtotal) * total_tax`
+3. Tests cover edge cases (single item, all same category, etc.)
 
-### Deliverables
-- Working extension that fetches Walmart data
-- Go server that receives and logs data
-- Basic matching with Monarch transactions
+## Critical Principles
 
-## Phase 2: Intelligent Categorization
-**Goal**: Use LLM to categorize Walmart items
+### Domain Layer is Pure
+**Domain logic has ZERO external dependencies:**
+- No HTTP calls
+- No database access
+- No file I/O
+- Only pure functions working with interfaces
 
-### Features
-- [ ] Integrate with OpenAI/Claude API for categorization
-- [ ] Fetch Monarch categories via SDK
-- [ ] Create mapping between Walmart items and Monarch categories
-- [ ] Cache categorization decisions for common items
+This makes it:
+- Fast to test
+- Easy to reason about
+- Portable to other contexts
 
-### Example Flow
-1. Receive: "Great Value Milk 1 Gallon - $3.99"
-2. LLM determines: Category = "Groceries"
-3. Cache: "Great Value Milk" → "Groceries" for future use
+### Interfaces Over Concrete Types
+Key interfaces:
+- `providers.OrderProvider` - Any retailer
+- `providers.Order` - Uniform order representation
+- `providers.OrderItem` - Uniform item representation
 
-## Phase 3: Transaction Splitting
-**Goal**: Split single Walmart transactions into multiple categorized transactions
+This allows easy mocking and provider swapping.
 
-### Features
-- [ ] Use Monarch SDK to split transactions
-- [ ] Group items by category
-- [ ] Create split transactions with proper categories
-- [ ] Maintain audit trail of original transaction
+### Deduplication is Critical
+The SQLite database tracks processed orders to prevent:
+- Duplicate splits
+- Reprocessing on every run
+- Accidental double charges
 
-### Example
-Original Transaction: Walmart - $150.00
-Becomes:
-```
-- Walmart (Groceries) - $50.00
-- Walmart (Home & Garden) - $30.00
-- Walmart (Electronics) - $40.00
-- Walmart (Personal Care) - $30.00
-```
+Override with `-force` flag only when intentional.
 
-## Phase 4: Advanced Features
-- [ ] Bulk historical import
-- [ ] Recurring purchase detection
-- [ ] Budget impact analysis
-- [ ] Category spending trends
-- [ ] Manual override/training UI
+See [docs/deduplication-safety.md](docs/deduplication-safety.md).
 
-## Technical Stack
+### Configuration Flexibility
+Supports both YAML and environment variables:
+- YAML preferred for local development
+- Env vars for production/containers
+- Graceful fallback and validation
 
-### Chrome Extension
-- Manifest V3
-- Background service worker for API calls
-- Local storage for caching
-- No external dependencies
-
-### Go Backend
-- **Framework**: Gin (`github.com/gin-gonic/gin`)
-- **Monarch SDK**: `github.com/eshaffer321/monarchmoney-go`
-- **LLM**: OpenAI Go SDK or Claude API
-- **Database**: PostgreSQL for caching/audit trail
-- **Cache**: Redis for category mappings
-
-### APIs & Services
-- Walmart.com (scraping via extension)
-- Monarch Money API (via SDK)
-- OpenAI/Claude API (for categorization)
-
-## Data Flow
-
-### 1. Order Collection
-```json
-{
-  "orderNumber": "123456789",
-  "orderDate": "2024-01-15",
-  "orderTotal": 150.00,
-  "items": [
-    {
-      "name": "Great Value Milk",
-      "price": 3.99,
-      "quantity": 1,
-      "category": null  // To be determined
-    }
-  ]
-}
-```
-
-### 2. Categorization Request to LLM
-```json
-{
-  "items": ["Great Value Milk", "Bounty Paper Towels"],
-  "availableCategories": ["Groceries", "Home & Garden", "Personal Care"]
-}
-```
-
-### 3. Monarch Transaction Update
-```json
-{
-  "transactionId": "monarch_123",
-  "splits": [
-    {
-      "amount": 50.00,
-      "category": "Groceries",
-      "notes": "Milk, Bread, Eggs"
-    }
-  ]
-}
-```
-
-## Database Schema (Future)
-
-### cached_categories
-```sql
-CREATE TABLE cached_categories (
-  item_name TEXT PRIMARY KEY,
-  category TEXT NOT NULL,
-  confidence FLOAT,
-  last_updated TIMESTAMP
-);
-```
-
-### transaction_audit
-```sql
-CREATE TABLE transaction_audit (
-  id SERIAL PRIMARY KEY,
-  walmart_order_id TEXT,
-  monarch_transaction_id TEXT,
-  original_amount DECIMAL,
-  splits JSONB,
-  processed_at TIMESTAMP
-);
-```
-
-## Environment Variables
-```bash
-# Server
-PORT=8080
-MONARCH_API_KEY=xxx
-EXTENSION_SECRET_KEY=shared_secret
-
-# Future
-OPENAI_API_KEY=xxx
-DATABASE_URL=postgresql://...
-REDIS_URL=redis://...
-```
-
-## API Endpoints
-
-### Phase 1
-- `GET /health` - Health check
-- `POST /api/walmart/orders` - Receive orders from extension
-
-### Phase 2
-- `GET /api/categories` - List Monarch categories
-- `POST /api/categorize` - Categorize items
-
-### Phase 3
-- `POST /api/transactions/split` - Split transaction
-- `GET /api/transactions/{id}/audit` - Get split history
-
-## Security Considerations
-- Extension ↔ Backend: Shared secret key
-- Backend → Monarch: OAuth or API key (via SDK)
-- Rate limiting on all endpoints
-- No PII in logs
-- Encrypted storage for sensitive data
-
-## Development Phases
-
-### Current Focus: Phase 1
-1. Complete Chrome extension order fetching ✓
-2. Create basic Go server with Gin
-3. Integrate monarchmoney-go SDK
-4. Implement basic matching logic
-5. Test end-to-end flow
-
-### Next Steps
-- Set up project structure
-- Implement health check endpoint
-- Create order receive endpoint
-- Add Monarch SDK integration
-- Build matching algorithm
-
-## Success Metrics
-- Phase 1: Successfully match 90% of Walmart transactions
-- Phase 2: Accurately categorize 85% of items
-- Phase 3: Split transactions with 95% accuracy
-- Phase 4: Reduce manual categorization by 80%
-
-## Commands for Development
-
-```bash
-# Extension
-cd extension/
-npm install  # If using build tools
-# Load unpacked extension in Chrome
-
-# Backend - TDD Workflow
-cd backend/
-go mod init walmart-monarch-sync
-go get github.com/gin-gonic/gin
-go get github.com/eshaffer321/monarchmoney-go
-go get github.com/stretchr/testify  # For better test assertions
-
-# TDD Development Flow
-go test ./... -v              # Run all tests
-go test ./handlers -v          # Run specific package tests
-go test -run TestHealthCheck   # Run specific test
-go test ./... -cover          # Check test coverage
-go test ./... -race           # Check for race conditions
-
-# Run server (only after tests pass)
-go run main.go
-
-# Testing with curl
-curl -X POST http://localhost:8080/api/walmart/orders \
-  -H "Content-Type: application/json" \
-  -H "X-Extension-Key: secret" \
-  -d @sample-order.json
-```
-
-## TDD Test Structure Example
+### Logging Pattern
+**Use proper log levels, not conditional logging:**
 
 ```go
-// handlers/walmart_test.go
-func TestProcessWalmartOrder(t *testing.T) {
-    // Arrange
-    order := models.Order{
-        OrderNumber: "123",
-        Total: 150.00,
-    }
-    
-    // Act
-    result := ProcessOrder(order)
-    
-    // Assert
-    assert.NotNil(t, result)
-    assert.Equal(t, "processed", result.Status)
+// ❌ WRONG - Don't do this
+if opts.Verbose {
+    logger.Info("Processing order", "id", order.ID)
 }
+
+// ✅ RIGHT - Use appropriate log level
+logger.Debug("Processing order", "id", order.ID)
 ```
 
-## Notes for Claude/AI Assistant
+**Log Level Guidelines:**
+- `logger.Debug()` - Detailed diagnostics, shown only with `-verbose` flag
+- `logger.Info()` - Normal operations, always shown
+- `logger.Warn()` - Recoverable issues or unexpected conditions
+- `logger.Error()` - Failures requiring attention
 
-### MANDATORY TDD APPROACH
-1. **ALWAYS write tests first** - No exceptions
-2. **Every feature starts with a failing test**
-3. **Bug fixes MUST have a test that reproduces the bug first**
-4. **Update `/docs/progress.md` after EVERY work session**
-5. **Document test decisions in `/docs/testing.md`**
+**How It Works:**
+- Loggers are created with level control via `config.LoggingConfig.Level`
+- When `-verbose` flag is set, level is set to `"debug"` before logger creation
+- slog's `HandlerOptions.Level` filters which messages are displayed
+- Each system (sync, costco, walmart) has its own logger with proper level
 
-### Development Guidelines
-- Start with Phase 1 - get basic sync working
-- Extension is mostly complete, focus on Go backend
-- Use the monarchmoney-go SDK for all Monarch interactions
-- Keep LLM integration simple initially (can be added later)
-- Prioritize working MVP over perfect architecture
-- Test with real Walmart data early and often
-- Maintain 80%+ test coverage
-- All tests must pass before committing code
+**Implementation:**
+```go
+// In CLI layer (providers.go)
+loggingCfg := cfg.Observability.Logging
+if verbose {
+    loggingCfg.Level = "debug"
+}
+logger := logging.NewLoggerWithSystem(loggingCfg, "system-name")
+```
 
-### Session Handoff Protocol
-Before ending any session:
-1. Run all tests and document results
-2. Update `/docs/progress.md` with:
-   - What was completed
-   - What tests were written
-   - Current blockers
-   - Next steps clearly defined
-3. Commit with descriptive message including test status
-4. Leave breadcrumbs for the next session
+This gives us clean code with proper level-based filtering instead of scattered conditionals.
 
-## Questions to Resolve
-1. Should we batch orders before sending to backend?
-2. How to handle partial matches (order split across multiple Monarch transactions)?
-3. Category mapping strategy - user-defined rules vs pure LLM?
-4. How to handle returns/refunds?
-5. Frequency of sync - real-time vs scheduled?
+## File Organization
 
----
+### Where Things Live
+- **Entry point:** [cmd/monarch-sync/main.go](cmd/monarch-sync/main.go)
+- **Business logic:** `internal/domain/`
+- **Workflow coordination:** `internal/application/sync/`
+- **External APIs:** `internal/adapters/`
+- **Config/storage/logging:** `internal/infrastructure/`
+- **CLI parsing/output:** `internal/cli/`
 
-This document will evolve as the project develops. Start with Phase 1 and iterate!
+### When Adding New Code
+Ask yourself:
+- **Is this pure business logic?** → `internal/domain/`
+- **Does this orchestrate a workflow?** → `internal/application/`
+- **Does this talk to an external system?** → `internal/adapters/`
+- **Is this infrastructure (config, DB, logging)?** → `internal/infrastructure/`
+- **Is this CLI-specific?** → `internal/cli/`
+
+## External Dependencies
+
+### Required SDKs
+- **monarchmoney-go** - [github.com/eshaffer321/monarchmoney-go](https://github.com/eshaffer321/monarchmoney-go)
+  - Handles Monarch Money API
+  - Transactions, categories, splits
+- **walmart-client** - [github.com/eshaffer321/walmart-api/walmart-client](https://github.com/eshaffer321/walmart-api)
+  - Fetches Walmart orders
+  - Cookie-based authentication
+- **costco-go** - [github.com/eshaffer321/costco-go](https://github.com/eshaffer321/costco-go)
+  - Fetches Costco orders
+  - Uses saved credentials
+
+### API Integrations
+- **OpenAI GPT-4** - Item categorization (~$0.01-0.05 per order)
+- **Monarch Money** - Transaction management
+- **Walmart.com** - Order history
+- **Costco.com** - Order history
+
+## Database Schema
+
+SQLite database at `monarch_sync.db` with auto-migration:
+
+```sql
+-- Processing history and deduplication
+CREATE TABLE processing_records (
+  order_id TEXT PRIMARY KEY,
+  provider TEXT,
+  transaction_id TEXT,
+  order_date TIMESTAMP,
+  order_total REAL,
+  transaction_amount REAL,
+  item_count INTEGER,
+  split_count INTEGER,
+  processed_at TIMESTAMP,
+  status TEXT,  -- 'success', 'failed', 'dry-run'
+  error_message TEXT,
+  match_confidence REAL,
+  dry_run BOOLEAN
+);
+
+-- Sync run tracking
+CREATE TABLE sync_runs (
+  run_id INTEGER PRIMARY KEY,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  orders_found INTEGER,
+  processed INTEGER,
+  skipped INTEGER,
+  errors INTEGER,
+  dry_run BOOLEAN,
+  lookback_days INTEGER
+);
+```
+
+Schema auto-migrates on startup. See [internal/infrastructure/storage/storage.go](internal/infrastructure/storage/storage.go).
+
+## What This Project Is NOT
+
+- ❌ **NOT a web server** - No HTTP endpoints, no API
+- ❌ **NOT a Chrome extension** - Direct provider API integration
+- ❌ **NOT a SaaS** - Local CLI tool
+- ❌ **NOT real-time** - Manual runs or scheduled via cron
+- ❌ **NOT multi-user** - Single user per config
+
+## Troubleshooting
+
+### "No matching transaction found"
+- Transaction hasn't posted to Monarch yet (wait 1-3 days)
+- Amount mismatch > $0.50
+- Date difference > 5 days
+- Use `-verbose` to see matching details
+
+### "Order already processed"
+- Normal! Prevents duplicate processing
+- Use `-force` to reprocess if needed
+
+### OpenAI Errors
+- Check `OPENAI_APIKEY` or `OPENAI_API_KEY` is set
+- Verify API key has credits
+- Check internet connectivity
+
+### Provider Authentication
+- **Walmart:** Cookies in `~/.walmart-api/cookies.json`
+- **Costco:** Credentials in Costco config (saved by costco-go)
+
+### Database Issues
+- Backup and delete `monarch_sync.db` to reset
+- Auto-migration handles schema updates
+- Check file permissions
+
+## Documentation
+
+- **[README.md](README.md)** - User-facing documentation
+- **[docs/architecture.md](docs/architecture.md)** - Detailed architecture
+- **[docs/testing.md](docs/testing.md)** - Testing strategy
+- **[docs/adding-providers.md](docs/adding-providers.md)** - Provider development guide
+- **[docs/deduplication-safety.md](docs/deduplication-safety.md)** - How duplicate prevention works
+- **[docs/bug-fixes.md](docs/bug-fixes.md)** - Log of bugs and test cases
+
+## Working on This Project
+
+### Before Starting Work
+1. Read this guide
+2. Review [docs/architecture.md](docs/architecture.md)
+3. Run tests to ensure clean state: `go test ./...`
+4. Check git status: `git status`
+
+### While Working
+1. **Write tests first** (TDD)
+2. Keep tests passing
+3. Follow layered architecture
+4. Use meaningful commit messages
+5. Document decisions in relevant docs
+
+### Before Committing
+1. Run all tests: `go test ./...`
+2. Check coverage: `go test ./... -cover`
+3. Run with `-dry-run` to verify CLI works
+4. Update docs if architecture/behavior changed
+
+### Commit Message Style
+```
+type: Brief description
+
+Longer explanation if needed.
+
+- Bullet points for details
+- Reference issue numbers if applicable
+```
+
+Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+
+## Getting Help
+
+When stuck:
+1. Check [docs/](docs/) directory
+2. Read relevant test files for examples
+3. Look at existing provider implementations as reference
+4. Review git history for similar changes
+
+## Future Enhancements
+
+Potential areas for expansion:
+- Additional providers (Amazon, Target, Sam's Club)
+- Web UI for configuration and monitoring
+- Advanced categorization with learning
+- Receipt OCR for precise tax handling
+- Budget impact analysis
+- Scheduled runs (systemd timer, cron)
+- Multi-user support
+
+See README.md "Future Enhancements" section.
