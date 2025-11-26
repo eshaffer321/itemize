@@ -227,14 +227,33 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 		return nil, fmt.Errorf("no final charges in ledger")
 	}
 
-	// Check for malformed data
-	for i, charge := range charges {
-		if charge <= 0 {
-			return nil, fmt.Errorf("invalid charge at index %d: %.2f (must be positive)", i, charge)
+	// TODO: Handle refund transactions (negative charges)
+	// Currently we skip negative charges in the ledger, which means refund
+	// transactions in Monarch Money won't be categorized. Future enhancement:
+	// 1. Match the refund transaction (positive amount in Monarch)
+	// 2. Determine which item(s) were refunded from the ledger
+	// 3. Categorize the refund with the same category as the refunded item
+
+	// Filter to positive charges only (actual bank charges)
+	// Skip negative charges (refunds/credits) and zero charges
+	var positiveCharges []float64
+	for _, charge := range charges {
+		if charge > 0 {
+			positiveCharges = append(positiveCharges, charge)
+		} else if charge < 0 {
+			if o.logger != nil {
+				o.logger.Warn("Skipping refund in ledger (not yet supported)",
+					"order_id", o.GetID(),
+					"refund_amount", charge)
+			}
 		}
 	}
 
-	return charges, nil
+	if len(positiveCharges) == 0 {
+		return nil, fmt.Errorf("no positive charges found (order may be fully refunded)")
+	}
+
+	return positiveCharges, nil
 }
 
 // IsMultiDelivery checks if order was split into multiple deliveries
