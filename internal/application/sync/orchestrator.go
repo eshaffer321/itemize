@@ -10,6 +10,7 @@ import (
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync/handlers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
@@ -61,6 +62,27 @@ func (o *Orchestrator) processOrder(
 	if !opts.Force && o.storage != nil && o.storage.IsProcessed(order.GetID()) {
 		o.logger.Debug("Skipping already processed order", "order_id", order.GetID())
 		return false, true, nil
+	}
+
+	// Use Amazon handler for Amazon orders (uses pro-rata allocation)
+	if amazonOrder, ok := handlers.AsAmazonOrder(order); ok && o.amazonHandler != nil {
+		o.logger.Debug("Using Amazon handler for order", "order_id", order.GetID())
+		result, err := o.amazonHandler.ProcessOrder(ctx, amazonOrder, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts.DryRun)
+		if err != nil {
+			o.logger.Error("Amazon handler error", "order_id", order.GetID(), "error", err)
+			o.recordError(order, err.Error())
+			return false, false, err
+		}
+		if result.Skipped {
+			o.logger.Warn("Amazon order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
+			o.recordError(order, result.SkipReason)
+			return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
+		}
+		// Record success
+		if result.Processed {
+			o.recordSuccess(order, nil, result.Splits, 0, opts.DryRun)
+		}
+		return result.Processed, result.Skipped, nil
 	}
 
 	// Check if this is a multi-delivery order or has ledger-based amounts (Walmart specific)
