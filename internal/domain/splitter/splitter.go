@@ -160,6 +160,11 @@ func (s *Splitter) createMultiCategorySplits(
 			categoryTotal = math.Abs(categoryTotal)
 		}
 
+		// Round to 2 decimal places immediately
+		// Monarch API rounds each split before validating, so we must pre-round
+		// to ensure our sum calculation matches what Monarch will compute
+		categoryTotal = roundTo2(categoryTotal)
+
 		// Build item details for notes with prices
 		itemDetails := []string{}
 		for _, item := range group.items {
@@ -188,27 +193,39 @@ func (s *Splitter) createMultiCategorySplits(
 		splits = append(splits, split)
 	}
 
-	// Adjust for rounding to ensure splits sum to transaction amount
-	totalSplits := 0.0
-	for _, split := range splits {
-		totalSplits += split.Amount
-	}
-
-	diff := transaction.Amount - totalSplits
-	if math.Abs(diff) > 0.01 && len(splits) > 0 {
-		// Add difference to largest split
-		largestIdx := 0
-		largestAmount := 0.0
-		for i, split := range splits {
-			if math.Abs(split.Amount) > largestAmount {
-				largestAmount = math.Abs(split.Amount)
-				largestIdx = i
-			}
+	// Adjust for rounding to ensure splits sum exactly to transaction amount
+	// Since each split is already rounded to 2 decimals, the sum may differ
+	// from the transaction amount by a few cents due to accumulated rounding
+	if len(splits) > 0 {
+		totalSplits := 0.0
+		for _, split := range splits {
+			totalSplits += split.Amount
 		}
-		splits[largestIdx].Amount += diff
+
+		// Round the sum to avoid floating point precision issues
+		totalSplits = roundTo2(totalSplits)
+		diff := roundTo2(transaction.Amount - totalSplits)
+
+		if diff != 0 {
+			// Add difference to largest split to balance
+			largestIdx := 0
+			largestAmount := 0.0
+			for i, split := range splits {
+				if math.Abs(split.Amount) > largestAmount {
+					largestAmount = math.Abs(split.Amount)
+					largestIdx = i
+				}
+			}
+			splits[largestIdx].Amount = roundTo2(splits[largestIdx].Amount + diff)
+		}
 	}
 
 	return splits, nil
+}
+
+// roundTo2 rounds a float64 to 2 decimal places
+func roundTo2(x float64) float64 {
+	return math.Round(x*100) / 100
 }
 
 // GetSingleCategoryInfo extracts category and notes for single-category orders
