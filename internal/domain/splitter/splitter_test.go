@@ -2,6 +2,7 @@ package splitter
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -698,13 +699,107 @@ func TestSplitter_RoundingAdjustment_LargeDiscrepancy(t *testing.T) {
 	require.NotNil(t, splits)
 	assert.Len(t, splits, 2)
 
-	// Calculate sum
+	// Calculate sum (round to avoid floating point precision issues)
+	totalSplits := 0.0
+	for _, split := range splits {
+		totalSplits += split.Amount
+	}
+	totalSplits = math.Round(totalSplits*100) / 100
+
+	// Even with awkward tax rates, splits should sum to transaction amount
+	assert.Equal(t, transaction.Amount, totalSplits,
+		"Rounding adjustment should handle larger discrepancies (up to a few cents)")
+}
+
+// TestSplitter_RoundingToTwoDecimals tests that splits are rounded to 2 decimal places
+// and still sum exactly to the transaction amount.
+// This reproduces a production bug where Monarch API rejects splits because:
+// 1. Splitter calculates splits with full float precision that sum correctly
+// 2. Monarch rounds each split to 2 decimals before validating
+// 3. The rounded sum differs from transaction amount by 1 cent
+// Example: order 200014170484382 with transaction -47.57
+func TestSplitter_RoundingToTwoDecimals(t *testing.T) {
+	// Arrange: Reproduce exact production scenario
+	// Order with gift card payment: total $48.32, gift card $0.75, bank charge $47.57
+	// Items sum to $44.88 (less than subtotal due to how Walmart reports)
+	order := &mockOrder{
+		id:       "200014170484382",
+		date:     time.Date(2024, 11, 26, 0, 0, 0, 0, time.UTC),
+		total:    48.32,
+		subtotal: 45.59,
+		tax:      2.73,
+		items: []providers.OrderItem{
+			// Kid Needs
+			&mockOrderItem{name: "Training Pants", price: 19.97, quantity: 1},
+			// Groceries
+			&mockOrderItem{name: "Red Onions", price: 3.24, quantity: 1},
+			&mockOrderItem{name: "Lettuce", price: 3.84, quantity: 1},
+			&mockOrderItem{name: "Marinara Sauce", price: 13.94, quantity: 2},
+			&mockOrderItem{name: "Sesame Seeds", price: 2.96, quantity: 1},
+			&mockOrderItem{name: "Cucumber", price: 0.16, quantity: 1},
+			// Personal Care
+			&mockOrderItem{name: "Toothbrush", price: 1.48, quantity: 1},
+		},
+	}
+
+	// Transaction amount is the ledger charge (after gift card)
+	transaction := &monarch.Transaction{
+		ID:     "TXN_ROUND_TEST",
+		Amount: -47.57, // Bank charge after $0.75 gift card
+	}
+
+	categories := []categorizer.Category{
+		{ID: "cat_kid_needs", Name: "Kid Needs"},
+		{ID: "cat_groceries", Name: "Groceries"},
+		{ID: "cat_personal_care", Name: "Personal Care"},
+	}
+
+	monarchCategories := []*monarch.TransactionCategory{
+		{ID: "cat_kid_needs", Name: "Kid Needs"},
+		{ID: "cat_groceries", Name: "Groceries"},
+		{ID: "cat_personal_care", Name: "Personal Care"},
+	}
+
+	// Mock categorizer returns 3 categories
+	mockCat := &mockCategorizer{
+		result: &categorizer.CategorizationResult{
+			Categorizations: []categorizer.ItemCategorization{
+				{ItemName: "Training Pants", CategoryID: "cat_kid_needs", CategoryName: "Kid Needs", Confidence: 1.0},
+				{ItemName: "Red Onions", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "Lettuce", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "Marinara Sauce", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "Sesame Seeds", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "Cucumber", CategoryID: "cat_groceries", CategoryName: "Groceries", Confidence: 1.0},
+				{ItemName: "Toothbrush", CategoryID: "cat_personal_care", CategoryName: "Personal Care", Confidence: 1.0},
+			},
+		},
+	}
+
+	splitter := NewSplitter(mockCat)
+	ctx := context.Background()
+
+	// Act
+	splits, err := splitter.CreateSplits(ctx, order, transaction, categories, monarchCategories)
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, splits)
+	assert.Len(t, splits, 3)
+
+	// KEY ASSERTION: Each split must be rounded to exactly 2 decimal places
+	for i, split := range splits {
+		rounded := math.Round(split.Amount*100) / 100
+		assert.Equal(t, rounded, split.Amount,
+			"Split %d should be rounded to 2 decimal places, got %.15f", i, split.Amount)
+	}
+
+	// KEY ASSERTION: Rounded splits must sum EXACTLY to transaction amount
 	totalSplits := 0.0
 	for _, split := range splits {
 		totalSplits += split.Amount
 	}
 
-	// Even with awkward tax rates, splits should sum to transaction amount
+	// Use exact equality - the rounded splits must sum to exactly -47.57
 	assert.Equal(t, transaction.Amount, totalSplits,
-		"Rounding adjustment should handle larger discrepancies (up to a few cents)")
+		"Rounded splits must sum exactly to transaction amount (Monarch will reject otherwise)")
 }
