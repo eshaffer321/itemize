@@ -322,3 +322,94 @@ func TestCategorizer_NormalizeItemName(t *testing.T) {
 		})
 	}
 }
+
+func TestCategorizer_CategorizeItems_RetriesOnTransientError(t *testing.T) {
+	ctx := context.Background()
+
+	mockClient := new(MockOpenAIClient)
+	mockCache := new(MockCache)
+
+	categorizer := NewCategorizer(mockClient, mockCache)
+
+	items := []Item{
+		{Name: "Test Item", Price: 10.00},
+	}
+
+	categories := []Category{
+		{ID: "cat_1", Name: "Groceries"},
+	}
+
+	// Mock cache miss
+	mockCache.On("Get", "test item").Return("", false)
+
+	// Expected OpenAI response
+	openAIResponse := CategorizationResult{
+		Categorizations: []ItemCategorization{
+			{ItemName: "Test Item", CategoryID: "cat_1", CategoryName: "Groceries", Confidence: 0.95},
+		},
+	}
+	responseJSON, _ := json.Marshal(openAIResponse)
+
+	// First call fails with timeout error, second succeeds
+	mockClient.On("CreateChatCompletion", ctx, mock.Anything).Return(nil, context.DeadlineExceeded).Once()
+	mockClient.On("CreateChatCompletion", ctx, mock.Anything).Return(&ChatCompletionResponse{
+		Choices: []Choice{
+			{
+				Message: Message{
+					Content: string(responseJSON),
+				},
+			},
+		},
+	}, nil).Once()
+
+	// Mock cache set
+	mockCache.On("Set", "test item", "cat_1").Return()
+
+	// Execute
+	result, err := categorizer.CategorizeItems(ctx, items, categories)
+
+	// Verify success after retry
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, result.Categorizations, 1)
+	assert.Equal(t, "Test Item", result.Categorizations[0].ItemName)
+
+	// Verify OpenAI was called twice (1 failure + 1 success)
+	mockClient.AssertNumberOfCalls(t, "CreateChatCompletion", 2)
+	mockCache.AssertExpectations(t)
+}
+
+func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
+	ctx := context.Background()
+
+	mockClient := new(MockOpenAIClient)
+	mockCache := new(MockCache)
+
+	categorizer := NewCategorizer(mockClient, mockCache)
+
+	items := []Item{
+		{Name: "Test Item", Price: 10.00},
+	}
+
+	categories := []Category{
+		{ID: "cat_1", Name: "Groceries"},
+	}
+
+	// Mock cache miss
+	mockCache.On("Get", "test item").Return("", false)
+
+	// All calls fail with timeout error
+	mockClient.On("CreateChatCompletion", ctx, mock.Anything).Return(nil, context.DeadlineExceeded)
+
+	// Execute
+	result, err := categorizer.CategorizeItems(ctx, items, categories)
+
+	// Verify error after exhausting retries
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "after 3 attempts")
+
+	// Verify OpenAI was called 3 times (all retries exhausted)
+	mockClient.AssertNumberOfCalls(t, "CreateChatCompletion", 3)
+	mockCache.AssertExpectations(t)
+}

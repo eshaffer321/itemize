@@ -3,8 +3,10 @@ package categorizer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Item represents a Walmart item to be categorized
@@ -143,7 +145,34 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 	return result, nil
 }
 
-// callOpenAI makes the actual API call to OpenAI
+// Retry configuration
+const (
+	maxRetries    = 3
+	baseDelay     = 1 * time.Second
+	maxDelay      = 8 * time.Second
+)
+
+// isRetryableError determines if an error is transient and worth retrying
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Context deadline exceeded (timeout)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// Connection errors, timeouts - check error message
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "timeout") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "temporary failure") ||
+		strings.Contains(errMsg, "502") ||
+		strings.Contains(errMsg, "503") ||
+		strings.Contains(errMsg, "504")
+}
+
+// callOpenAI makes the actual API call to OpenAI with retry logic
 func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
 	prompt := c.buildPrompt(items, categories)
 
@@ -165,22 +194,37 @@ func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories [
 		},
 	}
 
-	response, err := c.client.CreateChatCompletion(ctx, request)
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		response, err := c.client.CreateChatCompletion(ctx, request)
+		if err != nil {
+			lastErr = err
+			if !isRetryableError(err) || attempt == maxRetries {
+				break
+			}
+			// Exponential backoff: 1s, 2s, 4s
+			delay := baseDelay * time.Duration(1<<(attempt-1))
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			time.Sleep(delay)
+			continue
+		}
+
+		if len(response.Choices) == 0 {
+			return nil, fmt.Errorf("no response from OpenAI")
+		}
+
+		// Parse JSON response
+		var result CategorizationResult
+		if err := json.Unmarshal([]byte(response.Choices[0].Message.Content), &result); err != nil {
+			return nil, fmt.Errorf("failed to parse OpenAI response: %w", err)
+		}
+
+		return &result, nil
 	}
 
-	if len(response.Choices) == 0 {
-		return nil, fmt.Errorf("no response from OpenAI")
-	}
-
-	// Parse JSON response
-	var result CategorizationResult
-	if err := json.Unmarshal([]byte(response.Choices[0].Message.Content), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse OpenAI response: %w", err)
-	}
-
-	return &result, nil
+	return nil, fmt.Errorf("%w after %d attempts", lastErr, maxRetries)
 }
 
 // buildPrompt creates the prompt for OpenAI
