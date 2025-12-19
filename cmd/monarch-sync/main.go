@@ -52,6 +52,8 @@ func main() {
 		provider, err = cli.NewCostcoProvider(cfg, flags.Verbose)
 	case "walmart":
 		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
+	case "amazon":
+		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -93,6 +95,7 @@ func printUsage() {
 	fmt.Println("Usage: monarch-sync <provider> [flags]")
 	fmt.Println()
 	fmt.Println("Providers:")
+	fmt.Println("  amazon      Sync Amazon orders")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
 	fmt.Println()
