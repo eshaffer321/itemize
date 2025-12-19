@@ -47,6 +47,7 @@ type OpenAIConfig struct {
 type ProvidersConfig struct {
 	Walmart WalmartConfig `yaml:"walmart"`
 	Costco  CostcoConfig  `yaml:"costco"`
+	Amazon  AmazonConfig  `yaml:"amazon"`
 }
 
 // WalmartConfig holds Walmart-specific settings
@@ -68,6 +69,16 @@ type CostcoConfig struct {
 	Email           string `yaml:"email"`
 	Password        string `yaml:"password"`
 	WarehouseNumber string `yaml:"warehouse_number"`
+}
+
+// AmazonConfig holds Amazon-specific settings
+type AmazonConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	RateLimit    string `yaml:"rate_limit"`
+	LookbackDays int    `yaml:"lookback_days"`
+	MaxOrders    int    `yaml:"max_orders"`
+	Debug        bool   `yaml:"debug"`
+	AccountName  string `yaml:"account_name"` // For multi-account support (optional)
 }
 
 // ObservabilityConfig holds observability settings
@@ -122,6 +133,12 @@ func LoadFromEnv() *Config {
 				Enabled:      true,
 				LookbackDays: getEnvInt("COSTCO_LOOKBACK_DAYS", 14),
 				MaxOrders:    getEnvInt("COSTCO_MAX_ORDERS", 0),
+			},
+			Amazon: AmazonConfig{
+				Enabled:      true,
+				LookbackDays: getEnvInt("AMAZON_LOOKBACK_DAYS", 14),
+				MaxOrders:    getEnvInt("AMAZON_MAX_ORDERS", 0),
+				AccountName:  getEnv("AMAZON_ACCOUNT_NAME", ""),
 			},
 		},
 		Observability: ObservabilityConfig{

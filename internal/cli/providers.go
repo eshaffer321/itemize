@@ -8,6 +8,7 @@ import (
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	amazonprovider "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/costco"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/walmart"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
@@ -58,7 +59,7 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 	walmartConfig := walmartclient.ClientConfig{
 		RateLimit:       2 * time.Second,  // General rate limit for orders
 		LedgerRateLimit: 30 * time.Second, // Stricter limit for ledger API (v1.0.6)
-		MaxRetries:      3,                 // Auto-retry on 429 with exponential backoff (v1.0.6)
+		MaxRetries:      3,                // Auto-retry on 429 with exponential backoff (v1.0.6)
 		AutoSave:        true,
 		CookieDir:       filepath.Join(homeDir, ".walmart-api"),
 		CookieFile:      filepath.Join(homeDir, ".walmart-api", "cookies.json"),
@@ -71,4 +72,23 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 	}
 
 	return walmart.NewProvider(walmartClient, walmartLogger), nil
+}
+
+// NewAmazonProvider creates a new Amazon provider with a system-scoped logger
+// Uses the amazon-order-scraper CLI (npm package) for fetching orders
+func NewAmazonProvider(cfg *config.Config, verbose bool) (providers.OrderProvider, error) {
+	// Create an amazon-scoped logger with verbose flag
+	loggingCfg := cfg.Observability.Logging
+	if verbose {
+		loggingCfg.Level = "debug"
+	}
+	amazonLogger := logging.NewLoggerWithSystem(loggingCfg, "amazon")
+
+	// Build provider config
+	providerCfg := &amazonprovider.ProviderConfig{
+		Profile:  cfg.Providers.Amazon.AccountName,
+		Headless: false, // Default to non-headless for interactive use
+	}
+
+	return amazonprovider.NewProvider(amazonLogger, providerCfg), nil
 }
