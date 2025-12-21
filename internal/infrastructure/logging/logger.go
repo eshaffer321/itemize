@@ -5,11 +5,15 @@
 package logging
 
 import (
+	"io"
 	"log/slog"
 	"os"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
 )
+
+// logFile holds the open log file handle for cleanup
+var logFile *os.File
 
 // NewLogger creates a structured logger based on config
 func NewLogger(cfg config.LoggingConfig) *slog.Logger {
@@ -29,10 +33,32 @@ func NewLogger(cfg config.LoggingConfig) *slog.Logger {
 		Level: level,
 	}
 
+	// Determine output writer
+	var writer io.Writer = os.Stdout
+
+	if cfg.FilePath != "" {
+		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			// Fall back to stdout only, log warning to stderr
+			os.Stderr.WriteString("Warning: could not open log file " + cfg.FilePath + ": " + err.Error() + "\n")
+		} else {
+			logFile = file
+			writer = io.MultiWriter(os.Stdout, file)
+		}
+	}
+
 	// Use Maven-style handler for better readability
-	handler := NewMavenHandler(os.Stdout, opts)
+	handler := NewMavenHandler(writer, opts)
 
 	return slog.New(handler)
+}
+
+// CloseLogFile closes the log file if one was opened
+func CloseLogFile() {
+	if logFile != nil {
+		logFile.Close()
+		logFile = nil
+	}
 }
 
 // NewLoggerWithSystem creates a logger with a system prefix (e.g., "sync", "costco", "walmart")

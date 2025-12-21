@@ -67,9 +67,11 @@ func (m *Matcher) FindMultipleMatches(
 		}
 	}
 
-	// Validate sum matches order total (if all found)
+	// Validate sum of matched transactions equals sum of requested amounts
+	// Note: We validate against requested amounts, NOT order.GetTotal(), because
+	// orders may be partially paid with gift cards which don't appear in bank statements
 	if result.AllFound {
-		if err := m.validateMultiMatchSum(result, order.GetTotal()); err != nil {
+		if err := m.validateMultiMatchSum(result); err != nil {
 			return nil, err
 		}
 	}
@@ -147,30 +149,37 @@ func (m *Matcher) findBestMatchForAmount(
 	return result
 }
 
-// validateMultiMatchSum ensures matched transactions sum to order total
+// validateMultiMatchSum ensures matched transactions sum to requested amounts
 // Uses tolerance-based comparison to handle floating-point arithmetic
-func (m *Matcher) validateMultiMatchSum(result *MultiMatchResult, orderTotal float64) error {
+// Note: We validate against sum of requested amounts (result.Amounts), NOT order total,
+// because orders may be partially paid with gift cards which don't appear in bank statements
+func (m *Matcher) validateMultiMatchSum(result *MultiMatchResult) error {
 	if len(result.Matches) == 0 {
 		return fmt.Errorf("no matches to validate")
 	}
 
 	// Sum the matched transaction amounts
-	sum := 0.0
+	matchedSum := 0.0
 	for i, match := range result.Matches {
 		if match == nil {
 			return fmt.Errorf("cannot validate sum with nil match at index %d", i)
 		}
-		sum += math.Abs(match.Transaction.Amount)
+		matchedSum += math.Abs(match.Transaction.Amount)
+	}
+
+	// Sum the requested amounts (what we were looking for)
+	requestedSum := 0.0
+	for _, amount := range result.Amounts {
+		requestedSum += amount
 	}
 
 	// Compare with tolerance
-	orderAmount := math.Abs(orderTotal)
-	diff := math.Abs(sum - orderAmount)
+	diff := math.Abs(matchedSum - requestedSum)
 
 	if diff > m.config.AmountTolerance {
 		return fmt.Errorf(
-			"charge sum $%.2f does not match order total $%.2f (diff: $%.2f, tolerance: $%.2f)",
-			sum, orderAmount, diff, m.config.AmountTolerance,
+			"matched sum $%.2f does not match requested amounts $%.2f (diff: $%.2f, tolerance: $%.2f)",
+			matchedSum, requestedSum, diff, m.config.AmountTolerance,
 		)
 	}
 

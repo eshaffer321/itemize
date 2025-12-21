@@ -217,7 +217,7 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 
 	// Extract and validate charges
 	if len(ledger.PaymentMethods) == 0 {
-		return nil, fmt.Errorf("no payment methods in ledger")
+		return nil, fmt.Errorf("order not yet charged (payment pending)")
 	}
 
 	// TODO: Handle refund transactions (negative charges)

@@ -279,26 +279,56 @@ func TestMatcher_FindMultipleMatches(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid amount at index 1")
 	})
 
-	t.Run("error - sum mismatch", func(t *testing.T) {
+	t.Run("succeeds when charges match requested amounts even if order total differs", func(t *testing.T) {
+		// This tests that we validate against requested amounts, NOT order total
+		// Order total may differ due to gift cards, refunds, etc.
 		order := &mockOrder{
 			id:    "ORDER666",
 			date:  baseDate,
-			total: 126.98,
+			total: 126.98, // Order total (irrelevant for matching)
 		}
 
-		// Charges don't sum to order total
+		// We're looking for these specific charge amounts
 		transactions := []*monarch.Transaction{
 			{ID: "txn1", Amount: -118.00, Date: monarch.Date{Time: baseDate}},
 			{ID: "txn2", Amount: -8.00, Date: monarch.Date{Time: baseDate}},
 		}
 
 		usedIDs := make(map[string]bool)
-		amounts := []float64{118.00, 8.00} // Sum = 126.00, not 126.98
+		amounts := []float64{118.00, 8.00} // Sum = 126.00, not 126.98 - but that's fine!
 
-		_, err := matcher.FindMultipleMatches(order, transactions, usedIDs, amounts)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "charge sum")
-		assert.Contains(t, err.Error(), "does not match order total")
+		result, err := matcher.FindMultipleMatches(order, transactions, usedIDs, amounts)
+		require.NoError(t, err) // Should succeed - we found what we asked for
+		assert.True(t, result.AllFound)
+		assert.Len(t, result.Matches, 2)
+	})
+
+	t.Run("succeeds when charges match but order total includes gift card", func(t *testing.T) {
+		// Real scenario: Order 200014108147932
+		// Order total: $69.38 (includes $3.50 gift card)
+		// Credit card charges: $1.69 + $64.19 = $65.88
+		// Gift card doesn't appear in bank, so we only look for credit card charges
+		order := &mockOrder{
+			id:    "ORDER-GIFTCARD",
+			date:  baseDate,
+			total: 69.38, // Order total includes $3.50 gift card
+		}
+
+		// Bank only sees credit card charges
+		transactions := []*monarch.Transaction{
+			{ID: "txn1", Amount: -1.69, Date: monarch.Date{Time: baseDate}},
+			{ID: "txn2", Amount: -64.19, Date: monarch.Date{Time: baseDate}},
+		}
+
+		usedIDs := make(map[string]bool)
+		amounts := []float64{1.69, 64.19} // Credit card charges only = $65.88
+
+		result, err := matcher.FindMultipleMatches(order, transactions, usedIDs, amounts)
+		require.NoError(t, err) // Should NOT error - we found what we were looking for
+		assert.True(t, result.AllFound)
+		assert.Len(t, result.Matches, 2)
+		assert.Equal(t, "txn1", result.Matches[0].Transaction.ID)
+		assert.Equal(t, "txn2", result.Matches[1].Transaction.ID)
 	})
 }
 
@@ -309,64 +339,66 @@ func TestMatcher_validateMultiMatchSum(t *testing.T) {
 
 	t.Run("valid sum within tolerance", func(t *testing.T) {
 		result := &MultiMatchResult{
+			Amounts: []float64{118.67, 8.31}, // What we asked for
 			Matches: []*MatchResult{
 				{Transaction: &monarch.Transaction{Amount: -118.67}},
 				{Transaction: &monarch.Transaction{Amount: -8.31}},
 			},
 		}
-		orderTotal := 126.98
 
-		err := matcher.validateMultiMatchSum(result, orderTotal)
+		err := matcher.validateMultiMatchSum(result)
 		assert.NoError(t, err)
 	})
 
 	t.Run("floating-point safe validation", func(t *testing.T) {
 		// Amounts that might not sum exactly due to floating-point
 		result := &MultiMatchResult{
+			Amounts: []float64{0.1, 0.2}, // What we asked for
 			Matches: []*MatchResult{
 				{Transaction: &monarch.Transaction{Amount: -0.1}},
 				{Transaction: &monarch.Transaction{Amount: -0.2}},
 			},
 		}
-		orderTotal := 0.3
 
-		err := matcher.validateMultiMatchSum(result, orderTotal)
+		err := matcher.validateMultiMatchSum(result)
 		assert.NoError(t, err, "Should handle floating-point arithmetic")
 	})
 
-	t.Run("error - sum exceeds tolerance", func(t *testing.T) {
+	t.Run("error - matched sum differs from requested amounts", func(t *testing.T) {
 		result := &MultiMatchResult{
+			Amounts: []float64{118.67, 8.31}, // Requested $126.98
 			Matches: []*MatchResult{
-				{Transaction: &monarch.Transaction{Amount: -118.00}},
+				{Transaction: &monarch.Transaction{Amount: -118.00}}, // Found $126.00
 				{Transaction: &monarch.Transaction{Amount: -8.00}},
 			},
 		}
-		orderTotal := 126.98 // Diff = 0.98 (exceeds 0.01 tolerance)
 
-		err := matcher.validateMultiMatchSum(result, orderTotal)
+		err := matcher.validateMultiMatchSum(result)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "charge sum")
+		assert.Contains(t, err.Error(), "matched sum")
 	})
 
 	t.Run("error - no matches", func(t *testing.T) {
 		result := &MultiMatchResult{
+			Amounts: []float64{100.00},
 			Matches: []*MatchResult{},
 		}
 
-		err := matcher.validateMultiMatchSum(result, 100.00)
+		err := matcher.validateMultiMatchSum(result)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no matches to validate")
 	})
 
 	t.Run("error - nil match in result", func(t *testing.T) {
 		result := &MultiMatchResult{
+			Amounts: []float64{100.00, 50.00},
 			Matches: []*MatchResult{
 				{Transaction: &monarch.Transaction{Amount: -100.00}},
 				nil, // Partial match
 			},
 		}
 
-		err := matcher.validateMultiMatchSum(result, 100.00)
+		err := matcher.validateMultiMatchSum(result)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nil match at index 1")
 	})

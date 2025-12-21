@@ -88,8 +88,9 @@ type ObservabilityConfig struct {
 
 // LoggingConfig holds logging configuration
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
+	Level    string `yaml:"level"`
+	Format   string `yaml:"format"`
+	FilePath string `yaml:"file_path"` // Optional: path to log file (logs to both stdout and file)
 }
 
 // Load reads and parses the config file

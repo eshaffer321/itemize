@@ -95,6 +95,11 @@ func (o *Orchestrator) processOrder(
 	if mdOrder, ok := order.(MultiDeliveryOrder); ok {
 		charges, err := mdOrder.GetFinalCharges()
 		if err != nil {
+			// Check if this is a pending order (not yet charged) vs an actual error
+			if strings.Contains(err.Error(), "payment pending") {
+				o.logger.Info("Skipping order - not yet charged", "order_id", order.GetID())
+				return false, true, nil // Skip, not an error
+			}
 			o.logger.Error("Failed to get ledger charges", "order_id", order.GetID(), "error", err)
 			// Fall through to regular processing using GetTotal()
 		} else if len(charges) > 1 {

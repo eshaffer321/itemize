@@ -20,6 +20,14 @@ providers:
     password: "${COSTCO_PASSWORD}"
     warehouse_number: "${COSTCO_WAREHOUSE}"
 
+  amazon:
+    enabled: true
+    rate_limit: 1s
+    lookback_days: 14
+    max_orders: 0
+    debug: false
+    account_name: "${AMAZON_ACCOUNT_NAME}"
+
 # Monarch Money API configuration
 monarch:
   api_key: "${MONARCH_TOKEN}"
@@ -38,6 +46,7 @@ observability:
   logging:
     level: "info"
     format: "json"
+    file_path: "monarch_sync.log"  # Logs to both stdout and this file
   
   metrics:
     enabled: true

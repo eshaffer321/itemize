@@ -83,7 +83,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		assert.Equal(t, charges1, charges2)
 	})
 
-	t.Run("error - no payment methods in ledger", func(t *testing.T) {
+	t.Run("error - order not yet charged (payment pending)", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST000"},
 			ledgerCache: &walmartclient.OrderLedger{
@@ -94,7 +94,7 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 
 		_, err := order.GetFinalCharges()
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no payment methods in ledger")
+		assert.Contains(t, err.Error(), "payment pending")
 	})
 
 	t.Run("error - client not available", func(t *testing.T) {
