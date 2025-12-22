@@ -12,19 +12,14 @@ linters:
     - misspell
     - staticcheck
     - unused
-
-linters-settings:
-  errcheck:
-    # Don't check for errors on these functions (common patterns)
-    exclude-functions:
-      - (io.Closer).Close
-      - (*os.File).Close
-      - (net/http.ResponseWriter).Write
-      - (*database/sql.Rows).Close
-      - (*database/sql.Tx).Rollback
-      - (*database/sql.DB).Close
-      - (encoding/json.Unmarshal)
-
-issues:
-  exclude-dirs:
-    - cmd/debug-match
+  settings:
+    errcheck:
+      # Don't check for errors on these functions (common patterns)
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.DB).Close
+        - (encoding/json.Unmarshal)
