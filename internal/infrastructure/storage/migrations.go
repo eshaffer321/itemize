@@ -61,7 +61,7 @@ func (s *Storage) runMigrations() error {
 
 		// Execute migration
 		if err := migration.Up(tx); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migration %d (%s) failed: %w", migration.Version, migration.Name, err)
 		}
 
@@ -70,7 +70,7 @@ func (s *Storage) runMigrations() error {
 			INSERT INTO schema_migrations (version, name) VALUES (?, ?)
 		`, migration.Version, migration.Name)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("failed to record migration %d: %w", migration.Version, err)
 		}
 
@@ -106,7 +106,7 @@ func (s *Storage) getAppliedMigrations() (map[int]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var version int

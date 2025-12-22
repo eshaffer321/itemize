@@ -139,7 +139,7 @@ func (h *MavenHandler) appendAttr(buf *strings.Builder, a slog.Attr) {
 	buf.WriteString(" ")
 	buf.WriteString(a.Key)
 	buf.WriteString("=")
-	buf.WriteString(fmt.Sprint(a.Value.Any()))
+	fmt.Fprint(buf, a.Value.Any())
 }
 
 // WithAttrs returns a new handler with the given attributes added

@@ -431,7 +431,9 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 			Status:       "failed",
 			ErrorMessage: errorMsg,
 		}
-		o.storage.SaveRecord(record)
+		if err := o.storage.SaveRecord(record); err != nil {
+			o.logger.Error("Failed to save error record", "order_id", order.GetID(), "error", err)
+		}
 	}
 }
 
@@ -475,7 +477,9 @@ func (o *Orchestrator) recordSuccessWithMultiDelivery(
 			}
 		}
 
-		o.storage.SaveRecord(record)
+		if err := o.storage.SaveRecord(record); err != nil {
+			o.logger.Error("Failed to save success record", "order_id", order.GetID(), "error", err)
+		}
 	}
 }
 
@@ -609,7 +613,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	// Complete sync run
 	if o.storage != nil && o.runID > 0 {
-		o.storage.CompleteSyncRun(o.runID, len(orders), result.ProcessedCount, result.SkippedCount, result.ErrorCount)
+		if err := o.storage.CompleteSyncRun(o.runID, len(orders), result.ProcessedCount, result.SkippedCount, result.ErrorCount); err != nil {
+			o.logger.Error("Failed to complete sync run", "run_id", o.runID, "error", err)
+		}
 	}
 
 	return result, nil

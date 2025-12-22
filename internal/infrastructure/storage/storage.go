@@ -23,7 +23,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 
 	// Enable foreign key constraints (SQLite-specific)
 	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
@@ -31,7 +31,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 
 	// Run all pending migrations
 	if err := s.runMigrations(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -207,12 +207,12 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		return nil, err
 	}
 
-	// Unmarshal JSON fields
+	// Unmarshal JSON fields (errors ignored as these are optional enrichment fields)
 	if record.ItemsJSON != "" {
-		json.Unmarshal([]byte(record.ItemsJSON), &record.Items)
+		_ = json.Unmarshal([]byte(record.ItemsJSON), &record.Items)
 	}
 	if record.SplitsJSON != "" {
-		json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
+		_ = json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
 	}
 	if multiDeliveryData.Valid {
 		record.MultiDeliveryData = multiDeliveryData.String
@@ -269,12 +269,13 @@ func (s *Storage) GetStats() (*Stats, error) {
 
 	rows, err := s.db.Query(provQuery)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var provider string
 			var ps ProviderStats
-			rows.Scan(&provider, &ps.Count, &ps.TotalAmount, &ps.SuccessCount)
-			stats.ProviderStats[provider] = ps
+			if err := rows.Scan(&provider, &ps.Count, &ps.TotalAmount, &ps.SuccessCount); err == nil {
+				stats.ProviderStats[provider] = ps
+			}
 		}
 	}
 
@@ -386,7 +387,7 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var calls []APICall
 	for rows.Next() {
@@ -424,7 +425,7 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var calls []APICall
 	for rows.Next() {
