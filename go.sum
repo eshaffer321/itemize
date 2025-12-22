@@ -1,11 +1,11 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/eshaffer321/costco-go v0.3.3 h1:qcNeOKviBEb1hPonqh/9QP6H0JbkN2PHgncWlgUX2/k=
-github.com/eshaffer321/costco-go v0.3.3/go.mod h1:pIIKOjw+KyiQ2+xn9EUdZTIRPbts3b4mU7+OzDY/Jdo=
+github.com/eshaffer321/costco-go v0.3.4 h1:xRyZGgk63V8A68jEuCR9gvFSk1c1n/lLjEf3E5/Y66M=
+github.com/eshaffer321/costco-go v0.3.4/go.mod h1:pIIKOjw+KyiQ2+xn9EUdZTIRPbts3b4mU7+OzDY/Jdo=
 github.com/eshaffer321/monarchmoney-go v1.0.2 h1:bCENouzURZdBKy8artmRAQNBEUXhIRYi++lP/WPZCz4=
 github.com/eshaffer321/monarchmoney-go v1.0.2/go.mod h1:ZKPCYT7NcsKGI+YpJ2EqPtfE3dKfuPbiTUrj6J84ot4=
-github.com/eshaffer321/walmart-client-go v1.0.7 h1:i8H6S+UGt+j29svWr7P8iWCbFYPbFkUleOdXS5D11To=
-github.com/eshaffer321/walmart-client-go v1.0.7/go.mod h1:TuYHoEj2m2EvLV5WOxW5krk1Ycd/CO4o0PkyCrjWJgE=
+github.com/eshaffer321/walmart-client-go v1.0.8 h1:F+FHhy+HAI6bTdxCB7hb630JorKvLQBSudBZVmd2y+Y=
+github.com/eshaffer321/walmart-client-go v1.0.8/go.mod h1:TuYHoEj2m2EvLV5WOxW5krk1Ycd/CO4o0PkyCrjWJgE=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
 github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
 github.com/getsentry/sentry-go v0.36.0 h1:UkCk0zV28PiGf+2YIONSSYiYhxwlERE5Li3JPpZqEns=
