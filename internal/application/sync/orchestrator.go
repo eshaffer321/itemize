@@ -85,80 +85,33 @@ func (o *Orchestrator) processOrder(
 		return result.Processed, result.Skipped, nil
 	}
 
-	// Check if this is a multi-delivery order or has ledger-based amounts (Walmart specific)
-	type MultiDeliveryOrder interface {
-		providers.Order
-		IsMultiDelivery() (bool, error)
-		GetFinalCharges() ([]float64, error)
-	}
-
-	if mdOrder, ok := order.(MultiDeliveryOrder); ok {
-		charges, err := mdOrder.GetFinalCharges()
+	// Use Walmart handler for Walmart orders (handles multi-delivery and gift cards)
+	if walmartOrder, ok := handlers.AsWalmartOrder(order); ok && o.walmartHandler != nil {
+		o.logger.Debug("Using Walmart handler for order", "order_id", order.GetID())
+		result, err := o.walmartHandler.ProcessOrder(ctx, walmartOrder, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts.DryRun)
 		if err != nil {
-			// Check if this is a pending order (not yet charged) vs an actual error
-			if strings.Contains(err.Error(), "payment pending") {
-				o.logger.Info("Skipping order - not yet charged", "order_id", order.GetID())
-				return false, true, nil // Skip, not an error
-			}
-			o.logger.Error("Failed to get ledger charges", "order_id", order.GetID(), "error", err)
-			// Fall through to regular processing using GetTotal()
-		} else if len(charges) > 1 {
-			// Multiple charges - multi-delivery order
-			o.logger.Info("Detected multi-delivery order", "order_id", order.GetID())
-			return o.processMultiDeliveryOrder(ctx, mdOrder, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts)
-		} else if len(charges) == 1 {
-			chargeAmount := charges[0]
-			orderTotal := order.GetTotal()
-
-			// Check if ledger amount differs from order total (gift card, refund, etc.)
-			const epsilon = 0.01 // Allow 1 cent difference for floating point
-			if math.Abs(chargeAmount-orderTotal) > epsilon {
-				o.logger.Info("Using ledger amount for matching (differs from order total)",
-					"order_id", order.GetID(),
-					"order_total", orderTotal,
-					"ledger_charge", chargeAmount,
-					"difference", math.Abs(chargeAmount-orderTotal))
-
-				// Create a wrapper order that returns the ledger amount as its total
-				wrappedOrder := &ledgerAmountOrder{
-					Order:        order,
-					ledgerAmount: chargeAmount,
-				}
-
-				// Use wrapped order for matching
-				matchResult, err := o.matcher.FindMatch(wrappedOrder, providerTransactions, usedTransactionIDs)
-				if err != nil {
-					o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
-					o.recordError(order, err.Error())
-					return false, false, fmt.Errorf("matching error: %w", err)
-				}
-
-				if matchResult == nil {
-					o.logger.Warn("No matching transaction found for ledger amount",
-						"order_id", order.GetID(),
-						"ledger_amount", chargeAmount)
-					o.recordError(order, "no matching transaction")
-					return false, false, fmt.Errorf("no matching transaction")
-				}
-
-				o.logger.Debug("Matched transaction using ledger amount",
-					"order_id", order.GetID(),
-					"transaction_id", matchResult.Transaction.ID,
-					"ledger_amount", chargeAmount,
-					"transaction_amount", math.Abs(matchResult.Transaction.Amount),
-					"date_diff_days", matchResult.DateDiff)
-
-				// Mark as used
-				usedTransactionIDs[matchResult.Transaction.ID] = true
-
-				// Apply categorization and splits using original order (not wrapped)
-				return o.categorizeAndApplySplits(ctx, order, matchResult.Transaction, catCategories, monarchCategories, opts, nil)
-			}
-			// else: ledger amount equals order total, fall through to regular processing
+			o.logger.Error("Walmart handler error", "order_id", order.GetID(), "error", err)
+			o.recordError(order, err.Error())
+			return false, false, err
 		}
+		if result.Skipped {
+			o.logger.Warn("Walmart order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
+			// Don't treat "payment pending" as an error - it's expected for new orders
+			if result.SkipReason == "payment pending" {
+				return false, true, nil
+			}
+			o.recordError(order, result.SkipReason)
+			return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
+		}
+		// Record success
+		if result.Processed {
+			o.recordSuccess(order, nil, result.Splits, 0, opts.DryRun)
+		}
+		return result.Processed, result.Skipped, nil
 	}
 
-	// Match transaction (regular single-delivery order)
+	// Generic path for simple providers (e.g., Costco) that don't have handlers
+	// Match transaction using order total
 	matchResult, err := o.matcher.FindMatch(order, providerTransactions, usedTransactionIDs)
 	if err != nil {
 		o.logger.Error("Matching error", "order_id", order.GetID(), "error", err)
@@ -191,111 +144,6 @@ func (o *Orchestrator) processOrder(
 
 	// Apply categorization and splits to matched transaction
 	return o.categorizeAndApplySplits(ctx, order, match, catCategories, monarchCategories, opts, nil)
-}
-
-// processMultiDeliveryOrder handles orders with multiple charge transactions
-func (o *Orchestrator) processMultiDeliveryOrder(
-	ctx context.Context,
-	order interface {
-		providers.Order
-		IsMultiDelivery() (bool, error)
-		GetFinalCharges() ([]float64, error)
-	},
-	providerTransactions []*monarch.Transaction,
-	usedTransactionIDs map[string]bool,
-	catCategories []categorizer.Category,
-	monarchCategories []*monarch.TransactionCategory,
-	opts Options,
-) (bool, bool, error) {
-	o.logger.Info("Processing multi-delivery order",
-		"order_id", order.GetID(),
-		"order_total", order.GetTotal(),
-	)
-
-	// Get charge amounts
-	charges, err := order.GetFinalCharges()
-	if err != nil {
-		o.logger.Error("Failed to get final charges", "order_id", order.GetID(), "error", err)
-		o.recordError(order, err.Error())
-		return false, false, fmt.Errorf("failed to get final charges: %w", err)
-	}
-
-	o.logger.Info("Found multiple charges", "count", len(charges), "charges", charges)
-
-	// Find matching transactions for each charge
-	multiMatchResult, err := o.matcher.FindMultipleMatches(order, providerTransactions, usedTransactionIDs, charges)
-	if err != nil {
-		o.logger.Error("Multi-match error", "order_id", order.GetID(), "error", err)
-		o.recordError(order, err.Error())
-		return false, false, fmt.Errorf("multi-match error: %w", err)
-	}
-
-	if !multiMatchResult.AllFound {
-		o.logger.Warn("Could not find all matching transactions",
-			"order_id", order.GetID(),
-			"expected", len(charges),
-			"found", len(multiMatchResult.Matches),
-		)
-		o.recordError(order, "Incomplete multi-transaction match")
-		return false, false, fmt.Errorf("incomplete multi-transaction match")
-	}
-
-	// Extract matched transactions
-	matchedTransactions := make([]*monarch.Transaction, 0, len(multiMatchResult.Matches))
-	originalTransactionIDs := make([]string, 0, len(multiMatchResult.Matches))
-	for i, match := range multiMatchResult.Matches {
-		if match == nil {
-			o.logger.Error("Nil match in result", "index", i)
-			continue
-		}
-		matchedTransactions = append(matchedTransactions, match.Transaction)
-		originalTransactionIDs = append(originalTransactionIDs, match.Transaction.ID)
-		o.logger.Debug("Matched charge transaction",
-			"charge_index", i,
-			"charge_amount", charges[i],
-			"transaction_id", match.Transaction.ID,
-			"transaction_amount", math.Abs(match.Transaction.Amount),
-			"date_diff_days", match.DateDiff,
-		)
-	}
-
-	// Mark all transactions as used
-	for _, txnID := range originalTransactionIDs {
-		usedTransactionIDs[txnID] = true
-	}
-
-	// Consolidate transactions into one
-	consolidationResult, err := o.consolidator.ConsolidateTransactions(ctx, matchedTransactions, order, opts.DryRun)
-	if err != nil {
-		o.logger.Error("Failed to consolidate transactions", "order_id", order.GetID(), "error", err)
-		o.recordError(order, err.Error())
-		return false, false, fmt.Errorf("failed to consolidate transactions: %w", err)
-	}
-
-	consolidatedTxn := consolidationResult.ConsolidatedTransaction
-
-	if len(consolidationResult.FailedDeletions) > 0 {
-		o.logger.Warn("Some transactions failed to delete (manual cleanup required)",
-			"order_id", order.GetID(),
-			"failed_transaction_ids", consolidationResult.FailedDeletions,
-		)
-	}
-
-	o.logger.Info("Consolidated transactions",
-		"order_id", order.GetID(),
-		"consolidated_id", consolidatedTxn.ID,
-		"original_ids", originalTransactionIDs,
-		"failed_deletions", len(consolidationResult.FailedDeletions),
-	)
-
-	// Apply categorization and splits to consolidated transaction
-	return o.categorizeAndApplySplits(ctx, order, consolidatedTxn, catCategories, monarchCategories, opts, &storage.MultiDeliveryInfo{
-		IsMultiDelivery:           true,
-		ChargeCount:               len(charges),
-		OriginalTransactionIDs:    originalTransactionIDs,
-		ChargeAmounts:             charges,
-		ConsolidatedTransactionID: consolidatedTxn.ID,
-	})
 }
 
 // categorizeAndApplySplits applies categorization and splits to a transaction
@@ -657,17 +505,4 @@ func (o *Orchestrator) logAPICall(orderID, method string, request, response inte
 	if err := o.storage.LogAPICall(apiCall); err != nil {
 		o.logger.Warn("Failed to log API call", "method", method, "error", err)
 	}
-}
-
-// ledgerAmountOrder wraps an order to override GetTotal() with a ledger-based amount
-// This is used when the actual bank charge differs from the order total
-// (e.g., due to gift cards, refunds, or other adjustments)
-type ledgerAmountOrder struct {
-	providers.Order
-	ledgerAmount float64
-}
-
-// GetTotal returns the ledger amount instead of the original order total
-func (l *ledgerAmountOrder) GetTotal() float64 {
-	return l.ledgerAmount
 }

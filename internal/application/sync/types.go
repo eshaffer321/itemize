@@ -34,15 +34,16 @@ type Result struct {
 
 // Orchestrator runs the sync process
 type Orchestrator struct {
-	provider      providers.OrderProvider
-	clients       *clients.Clients
-	splitter      *splitter.Splitter
-	matcher       *matcher.Matcher
-	consolidator  *Consolidator
-	amazonHandler *handlers.AmazonHandler
-	storage       *storage.Storage
-	logger        *slog.Logger
-	runID         int64 // Current sync run ID for API logging
+	provider       providers.OrderProvider
+	clients        *clients.Clients
+	splitter       *splitter.Splitter
+	matcher        *matcher.Matcher
+	consolidator   *Consolidator
+	amazonHandler  *handlers.AmazonHandler
+	walmartHandler *handlers.WalmartHandler
+	storage        *storage.Storage
+	logger         *slog.Logger
+	runID          int64 // Current sync run ID for API logging
 }
 
 // NewOrchestrator creates a new sync orchestrator
@@ -83,15 +84,28 @@ func NewOrchestrator(
 		)
 	}
 
+	// Create Walmart handler (if all dependencies available)
+	var walmartHandler *handlers.WalmartHandler
+	if clients != nil && clients.Monarch != nil && spl != nil && consolidator != nil {
+		walmartHandler = handlers.NewWalmartHandler(
+			transactionMatcher,
+			&consolidatorAdapter{consolidator},
+			&splitterAdapter{spl},
+			&monarchAdapter{clients.Monarch},
+			logger,
+		)
+	}
+
 	return &Orchestrator{
-		provider:      provider,
-		clients:       clients,
-		splitter:      spl,
-		matcher:       transactionMatcher,
-		consolidator:  consolidator,
-		amazonHandler: amazonHandler,
-		storage:       storage,
-		logger:        logger,
+		provider:       provider,
+		clients:        clients,
+		splitter:       spl,
+		matcher:        transactionMatcher,
+		consolidator:   consolidator,
+		amazonHandler:  amazonHandler,
+		walmartHandler: walmartHandler,
+		storage:        storage,
+		logger:         logger,
 	}
 }
 
