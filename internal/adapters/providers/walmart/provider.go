@@ -18,13 +18,14 @@ type Provider struct {
 }
 
 // NewProvider creates a new Walmart provider
+// Note: Caller is responsible for adding any scoping attributes (e.g., system="walmart")
 func NewProvider(client *walmartclient.WalmartClient, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Provider{
 		client:    client,
-		logger:    logger.With(slog.String("provider", "walmart")),
+		logger:    logger,
 		rateLimit: 2 * time.Second,
 	}
 }

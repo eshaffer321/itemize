@@ -18,13 +18,14 @@ type Provider struct {
 }
 
 // NewProvider creates a new Costco provider
+// Note: Caller is responsible for adding any scoping attributes (e.g., system="costco")
 func NewProvider(client *costcogo.Client, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Provider{
 		client:    client,
-		logger:    logger.With(slog.String("provider", "costco")),
+		logger:    logger,
 		rateLimit: 3 * time.Second, // Conservative rate limit for Costco
 	}
 }
