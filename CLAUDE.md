@@ -106,7 +106,7 @@ See [docs/testing.md](docs/testing.md) for detailed guidelines.
 ### End-to-End Flow
 1. **Fetch orders** from provider (Walmart/Costco) with item details
 2. **Fetch Monarch transactions** filtered by merchant name
-3. **Match orders to transactions** using fuzzy matching (amount ± $0.50, date ± 5 days)
+3. **Match orders to transactions** using fuzzy matching (amount ± $0.01, date ± 5 days)
 4. **Categorize items** with OpenAI (cached to reduce API calls)
 5. **Create splits** grouping items by category with proportional tax
 6. **Update Monarch** via monarchmoney-go SDK
@@ -309,7 +309,7 @@ Schema auto-migrates on startup. See [internal/infrastructure/storage/storage.go
 
 ### "No matching transaction found"
 - Transaction hasn't posted to Monarch yet (wait 1-3 days)
-- Amount mismatch > $0.50
+- Amount mismatch > $0.01
 - Date difference > 5 days
 - Use `-verbose` to see matching details
 

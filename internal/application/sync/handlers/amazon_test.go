@@ -168,7 +168,7 @@ func TestAmazonHandler_ProcessOrder_ValidOrder(t *testing.T) {
 
 	monarch := &mockMonarch{}
 
-	matcherCfg := matcher.Config{AmountTolerance: 0.50, DateTolerance: 5}
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
 	handler := NewAmazonHandler(
 		matcher.NewMatcher(matcherCfg),
 		consolidator,
@@ -241,7 +241,7 @@ func TestAmazonHandler_ProcessOrder_MissingTransactions(t *testing.T) {
 		{ID: "txn-1", Amount: -50.00, Date: toMonarchDate(time.Now())},
 	}
 
-	matcherCfg := matcher.Config{AmountTolerance: 0.50, DateTolerance: 5}
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
 	handler := NewAmazonHandler(
 		matcher.NewMatcher(matcherCfg),
 		nil, nil, nil, nil,
@@ -283,7 +283,7 @@ func TestAmazonHandler_ProcessOrder_DryRun(t *testing.T) {
 
 	monarchClient := &mockMonarch{}
 
-	matcherCfg := matcher.Config{AmountTolerance: 0.50, DateTolerance: 5}
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
 	handler := NewAmazonHandler(
 		matcher.NewMatcher(matcherCfg),
 		nil,
@@ -328,7 +328,7 @@ func TestAmazonHandler_ProcessOrder_SingleCategory(t *testing.T) {
 
 	monarchClient := &mockMonarch{}
 
-	matcherCfg := matcher.Config{AmountTolerance: 0.50, DateTolerance: 5}
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
 	handler := NewAmazonHandler(
 		matcher.NewMatcher(matcherCfg),
 		nil,
@@ -375,7 +375,7 @@ func TestAmazonHandler_ProcessOrder_WithGiftCard(t *testing.T) {
 
 	monarchClient := &mockMonarch{}
 
-	matcherCfg := matcher.Config{AmountTolerance: 0.50, DateTolerance: 5}
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
 	handler := NewAmazonHandler(
 		matcher.NewMatcher(matcherCfg),
 		nil,
