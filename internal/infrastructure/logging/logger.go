@@ -40,7 +40,7 @@ func NewLogger(cfg config.LoggingConfig) *slog.Logger {
 		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			// Fall back to stdout only, log warning to stderr
-			os.Stderr.WriteString("Warning: could not open log file " + cfg.FilePath + ": " + err.Error() + "\n")
+			_, _ = os.Stderr.WriteString("Warning: could not open log file " + cfg.FilePath + ": " + err.Error() + "\n")
 		} else {
 			logFile = file
 			writer = io.MultiWriter(os.Stdout, file)
@@ -56,7 +56,7 @@ func NewLogger(cfg config.LoggingConfig) *slog.Logger {
 // CloseLogFile closes the log file if one was opened
 func CloseLogFile() {
 	if logFile != nil {
-		logFile.Close()
+		_ = logFile.Close()
 		logFile = nil
 	}
 }
