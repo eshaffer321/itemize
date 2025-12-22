@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 env:
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.24'
 
 jobs:
   lint:
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.22', '1.23']
+        go-version: ['1.22', '1.23', '1.24']
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,7 +54,7 @@ jobs:
           go tool cover -func=coverage.txt
 
       - name: Upload coverage reports to Codecov
-        if: matrix.go-version == '1.21'
+        if: matrix.go-version == '1.24'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -90,7 +90,7 @@ jobs:
           GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || matrix.os == 'macos-latest' && 'darwin' || 'windows' }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          go build -v -o monarchmoney-sync-backend${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+          go build -v -o monarchmoney-sync-backend${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/monarch-sync/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
