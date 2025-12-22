@@ -43,7 +43,7 @@ func NewMavenHandler(w io.Writer, opts *slog.HandlerOptions) *MavenHandler {
 		level:          slog.LevelInfo,
 		mu:             &sync.Mutex{},
 		showTimestamps: true,
-		useColors:      isTerminal(w),
+		useColors:      isTerminal(os.Stdout),
 	}
 
 	if opts != nil {
