@@ -41,6 +41,7 @@ type Orchestrator struct {
 	consolidator   *Consolidator
 	amazonHandler  *handlers.AmazonHandler
 	walmartHandler *handlers.WalmartHandler
+	simpleHandler  *handlers.SimpleHandler
 	storage        *storage.Storage
 	logger         *slog.Logger
 	runID          int64 // Current sync run ID for API logging
@@ -96,6 +97,17 @@ func NewOrchestrator(
 		)
 	}
 
+	// Create Simple handler for providers without special handling (Costco, etc.)
+	var simpleHandler *handlers.SimpleHandler
+	if clients != nil && clients.Monarch != nil && spl != nil {
+		simpleHandler = handlers.NewSimpleHandler(
+			transactionMatcher,
+			&splitterAdapter{spl},
+			&monarchAdapter{clients.Monarch},
+			logger,
+		)
+	}
+
 	return &Orchestrator{
 		provider:       provider,
 		clients:        clients,
@@ -104,6 +116,7 @@ func NewOrchestrator(
 		consolidator:   consolidator,
 		amazonHandler:  amazonHandler,
 		walmartHandler: walmartHandler,
+		simpleHandler:  simpleHandler,
 		storage:        storage,
 		logger:         logger,
 	}

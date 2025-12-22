@@ -9,6 +9,7 @@ import (
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync/handlers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/matcher"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/splitter"
@@ -100,6 +101,30 @@ func (m *mockCategorizer) CategorizeItems(ctx context.Context, items []categoriz
 	return result, nil
 }
 
+// processOrderTestMonarch implements handlers.MonarchClient for testing
+type processOrderTestMonarch struct{}
+
+func (m *processOrderTestMonarch) UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error {
+	return nil
+}
+
+func (m *processOrderTestMonarch) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {
+	return nil
+}
+
+// mockSplitterAdapter implements handlers.CategorySplitter for testing
+type mockSplitterAdapter struct {
+	splitter *splitter.Splitter
+}
+
+func (a *mockSplitterAdapter) CreateSplits(ctx context.Context, order providers.Order, transaction *monarch.Transaction, catCategories []categorizer.Category, monarchCategories []*monarch.TransactionCategory) ([]*monarch.TransactionSplit, error) {
+	return a.splitter.CreateSplits(ctx, order, transaction, catCategories, monarchCategories)
+}
+
+func (a *mockSplitterAdapter) GetSingleCategoryInfo(ctx context.Context, order providers.Order, categories []categorizer.Category) (string, string, error) {
+	return a.splitter.GetSingleCategoryInfo(ctx, order, categories)
+}
+
 // createTestOrchestrator creates an orchestrator with mocked dependencies
 func createTestOrchestrator(t *testing.T) *Orchestrator {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -108,15 +133,25 @@ func createTestOrchestrator(t *testing.T) *Orchestrator {
 		AmountTolerance: 0.50,
 		DateTolerance:   5,
 	}
+	transactionMatcher := matcher.NewMatcher(matcherCfg)
 
 	// Create a real splitter with a mock categorizer
 	mockCat := &mockCategorizer{categoryID: "groceries", categoryName: "Groceries"}
 	spl := splitter.NewSplitter(mockCat)
 
+	// Create SimpleHandler for the orchestrator
+	simpleHandler := handlers.NewSimpleHandler(
+		transactionMatcher,
+		&mockSplitterAdapter{spl},
+		&processOrderTestMonarch{},
+		logger,
+	)
+
 	return &Orchestrator{
-		matcher:  matcher.NewMatcher(matcherCfg),
-		splitter: spl,
-		logger:   logger,
+		matcher:       transactionMatcher,
+		splitter:      spl,
+		simpleHandler: simpleHandler,
+		logger:        logger,
 	}
 }
 
