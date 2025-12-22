@@ -130,7 +130,7 @@ func createTestOrchestrator(t *testing.T) *Orchestrator {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	matcherCfg := matcher.Config{
-		AmountTolerance: 0.50,
+		AmountTolerance: 0.01,
 		DateTolerance:   5,
 	}
 	transactionMatcher := matcher.NewMatcher(matcherCfg)
@@ -334,9 +334,9 @@ func TestProcessOrder_GenericMatching_AmountTolerance(t *testing.T) {
 		items:        []providers.OrderItem{&mockOrderItem{name: "Item", price: 45.00, quantity: 1}},
 	}
 
-	// Transaction is $0.30 off (within $0.50 tolerance)
+	// Transaction is $0.005 off (within $0.01 tolerance)
 	transactions := []*monarch.Transaction{
-		{ID: "txn-1", Amount: -50.30, Date: toMonarchDate(orderDate)},
+		{ID: "txn-1", Amount: -50.005, Date: toMonarchDate(orderDate)},
 	}
 
 	usedTxnIDs := make(map[string]bool)

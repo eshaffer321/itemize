@@ -95,7 +95,7 @@ amazon-scraper --login  # authenticate once
 
 **"No matching transaction found"**
 - Transaction hasn't posted to Monarch yet (wait 1-3 days)
-- Amount differs by more than $0.50
+- Amount differs by more than $0.01
 - Date differs by more than 5 days
 
 **"Order already processed"**

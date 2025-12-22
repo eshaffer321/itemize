@@ -103,7 +103,7 @@ func simpleToMonarchDate(t time.Time) monarch.Date {
 func createTestSimpleHandler(t *testing.T, splitter *simpleTestSplitter, monarch *simpleTestMonarch) *SimpleHandler {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	matcherCfg := matcher.Config{
-		AmountTolerance: 0.50,
+		AmountTolerance: 0.01,
 		DateTolerance:   5,
 	}
 	return NewSimpleHandler(
@@ -300,9 +300,9 @@ func TestSimpleHandler_ProcessOrder_AmountTolerance(t *testing.T) {
 		items:        []providers.OrderItem{&simpleTestItem{name: "Item", price: 45.00, quantity: 1}},
 	}
 
-	// Transaction is $0.30 off (within $0.50 tolerance)
+	// Transaction is $0.005 off (within $0.01 tolerance)
 	txns := []*monarch.Transaction{
-		{ID: "txn-1", Amount: -50.30, Date: simpleToMonarchDate(orderDate)},
+		{ID: "txn-1", Amount: -50.005, Date: simpleToMonarchDate(orderDate)},
 	}
 
 	usedTxnIDs := make(map[string]bool)

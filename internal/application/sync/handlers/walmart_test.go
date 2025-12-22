@@ -130,7 +130,7 @@ func walmartToMonarchDate(t time.Time) monarch.Date {
 func createTestWalmartHandler(t *testing.T, splitter *walmartTestSplitter, consolidator *walmartTestConsolidator, monarch *walmartTestMonarch) *WalmartHandler {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	matcherCfg := matcher.Config{
-		AmountTolerance: 0.50,
+		AmountTolerance: 0.01,
 		DateTolerance:   5,
 	}
 	return NewWalmartHandler(
