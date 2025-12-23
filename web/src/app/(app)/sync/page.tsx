@@ -19,7 +19,7 @@ import {
   type StartSyncRequest,
 } from '@/lib/api'
 import { ArrowPathIcon, PlayIcon, XMarkIcon } from '@heroicons/react/16/solid'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
@@ -106,7 +106,7 @@ export default function SyncPage() {
     }
   }
 
-  async function loadActiveJobs() {
+  const loadActiveJobs = useCallback(async () => {
     try {
       const data = await getActiveSyncJobs()
       // Update only active jobs to avoid flickering
@@ -117,10 +117,10 @@ export default function SyncPage() {
           return [...data.jobs, ...inactiveJobs]
         })
       }
-    } catch (err) {
+    } catch {
       // Silently fail on polling errors to avoid noise
     }
-  }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -156,6 +156,13 @@ export default function SyncPage() {
   }
 
   async function handleCancel(jobId: string) {
+    const confirmed = window.confirm(
+      'Are you sure you want to cancel this sync job? This action cannot be undone.'
+    )
+    if (!confirmed) {
+      return
+    }
+
     try {
       await cancelSyncJob(jobId)
       setSuccess('Job cancelled successfully')
