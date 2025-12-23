@@ -3,13 +3,17 @@ package cli
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/service"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
@@ -46,6 +50,30 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 	}
 	defer func() { _ = store.Close() }()
 
+	// Initialize clients for sync service
+	var syncService *service.SyncService
+	serviceClients, err := clients.NewClients(cfg)
+	if err != nil {
+		logger.Warn("failed to initialize clients, sync endpoints will be disabled", slog.Any("error", err))
+	} else {
+		// Create provider factory map
+		providerFactory := map[string]service.ProviderFactory{
+			"walmart": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
+				return NewWalmartProvider(c, verbose)
+			},
+			"costco": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
+				return NewCostcoProvider(c, verbose)
+			},
+			"amazon": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
+				return NewAmazonProvider(c, verbose)
+			},
+		}
+
+		// Create sync service
+		syncService = service.NewSyncService(cfg, serviceClients, store, logger, providerFactory)
+		logger.Info("sync service initialized", "providers", []string{"walmart", "costco", "amazon"})
+	}
+
 	// Create API config
 	apiCfg := api.Config{
 		Port:           flags.Port,
@@ -53,7 +81,7 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 	}
 
 	// Create and start server
-	server := api.NewServer(apiCfg, store, logger)
+	server := api.NewServer(apiCfg, store, syncService, logger)
 
 	// Handle graceful shutdown
 	done := make(chan bool, 1)
@@ -72,6 +100,13 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 		}
 		close(done)
 	}()
+
+	// Log server info
+	if syncService != nil {
+		fmt.Printf("Sync API available at http://localhost:%d/api/sync\n", flags.Port)
+	} else {
+		fmt.Printf("Sync API disabled (client initialization failed)\n")
+	}
 
 	// Start server (blocks until shutdown)
 	if err := server.Start(); err != nil {
