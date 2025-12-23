@@ -8,6 +8,42 @@ import (
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
+// convertOrderItems converts provider order items to storage order items
+func convertOrderItems(items []providers.OrderItem) []storage.OrderItem {
+	if items == nil {
+		return nil
+	}
+
+	result := make([]storage.OrderItem, len(items))
+	for i, item := range items {
+		result[i] = storage.OrderItem{
+			Name:       item.GetName(),
+			Quantity:   item.GetQuantity(),
+			UnitPrice:  item.GetUnitPrice(),
+			TotalPrice: item.GetPrice(),
+			Category:   item.GetCategory(),
+		}
+	}
+	return result
+}
+
+// convertSplits converts monarch splits to storage split details
+func convertSplits(splits []*monarch.TransactionSplit) []storage.SplitDetail {
+	if splits == nil {
+		return nil
+	}
+
+	result := make([]storage.SplitDetail, len(splits))
+	for i, split := range splits {
+		result[i] = storage.SplitDetail{
+			CategoryID: split.CategoryID,
+			Amount:     split.Amount,
+			Notes:      split.Notes,
+		}
+	}
+	return result
+}
+
 // Recording and audit trail functions for the sync orchestrator.
 // These handle persisting processing results and API call logs to storage.
 
@@ -19,10 +55,14 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 			Provider:     order.GetProviderName(),
 			OrderDate:    order.GetDate(),
 			OrderTotal:   order.GetTotal(),
+			OrderSubtotal: order.GetSubtotal(),
+			OrderTax:     order.GetTax(),
+			OrderTip:     order.GetTip(),
 			ItemCount:    len(order.GetItems()),
 			ProcessedAt:  time.Now(),
 			Status:       "failed",
 			ErrorMessage: errorMsg,
+			Items:        convertOrderItems(order.GetItems()),
 		}
 		if err := o.storage.SaveRecord(record); err != nil {
 			o.logger.Error("Failed to save error record", "order_id", order.GetID(), "error", err)
@@ -50,12 +90,17 @@ func (o *Orchestrator) recordSuccessWithMultiDelivery(
 			Provider:        order.GetProviderName(),
 			OrderDate:       order.GetDate(),
 			OrderTotal:      order.GetTotal(),
+			OrderSubtotal:   order.GetSubtotal(),
+			OrderTax:        order.GetTax(),
+			OrderTip:        order.GetTip(),
 			ItemCount:       len(order.GetItems()),
 			SplitCount:      len(splits),
 			ProcessedAt:     time.Now(),
 			Status:          "success",
 			MatchConfidence: confidence,
 			DryRun:          dryRun,
+			Items:           convertOrderItems(order.GetItems()),
+			Splits:          convertSplits(splits),
 		}
 
 		// Add transaction info if available
