@@ -35,6 +35,7 @@ type OrderRepository interface {
 type OrderFilters struct {
 	Provider  string // Filter by provider (empty = all)
 	Status    string // Filter by status (empty = all)
+	Search    string // Search order IDs (partial match)
 	DaysBack  int    // How many days back to look (0 = all time)
 	Limit     int    // Max results (0 = default 50)
 	Offset    int    // Pagination offset

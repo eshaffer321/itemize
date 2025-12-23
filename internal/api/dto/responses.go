@@ -94,6 +94,27 @@ type SyncRunListResponse struct {
 	Count int               `json:"count"`
 }
 
+// StatsResponse represents aggregate statistics.
+type StatsResponse struct {
+	TotalProcessed     int                     `json:"total_processed"`
+	SuccessCount       int                     `json:"success_count"`
+	FailedCount        int                     `json:"failed_count"`
+	SkippedCount       int                     `json:"skipped_count"`
+	DryRunCount        int                     `json:"dry_run_count"`
+	TotalAmount        float64                 `json:"total_amount"`
+	AverageOrderAmount float64                 `json:"average_order_amount"`
+	TotalSplits        int                     `json:"total_splits"`
+	ProviderStats      []ProviderStatsResponse `json:"provider_stats"`
+}
+
+// ProviderStatsResponse represents per-provider statistics.
+type ProviderStatsResponse struct {
+	Provider     string  `json:"provider"`
+	Count        int     `json:"count"`
+	SuccessCount int     `json:"success_count"`
+	TotalAmount  float64 `json:"total_amount"`
+}
+
 // NewHealthResponse creates a health response with current timestamp.
 func NewHealthResponse() HealthResponse {
 	return HealthResponse{

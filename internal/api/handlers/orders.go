@@ -27,6 +27,7 @@ func (h *OrdersHandler) List(w http.ResponseWriter, r *http.Request) {
 	filters := storage.OrderFilters{
 		Provider:  r.URL.Query().Get("provider"),
 		Status:    r.URL.Query().Get("status"),
+		Search:    r.URL.Query().Get("search"),
 		DaysBack:  ParseIntParam(r, "days_back", 0),
 		Limit:     ParseIntParam(r, "limit", 50),
 		Offset:    ParseIntParam(r, "offset", 0),

@@ -91,6 +91,10 @@ func (s *Server) setupRoutes() {
 		runsHandler := handlers.NewRunsHandler(s.repo)
 		r.Get("/runs", runsHandler.List)
 		r.Get("/runs/{id}", runsHandler.Get)
+
+		// Stats
+		statsHandler := handlers.NewStatsHandler(s.repo)
+		r.Get("/stats", statsHandler.Get)
 	})
 }
 
