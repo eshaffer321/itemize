@@ -93,3 +93,53 @@ export interface StatsResponse {
   total_splits: number
   provider_stats: ProviderStats[]
 }
+
+// Sync Job Types
+export interface StartSyncRequest {
+  provider: 'walmart' | 'costco' | 'amazon'
+  dry_run?: boolean
+  lookback_days?: number
+  max_orders?: number
+  verbose?: boolean
+  order_id?: string
+  force?: boolean
+}
+
+export interface StartSyncResponse {
+  job_id: string
+  message: string
+}
+
+export interface SyncJobProgress {
+  current_phase: string
+  total_orders: number
+  processed_orders: number
+  skipped_orders: number
+  errored_orders: number
+}
+
+export interface SyncJobResult {
+  orders_found: number
+  orders_processed: number
+  orders_skipped: number
+  orders_errored: number
+  dry_run: boolean
+}
+
+export interface SyncJob {
+  job_id: string
+  provider: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  dry_run: boolean
+  progress: SyncJobProgress
+  request?: StartSyncRequest
+  started_at: string
+  completed_at?: string
+  result?: SyncJobResult
+  error?: string
+}
+
+export interface SyncJobListResponse {
+  jobs: SyncJob[]
+  count: number
+}

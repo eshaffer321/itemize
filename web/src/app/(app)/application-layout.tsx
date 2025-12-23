@@ -35,6 +35,7 @@ import {
   HomeIcon,
   QuestionMarkCircleIcon,
   ShoppingCartIcon,
+  CloudArrowUpIcon,
 } from '@heroicons/react/20/solid'
 import { usePathname } from 'next/navigation'
 
@@ -97,6 +98,10 @@ export function ApplicationLayout({ children }: { children: React.ReactNode }) {
               <SidebarItem href="/" current={pathname === '/'}>
                 <HomeIcon />
                 <SidebarLabel>Dashboard</SidebarLabel>
+              </SidebarItem>
+              <SidebarItem href="/sync" current={pathname.startsWith('/sync')}>
+                <CloudArrowUpIcon />
+                <SidebarLabel>Sync</SidebarLabel>
               </SidebarItem>
               <SidebarItem href="/orders" current={pathname.startsWith('/orders')}>
                 <ShoppingCartIcon />
