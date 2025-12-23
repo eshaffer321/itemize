@@ -1,13 +1,26 @@
-import { Order, OrderFilters, OrderListResponse, SyncRun, SyncRunListResponse, HealthResponse, StatsResponse } from './types'
+import {
+  Order,
+  OrderFilters,
+  OrderListResponse,
+  SyncRun,
+  SyncRunListResponse,
+  HealthResponse,
+  StatsResponse,
+  StartSyncRequest,
+  StartSyncResponse,
+  SyncJob,
+  SyncJobListResponse,
+} from './types'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8085'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
 
-async function fetchJSON<T>(url: string): Promise<T> {
+async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
     },
     cache: 'no-store',
+    ...options,
   })
 
   if (!response.ok) {
@@ -84,4 +97,30 @@ export async function getOrderStats(): Promise<OrderStats> {
     dryRun: dryRunOrders.total_count,
     totalAmount,
   }
+}
+
+// Sync Job API functions
+export async function startSync(request: StartSyncRequest): Promise<StartSyncResponse> {
+  return fetchJSON<StartSyncResponse>(`${API_BASE_URL}/api/sync`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+export async function getSyncJobs(): Promise<SyncJobListResponse> {
+  return fetchJSON<SyncJobListResponse>(`${API_BASE_URL}/api/sync`)
+}
+
+export async function getActiveSyncJobs(): Promise<SyncJobListResponse> {
+  return fetchJSON<SyncJobListResponse>(`${API_BASE_URL}/api/sync/active`)
+}
+
+export async function getSyncJob(jobId: string): Promise<SyncJob> {
+  return fetchJSON<SyncJob>(`${API_BASE_URL}/api/sync/${encodeURIComponent(jobId)}`)
+}
+
+export async function cancelSyncJob(jobId: string): Promise<void> {
+  await fetchJSON<void>(`${API_BASE_URL}/api/sync/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  })
 }
