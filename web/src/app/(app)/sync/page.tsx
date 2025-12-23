@@ -192,6 +192,7 @@ export default function SyncPage() {
       loadActiveJobs()
     }, 3000) // Poll every 3 seconds
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loadJobs() {
@@ -505,9 +506,9 @@ export default function SyncPage() {
                 <TableCell className="text-zinc-500">{formatDate(job.started_at)}</TableCell>
                 <TableCell>
                   {job.status === 'running' && (
-                    <Button color="red" plain onClick={() => handleCancel(job.job_id)}>
-                      <XMarkIcon />
-                      Cancel
+                    <Button plain onClick={() => handleCancel(job.job_id)}>
+                      <XMarkIcon className="text-red-600" />
+                      <span className="text-red-600">Cancel</span>
                     </Button>
                   )}
                 </TableCell>
