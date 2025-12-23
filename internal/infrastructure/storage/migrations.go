@@ -30,6 +30,11 @@ var allMigrations = []Migration{
 		Name:    "add_api_calls_table",
 		Up:      migration003AddAPICallsTable,
 	},
+	{
+		Version: 4,
+		Name:    "backfill_null_values",
+		Up:      migration004BackfillNullValues,
+	},
 }
 
 // runMigrations executes all pending migrations
@@ -238,6 +243,49 @@ func migration003AddAPICallsTable(db *sql.Tx) error {
 	for _, query := range queries {
 		if _, err := db.Exec(query); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// migration004BackfillNullValues converts NULL values to empty strings for consistency.
+// This ensures the Go code can scan these columns without sql.NullString for most cases.
+// Fields that are semantically nullable (error_message, transaction_id, multi_delivery_data)
+// are intentionally left as-is since NULL has meaning there.
+func migration004BackfillNullValues(db *sql.Tx) error {
+	// Backfill empty strings for fields that should never be NULL
+	queries := []string{
+		// provider should always have a value
+		`UPDATE processing_records SET provider = 'unknown' WHERE provider IS NULL`,
+
+		// status should always have a value
+		`UPDATE processing_records SET status = 'unknown' WHERE status IS NULL`,
+
+		// JSON fields: empty array is better than NULL for items/splits
+		`UPDATE processing_records SET items_json = '[]' WHERE items_json IS NULL`,
+		`UPDATE processing_records SET splits_json = '[]' WHERE splits_json IS NULL`,
+
+		// Numeric fields: 0 is better than NULL
+		`UPDATE processing_records SET order_total = 0 WHERE order_total IS NULL`,
+		`UPDATE processing_records SET order_subtotal = 0 WHERE order_subtotal IS NULL`,
+		`UPDATE processing_records SET order_tax = 0 WHERE order_tax IS NULL`,
+		`UPDATE processing_records SET order_tip = 0 WHERE order_tip IS NULL`,
+		`UPDATE processing_records SET transaction_amount = 0 WHERE transaction_amount IS NULL`,
+		`UPDATE processing_records SET split_count = 0 WHERE split_count IS NULL`,
+		`UPDATE processing_records SET item_count = 0 WHERE item_count IS NULL`,
+		`UPDATE processing_records SET match_confidence = 0 WHERE match_confidence IS NULL`,
+
+		// Note: We intentionally leave these as potentially NULL since NULL has meaning:
+		// - transaction_id: NULL means no match found
+		// - error_message: NULL means no error (success)
+		// - multi_delivery_data: NULL means not a multi-delivery order
+		// - order_date, processed_at: Could be NULL for very old/corrupt records
+	}
+
+	for _, query := range queries {
+		if _, err := db.Exec(query); err != nil {
+			return fmt.Errorf("backfill query failed: %w", err)
 		}
 	}
 

@@ -96,12 +96,18 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	`
 
 	record := &ProcessingRecord{}
-	var multiDeliveryData sql.NullString
+	var (
+		transactionID     sql.NullString
+		errorMessage      sql.NullString
+		itemsJSON         sql.NullString
+		splitsJSON        sql.NullString
+		multiDeliveryData sql.NullString
+	)
 	err := s.db.QueryRow(query, orderID).Scan(
 		&record.ID,
 		&record.OrderID,
 		&record.Provider,
-		&record.TransactionID,
+		&transactionID,
 		&record.OrderDate,
 		&record.ProcessedAt,
 		&record.OrderTotal,
@@ -111,17 +117,37 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		&record.TransactionAmount,
 		&record.SplitCount,
 		&record.Status,
-		&record.ErrorMessage,
+		&errorMessage,
 		&record.ItemCount,
 		&record.MatchConfidence,
 		&record.DryRun,
-		&record.ItemsJSON,
-		&record.SplitsJSON,
+		&itemsJSON,
+		&splitsJSON,
 		&multiDeliveryData,
 	)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
+	}
+
+	// Handle nullable string fields
+	if transactionID.Valid {
+		record.TransactionID = transactionID.String
+	}
+	if errorMessage.Valid {
+		record.ErrorMessage = errorMessage.String
+	}
+	if itemsJSON.Valid {
+		record.ItemsJSON = itemsJSON.String
+	}
+	if splitsJSON.Valid {
+		record.SplitsJSON = splitsJSON.String
+	}
+	if multiDeliveryData.Valid {
+		record.MultiDeliveryData = multiDeliveryData.String
 	}
 
 	// Unmarshal JSON fields (errors ignored as these are optional enrichment fields)
@@ -130,9 +156,6 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	}
 	if record.SplitsJSON != "" {
 		_ = json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
-	}
-	if multiDeliveryData.Valid {
-		record.MultiDeliveryData = multiDeliveryData.String
 	}
 
 	return record, nil
@@ -334,4 +357,298 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	}
 
 	return calls, rows.Err()
+}
+
+// ListOrders returns orders matching the given filters with pagination
+func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
+	// Set defaults
+	if filters.Limit <= 0 {
+		filters.Limit = 50
+	}
+	if filters.Limit > 500 {
+		filters.Limit = 500
+	}
+	if filters.OrderBy == "" {
+		filters.OrderBy = "processed_at"
+	}
+
+	// Build WHERE clause
+	where := "WHERE 1=1"
+	args := []interface{}{}
+
+	if filters.Provider != "" {
+		where += " AND provider = ?"
+		args = append(args, filters.Provider)
+	}
+	if filters.Status != "" {
+		where += " AND status = ?"
+		args = append(args, filters.Status)
+	}
+	if filters.DaysBack > 0 {
+		where += " AND order_date > datetime('now', ?)"
+		args = append(args, fmt.Sprintf("-%d days", filters.DaysBack))
+	}
+
+	// Validate and set ORDER BY
+	orderBy := "processed_at"
+	switch filters.OrderBy {
+	case "date":
+		orderBy = "order_date"
+	case "total":
+		orderBy = "order_total"
+	case "processed_at":
+		orderBy = "processed_at"
+	}
+	direction := "DESC"
+	if !filters.OrderDesc {
+		direction = "ASC"
+	}
+
+	// Get total count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM processing_records %s", where)
+	var totalCount int
+	if err := s.db.QueryRow(countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, err
+	}
+
+	// Get paginated results
+	query := fmt.Sprintf(`
+		SELECT id, order_id, provider, transaction_id, order_date, processed_at,
+		       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
+		       split_count, status, error_message, item_count, match_confidence,
+		       dry_run, items_json, splits_json, multi_delivery_data
+		FROM processing_records
+		%s
+		ORDER BY %s %s
+		LIMIT ? OFFSET ?
+	`, where, orderBy, direction)
+
+	args = append(args, filters.Limit, filters.Offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var orders []*ProcessingRecord
+	for rows.Next() {
+		record := &ProcessingRecord{}
+		var (
+			transactionID     sql.NullString
+			errorMessage      sql.NullString
+			itemsJSON         sql.NullString
+			splitsJSON        sql.NullString
+			multiDeliveryData sql.NullString
+		)
+		err := rows.Scan(
+			&record.ID,
+			&record.OrderID,
+			&record.Provider,
+			&transactionID,
+			&record.OrderDate,
+			&record.ProcessedAt,
+			&record.OrderTotal,
+			&record.OrderSubtotal,
+			&record.OrderTax,
+			&record.OrderTip,
+			&record.TransactionAmount,
+			&record.SplitCount,
+			&record.Status,
+			&errorMessage,
+			&record.ItemCount,
+			&record.MatchConfidence,
+			&record.DryRun,
+			&itemsJSON,
+			&splitsJSON,
+			&multiDeliveryData,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle nullable string fields
+		if transactionID.Valid {
+			record.TransactionID = transactionID.String
+		}
+		if errorMessage.Valid {
+			record.ErrorMessage = errorMessage.String
+		}
+		if itemsJSON.Valid {
+			record.ItemsJSON = itemsJSON.String
+		}
+		if splitsJSON.Valid {
+			record.SplitsJSON = splitsJSON.String
+		}
+		if multiDeliveryData.Valid {
+			record.MultiDeliveryData = multiDeliveryData.String
+		}
+
+		// Unmarshal JSON fields
+		if record.ItemsJSON != "" {
+			_ = json.Unmarshal([]byte(record.ItemsJSON), &record.Items)
+		}
+		if record.SplitsJSON != "" {
+			_ = json.Unmarshal([]byte(record.SplitsJSON), &record.Splits)
+		}
+
+		orders = append(orders, record)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &OrderListResult{
+		Orders:     orders,
+		TotalCount: totalCount,
+		Limit:      filters.Limit,
+		Offset:     filters.Offset,
+	}, nil
+}
+
+// SearchItems searches for items across all orders using SQLite JSON functions
+func (s *Storage) SearchItems(query string, limit int) ([]ItemSearchResult, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	// Use SQLite's json_each to expand items array and search
+	sqlQuery := `
+		SELECT
+			p.order_id,
+			p.provider,
+			date(p.order_date) as order_date,
+			json_extract(item.value, '$.name') as item_name,
+			json_extract(item.value, '$.total_price') as item_price,
+			json_extract(item.value, '$.category') as category
+		FROM processing_records p, json_each(p.items_json) as item
+		WHERE p.items_json IS NOT NULL
+		  AND p.items_json != 'null'
+		  AND json_extract(item.value, '$.name') LIKE ?
+		ORDER BY p.order_date DESC
+		LIMIT ?
+	`
+
+	searchPattern := "%" + query + "%"
+	rows, err := s.db.Query(sqlQuery, searchPattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []ItemSearchResult
+	for rows.Next() {
+		var r ItemSearchResult
+		var category sql.NullString
+		err := rows.Scan(
+			&r.OrderID,
+			&r.Provider,
+			&r.OrderDate,
+			&r.ItemName,
+			&r.ItemPrice,
+			&category,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if category.Valid {
+			r.Category = category.String
+		}
+		results = append(results, r)
+	}
+
+	return results, rows.Err()
+}
+
+// ListSyncRuns returns recent sync runs
+func (s *Storage) ListSyncRuns(limit int) ([]SyncRun, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	query := `
+		SELECT id, provider, started_at, completed_at, lookback_days, dry_run,
+		       orders_found, orders_processed, orders_skipped, orders_errored, status
+		FROM sync_runs
+		ORDER BY started_at DESC
+		LIMIT ?
+	`
+
+	rows, err := s.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var runs []SyncRun
+	for rows.Next() {
+		var r SyncRun
+		var completedAt sql.NullString
+		err := rows.Scan(
+			&r.ID,
+			&r.Provider,
+			&r.StartedAt,
+			&completedAt,
+			&r.LookbackDays,
+			&r.DryRun,
+			&r.OrdersFound,
+			&r.OrdersProcessed,
+			&r.OrdersSkipped,
+			&r.OrdersErrored,
+			&r.Status,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if completedAt.Valid {
+			r.CompletedAt = completedAt.String
+		}
+		runs = append(runs, r)
+	}
+
+	return runs, rows.Err()
+}
+
+// GetSyncRun retrieves a sync run by ID
+func (s *Storage) GetSyncRun(runID int64) (*SyncRun, error) {
+	query := `
+		SELECT id, provider, started_at, completed_at, lookback_days, dry_run,
+		       orders_found, orders_processed, orders_skipped, orders_errored, status
+		FROM sync_runs
+		WHERE id = ?
+	`
+
+	var r SyncRun
+	var completedAt sql.NullString
+	err := s.db.QueryRow(query, runID).Scan(
+		&r.ID,
+		&r.Provider,
+		&r.StartedAt,
+		&completedAt,
+		&r.LookbackDays,
+		&r.DryRun,
+		&r.OrdersFound,
+		&r.OrdersProcessed,
+		&r.OrdersSkipped,
+		&r.OrdersErrored,
+		&r.Status,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if completedAt.Valid {
+		r.CompletedAt = completedAt.String
+	}
+
+	return &r, nil
 }

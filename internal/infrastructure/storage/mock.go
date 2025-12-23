@@ -202,6 +202,164 @@ func (m *MockRepository) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	return result, nil
 }
 
+// ListOrders returns orders matching the given filters with pagination
+func (m *MockRepository) ListOrders(filters OrderFilters) (*OrderListResult, error) {
+	// Collect matching records
+	var matching []*ProcessingRecord
+	for _, r := range m.records {
+		// Apply provider filter
+		if filters.Provider != "" && r.Provider != filters.Provider {
+			continue
+		}
+		// Apply status filter
+		if filters.Status != "" && r.Status != filters.Status {
+			continue
+		}
+		matching = append(matching, r)
+	}
+
+	// Apply defaults
+	limit := filters.Limit
+	if limit == 0 {
+		limit = 50
+	}
+
+	// Apply pagination
+	total := len(matching)
+	start := filters.Offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	return &OrderListResult{
+		Orders:     matching[start:end],
+		TotalCount: total,
+		Limit:      limit,
+		Offset:     filters.Offset,
+	}, nil
+}
+
+// SearchItems searches for items across all orders
+func (m *MockRepository) SearchItems(query string, limit int) ([]ItemSearchResult, error) {
+	if limit == 0 {
+		limit = 50
+	}
+
+	var results []ItemSearchResult
+	for _, r := range m.records {
+		for _, item := range r.Items {
+			// Simple case-insensitive contains match
+			if containsIgnoreCase(item.Name, query) {
+				results = append(results, ItemSearchResult{
+					OrderID:   r.OrderID,
+					Provider:  r.Provider,
+					OrderDate: r.OrderDate.Format("2006-01-02"),
+					ItemName:  item.Name,
+					ItemPrice: item.TotalPrice,
+					Category:  item.Category,
+				})
+				if len(results) >= limit {
+					return results, nil
+				}
+			}
+		}
+	}
+	return results, nil
+}
+
+// containsIgnoreCase is a helper for case-insensitive string matching
+func containsIgnoreCase(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr ||
+		len(substr) == 0 ||
+		(len(s) > 0 && containsIgnoreCaseImpl(s, substr)))
+}
+
+func containsIgnoreCaseImpl(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if equalFoldAt(s, i, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func equalFoldAt(s string, start int, substr string) bool {
+	for j := 0; j < len(substr); j++ {
+		c1 := s[start+j]
+		c2 := substr[j]
+		if c1 != c2 {
+			// Simple ASCII case folding
+			if c1 >= 'A' && c1 <= 'Z' {
+				c1 += 'a' - 'A'
+			}
+			if c2 >= 'A' && c2 <= 'Z' {
+				c2 += 'a' - 'A'
+			}
+			if c1 != c2 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// ListSyncRuns returns recent sync runs
+func (m *MockRepository) ListSyncRuns(limit int) ([]SyncRun, error) {
+	if limit == 0 {
+		limit = 20
+	}
+
+	var runs []SyncRun
+	for _, r := range m.syncRuns {
+		status := "running"
+		if r.completed {
+			status = "completed"
+		}
+		runs = append(runs, SyncRun{
+			ID:              r.id,
+			Provider:        r.provider,
+			LookbackDays:    r.lookbackDays,
+			DryRun:          r.dryRun,
+			OrdersFound:     r.ordersFound,
+			OrdersProcessed: r.processed,
+			OrdersSkipped:   r.skipped,
+			OrdersErrored:   r.errors,
+			Status:          status,
+		})
+		if len(runs) >= limit {
+			break
+		}
+	}
+	return runs, nil
+}
+
+// GetSyncRun retrieves a sync run by ID (implements SyncRunRepository interface)
+func (m *MockRepository) GetSyncRun(runID int64) (*SyncRun, error) {
+	r, ok := m.syncRuns[runID]
+	if !ok {
+		return nil, nil
+	}
+	status := "running"
+	if r.completed {
+		status = "completed"
+	}
+	return &SyncRun{
+		ID:              r.id,
+		Provider:        r.provider,
+		LookbackDays:    r.lookbackDays,
+		DryRun:          r.dryRun,
+		OrdersFound:     r.ordersFound,
+		OrdersProcessed: r.processed,
+		OrdersSkipped:   r.skipped,
+		OrdersErrored:   r.errors,
+		Status:          status,
+	}, nil
+}
+
 // Helper methods for test setup
 
 // AddRecord adds a record directly (for test setup)
@@ -218,8 +376,8 @@ func (m *MockRepository) GetAllRecords() []*ProcessingRecord {
 	return result
 }
 
-// GetSyncRun returns a sync run by ID (for assertions)
-func (m *MockRepository) GetSyncRun(id int64) *mockSyncRun {
+// GetMockSyncRun returns the internal mockSyncRun for test assertions
+func (m *MockRepository) GetMockSyncRun(id int64) *mockSyncRun {
 	return m.syncRuns[id]
 }
 

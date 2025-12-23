@@ -23,6 +23,41 @@ type OrderRepository interface {
 
 	// GetStats returns aggregate statistics
 	GetStats() (*Stats, error)
+
+	// ListOrders returns orders matching the given filters with pagination
+	ListOrders(filters OrderFilters) (*OrderListResult, error)
+
+	// SearchItems searches for items across all orders
+	SearchItems(query string, limit int) ([]ItemSearchResult, error)
+}
+
+// OrderFilters defines filters for listing orders
+type OrderFilters struct {
+	Provider  string // Filter by provider (empty = all)
+	Status    string // Filter by status (empty = all)
+	DaysBack  int    // How many days back to look (0 = all time)
+	Limit     int    // Max results (0 = default 50)
+	Offset    int    // Pagination offset
+	OrderBy   string // Sort field: "date", "total", "processed_at" (default: "processed_at")
+	OrderDesc bool   // Sort descending (default: true)
+}
+
+// OrderListResult contains paginated order results
+type OrderListResult struct {
+	Orders     []*ProcessingRecord `json:"orders"`
+	TotalCount int                 `json:"total_count"`
+	Limit      int                 `json:"limit"`
+	Offset     int                 `json:"offset"`
+}
+
+// ItemSearchResult represents an item found in search
+type ItemSearchResult struct {
+	OrderID    string  `json:"order_id"`
+	Provider   string  `json:"provider"`
+	OrderDate  string  `json:"order_date"`
+	ItemName   string  `json:"item_name"`
+	ItemPrice  float64 `json:"item_price"`
+	Category   string  `json:"category,omitempty"`
 }
 
 // SyncRunRepository handles sync run tracking
@@ -32,6 +67,27 @@ type SyncRunRepository interface {
 
 	// CompleteSyncRun records the completion of a sync run
 	CompleteSyncRun(runID int64, ordersFound, processed, skipped, errors int) error
+
+	// ListSyncRuns returns recent sync runs
+	ListSyncRuns(limit int) ([]SyncRun, error)
+
+	// GetSyncRun retrieves a sync run by ID
+	GetSyncRun(runID int64) (*SyncRun, error)
+}
+
+// SyncRun represents a sync run record
+type SyncRun struct {
+	ID              int64   `json:"id"`
+	Provider        string  `json:"provider"`
+	StartedAt       string  `json:"started_at"`
+	CompletedAt     string  `json:"completed_at,omitempty"`
+	LookbackDays    int     `json:"lookback_days"`
+	DryRun          bool    `json:"dry_run"`
+	OrdersFound     int     `json:"orders_found"`
+	OrdersProcessed int     `json:"orders_processed"`
+	OrdersSkipped   int     `json:"orders_skipped"`
+	OrdersErrored   int     `json:"orders_errored"`
+	Status          string  `json:"status"`
 }
 
 // APICallRepository handles API call logging
