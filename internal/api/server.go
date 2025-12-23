@@ -11,6 +11,7 @@ import (
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/handlers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/middleware"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/service"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
@@ -30,24 +31,27 @@ func DefaultConfig() Config {
 
 // Server is the HTTP API server.
 type Server struct {
-	config     Config
-	router     chi.Router
-	httpServer *http.Server
-	logger     *slog.Logger
-	repo       storage.Repository
+	config      Config
+	router      chi.Router
+	httpServer  *http.Server
+	logger      *slog.Logger
+	repo        storage.Repository
+	syncService *service.SyncService
 }
 
 // NewServer creates a new API server.
-func NewServer(cfg Config, repo storage.Repository, logger *slog.Logger) *Server {
+// If syncService is nil, sync endpoints will not be available.
+func NewServer(cfg Config, repo storage.Repository, syncService *service.SyncService, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	s := &Server{
-		config: cfg,
-		router: chi.NewRouter(),
-		logger: logger,
-		repo:   repo,
+		config:      cfg,
+		router:      chi.NewRouter(),
+		logger:      logger,
+		repo:        repo,
+		syncService: syncService,
 	}
 
 	s.setupMiddleware()
@@ -87,7 +91,7 @@ func (s *Server) setupRoutes() {
 		itemsHandler := handlers.NewItemsHandler(s.repo)
 		r.Get("/items/search", itemsHandler.Search)
 
-		// Sync runs
+		// Sync runs (historical)
 		runsHandler := handlers.NewRunsHandler(s.repo)
 		r.Get("/runs", runsHandler.List)
 		r.Get("/runs/{id}", runsHandler.Get)
@@ -95,6 +99,16 @@ func (s *Server) setupRoutes() {
 		// Stats
 		statsHandler := handlers.NewStatsHandler(s.repo)
 		r.Get("/stats", statsHandler.Get)
+
+		// Sync operations (live sync jobs)
+		if s.syncService != nil {
+			syncHandler := handlers.NewSyncHandler(s.syncService)
+			r.Post("/sync", syncHandler.StartSync)
+			r.Get("/sync", syncHandler.ListAllSyncs)
+			r.Get("/sync/active", syncHandler.ListActiveSyncs)
+			r.Get("/sync/{jobId}", syncHandler.GetSyncStatus)
+			r.Delete("/sync/{jobId}", syncHandler.CancelSync)
+		}
 	})
 }
 

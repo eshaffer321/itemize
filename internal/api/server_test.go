@@ -21,7 +21,7 @@ func newTestServer(t *testing.T) (*api.Server, *storage.MockRepository) {
 	t.Helper()
 	repo := storage.NewMockRepository()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	server := api.NewServer(api.DefaultConfig(), repo, logger)
+	server := api.NewServer(api.DefaultConfig(), repo, nil, logger) // nil syncService for read-only tests
 	return server, repo
 }
 
