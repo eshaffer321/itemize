@@ -394,6 +394,10 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 		where += " AND order_date > datetime('now', ?)"
 		args = append(args, fmt.Sprintf("-%d days", filters.DaysBack))
 	}
+	if filters.Search != "" {
+		where += " AND order_id LIKE ?"
+		args = append(args, "%"+filters.Search+"%")
+	}
 
 	// Validate and set ORDER BY
 	orderBy := "processed_at"
