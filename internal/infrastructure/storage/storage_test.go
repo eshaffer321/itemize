@@ -646,3 +646,167 @@ func TestMockRepository_GetSyncRun(t *testing.T) {
 	assert.Equal(t, "completed", run.Status)
 	assert.Equal(t, 10, run.OrdersFound)
 }
+
+// =============================================================================
+// NULL Value Handling Tests
+// =============================================================================
+// These tests verify that records with NULL values in the database are handled
+// correctly. This is critical because:
+// 1. Legacy records may have NULL values from before we backfilled defaults
+// 2. Some fields are intentionally nullable (error_message, transaction_id)
+// 3. Go's sql.Scan fails if you scan NULL into a string without sql.NullString
+
+func TestStorage_GetRecord_WithNullValues(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Insert a record with intentional NULL values directly via SQL
+	// This simulates legacy data or records where fields are genuinely NULL
+	_, err = store.db.Exec(`
+		INSERT INTO processing_records (
+			order_id, provider, transaction_id, order_date, processed_at,
+			order_total, order_subtotal, order_tax, order_tip, transaction_amount,
+			split_count, status, error_message, item_count, match_confidence,
+			dry_run, items_json, splits_json, multi_delivery_data
+		) VALUES (
+			'ORDER-NULL-TEST', 'walmart', NULL, datetime('now'), datetime('now'),
+			100.00, 90.00, 10.00, 0, -100.00,
+			2, 'success', NULL, 5, 0.95,
+			0, NULL, NULL, NULL
+		)
+	`)
+	require.NoError(t, err)
+
+	// GetRecord should handle NULLs gracefully
+	record, err := store.GetRecord("ORDER-NULL-TEST")
+	require.NoError(t, err)
+	require.NotNil(t, record)
+
+	assert.Equal(t, "ORDER-NULL-TEST", record.OrderID)
+	assert.Equal(t, "walmart", record.Provider)
+	assert.Equal(t, "", record.TransactionID, "NULL transaction_id should become empty string")
+	assert.Equal(t, "", record.ErrorMessage, "NULL error_message should become empty string")
+	assert.Empty(t, record.Items, "NULL items_json should result in empty slice")
+	assert.Empty(t, record.Splits, "NULL splits_json should result in empty slice")
+	assert.Equal(t, "", record.MultiDeliveryData, "NULL multi_delivery_data should become empty string")
+}
+
+func TestStorage_ListOrders_WithNullValues(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Insert records with various NULL combinations for intentionally nullable fields
+	// Note: numeric fields must have values (migration backfills these in real data)
+	// Only string fields like transaction_id, error_message, items_json can be NULL
+	records := []struct {
+		orderID       string
+		transactionID interface{} // can be string or nil
+		errorMessage  interface{}
+		itemsJSON     interface{}
+	}{
+		{"ORDER-1", "txn-123", nil, `[{"name":"Item1","total_price":10.00}]`},
+		{"ORDER-2", nil, "Some error", nil},
+		{"ORDER-3", nil, nil, nil},
+	}
+
+	for _, r := range records {
+		_, err := store.db.Exec(`
+			INSERT INTO processing_records (
+				order_id, provider, transaction_id, order_date, processed_at,
+				order_total, order_subtotal, order_tax, order_tip, transaction_amount,
+				split_count, status, error_message, item_count, match_confidence,
+				dry_run, items_json, splits_json
+			) VALUES (?, 'walmart', ?, datetime('now'), datetime('now'),
+				50.00, 45.00, 5.00, 0, -50.00,
+				0, 'success', ?, 0, 0.0,
+				0, ?, '[]')
+		`, r.orderID, r.transactionID, r.errorMessage, r.itemsJSON)
+		require.NoError(t, err)
+	}
+
+	// ListOrders should handle all records without error
+	result, err := store.ListOrders(OrderFilters{})
+	require.NoError(t, err)
+	assert.Equal(t, 3, result.TotalCount)
+
+	// Find and verify each record
+	orderMap := make(map[string]*ProcessingRecord)
+	for _, order := range result.Orders {
+		orderMap[order.OrderID] = order
+	}
+
+	// ORDER-1: has transaction_id and items, no error
+	order1 := orderMap["ORDER-1"]
+	require.NotNil(t, order1)
+	assert.Equal(t, "txn-123", order1.TransactionID)
+	assert.Equal(t, "", order1.ErrorMessage)
+	assert.Len(t, order1.Items, 1)
+
+	// ORDER-2: has error, no transaction_id or items
+	order2 := orderMap["ORDER-2"]
+	require.NotNil(t, order2)
+	assert.Equal(t, "", order2.TransactionID)
+	assert.Equal(t, "Some error", order2.ErrorMessage)
+	assert.Empty(t, order2.Items)
+
+	// ORDER-3: all nullable string fields are NULL
+	order3 := orderMap["ORDER-3"]
+	require.NotNil(t, order3)
+	assert.Equal(t, "", order3.TransactionID)
+	assert.Equal(t, "", order3.ErrorMessage)
+	assert.Empty(t, order3.Items)
+}
+
+func TestStorage_SearchItems_WithNullItemsJSON(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Insert a record with NULL items_json
+	_, err = store.db.Exec(`
+		INSERT INTO processing_records (
+			order_id, provider, order_date, status, items_json
+		) VALUES ('ORDER-NULL-ITEMS', 'walmart', datetime('now'), 'success', NULL)
+	`)
+	require.NoError(t, err)
+
+	// Insert a record with valid items
+	_, err = store.db.Exec(`
+		INSERT INTO processing_records (
+			order_id, provider, order_date, status, items_json
+		) VALUES ('ORDER-WITH-ITEMS', 'walmart', datetime('now'), 'success',
+			'[{"name":"Searchable Item","total_price":10.00}]')
+	`)
+	require.NoError(t, err)
+
+	// SearchItems should skip NULL items_json and not error
+	results, err := store.SearchItems("Searchable", 10)
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "Searchable Item", results[0].ItemName)
+}
+
+func TestStorage_GetRecord_NonExistent(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Should return nil, nil for non-existent record
+	record, err := store.GetRecord("DOES-NOT-EXIST")
+	require.NoError(t, err)
+	assert.Nil(t, record)
+}

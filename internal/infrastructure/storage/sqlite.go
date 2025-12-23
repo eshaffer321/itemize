@@ -46,6 +46,12 @@ func (s *Storage) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying database connection for advanced queries.
+// Use with caution - prefer using the Repository interface methods.
+func (s *Storage) DB() *sql.DB {
+	return s.db
+}
+
 // SaveRecord saves an enhanced processing record
 func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 	itemsJSON, _ := json.Marshal(record.Items)
