@@ -21,7 +21,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	providerName := os.Args[1]
+	command := os.Args[1]
+
+	// Handle serve command separately
+	if command == "serve" {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+		cfg := config.LoadOrEnv()
+		flags := cli.ParseServeFlags()
+		if err := cli.RunServe(cfg, flags); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+		return
+	}
+
+	// Provider sync commands
+	providerName := command
 	// Shift args for flag parsing
 	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 
@@ -92,14 +106,19 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: monarch-sync <provider> [flags]")
+	fmt.Println("Usage: monarch-sync <command> [flags]")
 	fmt.Println()
-	fmt.Println("Providers:")
+	fmt.Println("Commands:")
+	fmt.Println("  serve       Start the API server")
 	fmt.Println("  amazon      Sync Amazon orders")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
 	fmt.Println()
-	fmt.Println("Flags:")
+	fmt.Println("Serve Flags:")
+	fmt.Println("  -port int        Port to listen on (default 8080)")
+	fmt.Println("  -verbose         Verbose output")
+	fmt.Println()
+	fmt.Println("Sync Flags:")
 	fmt.Println("  -dry-run         Run without making changes")
 	fmt.Println("  -days int        Number of days to look back (default 14)")
 	fmt.Println("  -max int         Maximum orders to process (default 0 = all)")

@@ -78,7 +78,7 @@ func TestMockRepository_SyncRuns(t *testing.T) {
 	err = mock.CompleteSyncRun(runID, 10, 8, 1, 1)
 	require.NoError(t, err)
 
-	run := mock.GetSyncRun(runID)
+	run := mock.GetMockSyncRun(runID)
 	require.NotNil(t, run)
 	assert.True(t, run.completed)
 	assert.Equal(t, 10, run.ordersFound)
@@ -307,4 +307,342 @@ func TestStorage_IsProcessed(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.True(t, store.IsProcessed("ORDER-SUCCESS"), "Success should count as processed")
+}
+
+// =============================================================================
+// API Query Method Tests
+// =============================================================================
+
+func TestStorage_ListOrders(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Setup: Create several records
+	now := time.Now()
+	records := []*ProcessingRecord{
+		{OrderID: "ORDER-1", Provider: "walmart", Status: "success", OrderTotal: 100.00, OrderDate: now.AddDate(0, 0, -1), ProcessedAt: now},
+		{OrderID: "ORDER-2", Provider: "costco", Status: "success", OrderTotal: 200.00, OrderDate: now.AddDate(0, 0, -2), ProcessedAt: now.Add(-time.Hour)},
+		{OrderID: "ORDER-3", Provider: "walmart", Status: "failed", OrderTotal: 50.00, OrderDate: now.AddDate(0, 0, -3), ProcessedAt: now.Add(-2 * time.Hour)},
+		{OrderID: "ORDER-4", Provider: "amazon", Status: "success", OrderTotal: 75.00, OrderDate: now.AddDate(0, 0, -4), ProcessedAt: now.Add(-3 * time.Hour)},
+	}
+
+	for _, r := range records {
+		err := store.SaveRecord(r)
+		require.NoError(t, err)
+	}
+
+	t.Run("list all orders", func(t *testing.T) {
+		result, err := store.ListOrders(OrderFilters{})
+		require.NoError(t, err)
+		assert.Equal(t, 4, result.TotalCount)
+		assert.Len(t, result.Orders, 4)
+	})
+
+	t.Run("filter by provider", func(t *testing.T) {
+		result, err := store.ListOrders(OrderFilters{Provider: "walmart"})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.TotalCount)
+		for _, order := range result.Orders {
+			assert.Equal(t, "walmart", order.Provider)
+		}
+	})
+
+	t.Run("filter by status", func(t *testing.T) {
+		result, err := store.ListOrders(OrderFilters{Status: "success"})
+		require.NoError(t, err)
+		assert.Equal(t, 3, result.TotalCount)
+		for _, order := range result.Orders {
+			assert.Equal(t, "success", order.Status)
+		}
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		result, err := store.ListOrders(OrderFilters{Limit: 2, Offset: 0})
+		require.NoError(t, err)
+		assert.Equal(t, 4, result.TotalCount)
+		assert.Len(t, result.Orders, 2)
+		assert.Equal(t, 2, result.Limit)
+		assert.Equal(t, 0, result.Offset)
+
+		// Get second page
+		result2, err := store.ListOrders(OrderFilters{Limit: 2, Offset: 2})
+		require.NoError(t, err)
+		assert.Len(t, result2.Orders, 2)
+		assert.Equal(t, 2, result2.Offset)
+	})
+
+	t.Run("combined filters", func(t *testing.T) {
+		result, err := store.ListOrders(OrderFilters{
+			Provider: "walmart",
+			Status:   "success",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, result.TotalCount)
+		assert.Equal(t, "ORDER-1", result.Orders[0].OrderID)
+	})
+}
+
+func TestStorage_SearchItems(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Setup: Create records with items
+	record1 := &ProcessingRecord{
+		OrderID:   "ORDER-1",
+		Provider:  "walmart",
+		OrderDate: time.Now(),
+		Status:    "success",
+		Items: []OrderItem{
+			{Name: "Organic Milk", TotalPrice: 5.99, Category: "Groceries"},
+			{Name: "Whole Wheat Bread", TotalPrice: 3.49, Category: "Groceries"},
+		},
+	}
+	record2 := &ProcessingRecord{
+		OrderID:   "ORDER-2",
+		Provider:  "costco",
+		OrderDate: time.Now().AddDate(0, 0, -1),
+		Status:    "success",
+		Items: []OrderItem{
+			{Name: "Almond Milk", TotalPrice: 4.99, Category: "Groceries"},
+			{Name: "Shampoo", TotalPrice: 8.99, Category: "Personal Care"},
+		},
+	}
+
+	err = store.SaveRecord(record1)
+	require.NoError(t, err)
+	err = store.SaveRecord(record2)
+	require.NoError(t, err)
+
+	t.Run("search for milk", func(t *testing.T) {
+		results, err := store.SearchItems("milk", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 2)
+
+		// Check that both milk items are found
+		names := make([]string, len(results))
+		for i, r := range results {
+			names[i] = r.ItemName
+		}
+		assert.Contains(t, names, "Organic Milk")
+		assert.Contains(t, names, "Almond Milk")
+	})
+
+	t.Run("case insensitive search", func(t *testing.T) {
+		results, err := store.SearchItems("BREAD", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "Whole Wheat Bread", results[0].ItemName)
+	})
+
+	t.Run("search with limit", func(t *testing.T) {
+		results, err := store.SearchItems("milk", 1)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+	})
+
+	t.Run("no matches", func(t *testing.T) {
+		results, err := store.SearchItems("nonexistent", 10)
+		require.NoError(t, err)
+		assert.Empty(t, results)
+	})
+
+	t.Run("result contains order info", func(t *testing.T) {
+		results, err := store.SearchItems("shampoo", 10)
+		require.NoError(t, err)
+		require.Len(t, results, 1)
+
+		result := results[0]
+		assert.Equal(t, "ORDER-2", result.OrderID)
+		assert.Equal(t, "costco", result.Provider)
+		assert.Equal(t, "Shampoo", result.ItemName)
+		assert.Equal(t, 8.99, result.ItemPrice)
+		assert.Equal(t, "Personal Care", result.Category)
+	})
+}
+
+func TestStorage_ListSyncRuns(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create several sync runs
+	runID1, err := store.StartSyncRun("walmart", 14, false)
+	require.NoError(t, err)
+
+	runID2, err := store.StartSyncRun("costco", 7, true)
+	require.NoError(t, err)
+
+	// Complete the first run (no errors = "completed" status)
+	err = store.CompleteSyncRun(runID1, 10, 9, 1, 0)
+	require.NoError(t, err)
+
+	t.Run("list all runs", func(t *testing.T) {
+		runs, err := store.ListSyncRuns(10)
+		require.NoError(t, err)
+		assert.Len(t, runs, 2)
+	})
+
+	t.Run("runs contain expected data", func(t *testing.T) {
+		runs, err := store.ListSyncRuns(10)
+		require.NoError(t, err)
+
+		// Find the completed walmart run
+		var walmartRun *SyncRun
+		for i := range runs {
+			if runs[i].Provider == "walmart" {
+				walmartRun = &runs[i]
+				break
+			}
+		}
+		require.NotNil(t, walmartRun)
+		assert.Equal(t, runID1, walmartRun.ID)
+		assert.Equal(t, 14, walmartRun.LookbackDays)
+		assert.False(t, walmartRun.DryRun)
+		assert.Equal(t, "completed", walmartRun.Status) // No errors = "completed"
+		assert.Equal(t, 10, walmartRun.OrdersFound)
+		assert.Equal(t, 9, walmartRun.OrdersProcessed)
+	})
+
+	t.Run("list with limit", func(t *testing.T) {
+		runs, err := store.ListSyncRuns(1)
+		require.NoError(t, err)
+		assert.Len(t, runs, 1)
+	})
+
+	t.Run("running status for incomplete run", func(t *testing.T) {
+		runs, err := store.ListSyncRuns(10)
+		require.NoError(t, err)
+
+		var costcoRun *SyncRun
+		for i := range runs {
+			if runs[i].Provider == "costco" {
+				costcoRun = &runs[i]
+				break
+			}
+		}
+		require.NotNil(t, costcoRun)
+		assert.Equal(t, runID2, costcoRun.ID)
+		assert.Equal(t, "running", costcoRun.Status)
+		assert.True(t, costcoRun.DryRun)
+	})
+}
+
+func TestStorage_GetSyncRun(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create a sync run
+	runID, err := store.StartSyncRun("walmart", 14, false)
+	require.NoError(t, err)
+	err = store.CompleteSyncRun(runID, 5, 4, 1, 0)
+	require.NoError(t, err)
+
+	t.Run("get existing run", func(t *testing.T) {
+		run, err := store.GetSyncRun(runID)
+		require.NoError(t, err)
+		require.NotNil(t, run)
+		assert.Equal(t, runID, run.ID)
+		assert.Equal(t, "walmart", run.Provider)
+		assert.Equal(t, 14, run.LookbackDays)
+		assert.Equal(t, 5, run.OrdersFound)
+		assert.Equal(t, 4, run.OrdersProcessed)
+		assert.Equal(t, 1, run.OrdersSkipped)
+		assert.Equal(t, 0, run.OrdersErrored)
+		assert.Equal(t, "completed", run.Status)
+	})
+
+	t.Run("get non-existent run returns nil", func(t *testing.T) {
+		run, err := store.GetSyncRun(9999)
+		require.NoError(t, err)
+		assert.Nil(t, run)
+	})
+}
+
+// =============================================================================
+// Mock Repository API Query Tests
+// =============================================================================
+
+func TestMockRepository_ListOrders(t *testing.T) {
+	mock := NewMockRepository()
+
+	mock.AddRecord(&ProcessingRecord{OrderID: "ORDER-1", Provider: "walmart", Status: "success"})
+	mock.AddRecord(&ProcessingRecord{OrderID: "ORDER-2", Provider: "costco", Status: "success"})
+	mock.AddRecord(&ProcessingRecord{OrderID: "ORDER-3", Provider: "walmart", Status: "failed"})
+
+	t.Run("list all", func(t *testing.T) {
+		result, err := mock.ListOrders(OrderFilters{})
+		require.NoError(t, err)
+		assert.Equal(t, 3, result.TotalCount)
+	})
+
+	t.Run("filter by provider", func(t *testing.T) {
+		result, err := mock.ListOrders(OrderFilters{Provider: "walmart"})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.TotalCount)
+	})
+
+	t.Run("filter by status", func(t *testing.T) {
+		result, err := mock.ListOrders(OrderFilters{Status: "success"})
+		require.NoError(t, err)
+		assert.Equal(t, 2, result.TotalCount)
+	})
+}
+
+func TestMockRepository_SearchItems(t *testing.T) {
+	mock := NewMockRepository()
+
+	mock.AddRecord(&ProcessingRecord{
+		OrderID:   "ORDER-1",
+		Provider:  "walmart",
+		OrderDate: time.Now(),
+		Items: []OrderItem{
+			{Name: "Milk", TotalPrice: 5.99, Category: "Groceries"},
+			{Name: "Bread", TotalPrice: 2.99, Category: "Groceries"},
+		},
+	})
+
+	t.Run("find item", func(t *testing.T) {
+		results, err := mock.SearchItems("Milk", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+		assert.Equal(t, "Milk", results[0].ItemName)
+	})
+
+	t.Run("case insensitive", func(t *testing.T) {
+		results, err := mock.SearchItems("milk", 10)
+		require.NoError(t, err)
+		assert.Len(t, results, 1)
+	})
+}
+
+func TestMockRepository_GetSyncRun(t *testing.T) {
+	mock := NewMockRepository()
+
+	runID, err := mock.StartSyncRun("walmart", 14, false)
+	require.NoError(t, err)
+
+	err = mock.CompleteSyncRun(runID, 10, 8, 1, 1)
+	require.NoError(t, err)
+
+	run, err := mock.GetSyncRun(runID)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	assert.Equal(t, "walmart", run.Provider)
+	assert.Equal(t, "completed", run.Status)
+	assert.Equal(t, 10, run.OrdersFound)
 }

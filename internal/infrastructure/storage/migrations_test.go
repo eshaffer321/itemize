@@ -23,16 +23,17 @@ func TestMigrations_FreshDatabase(t *testing.T) {
 	applied, err := store.getAppliedMigrations()
 	require.NoError(t, err)
 
-	assert.True(t, applied[1], "Migration 1 should be applied")
-	assert.True(t, applied[2], "Migration 2 should be applied")
-	assert.True(t, applied[3], "Migration 3 should be applied")
-	assert.Len(t, applied, 3, "Should have exactly 3 migrations applied")
+	expectedCount := len(allMigrations)
+	for _, m := range allMigrations {
+		assert.True(t, applied[m.Version], "Migration %d should be applied", m.Version)
+	}
+	assert.Len(t, applied, expectedCount, "Should have exactly %d migrations applied", expectedCount)
 
 	// Verify schema_migrations table exists
 	var count int
 	err = store.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 3, count, "Should have 3 migration records")
+	assert.Equal(t, expectedCount, count, "Should have %d migration records", expectedCount)
 }
 
 // TestMigrations_Idempotency tests that migrations can be run multiple times
@@ -51,11 +52,12 @@ func TestMigrations_Idempotency(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Close()
 
-	// Verify still have exactly 3 migrations
+	// Verify still have exactly the expected number of migrations
+	expectedCount := len(allMigrations)
 	var count int
 	err = store.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 	require.NoError(t, err)
-	assert.Equal(t, 3, count, "Should still have exactly 3 migration records")
+	assert.Equal(t, expectedCount, count, "Should still have exactly %d migration records", expectedCount)
 }
 
 // TestMigrations_Schema tests that the correct schema is created
@@ -125,15 +127,6 @@ func TestMigrations_Sequential(t *testing.T) {
 	require.NoError(t, err)
 	defer rows.Close()
 
-	expectedMigrations := []struct {
-		version int
-		name    string
-	}{
-		{1, "initial_schema"},
-		{2, "add_sync_runs_table"},
-		{3, "add_api_calls_table"},
-	}
-
 	i := 0
 	for rows.Next() {
 		var version int
@@ -141,13 +134,13 @@ func TestMigrations_Sequential(t *testing.T) {
 		err := rows.Scan(&version, &name)
 		require.NoError(t, err)
 
-		require.Less(t, i, len(expectedMigrations), "Too many migrations")
-		assert.Equal(t, expectedMigrations[i].version, version)
-		assert.Equal(t, expectedMigrations[i].name, name)
+		require.Less(t, i, len(allMigrations), "Too many migrations")
+		assert.Equal(t, allMigrations[i].Version, version)
+		assert.Equal(t, allMigrations[i].Name, name)
 		i++
 	}
 
-	assert.Equal(t, len(expectedMigrations), i, "Should have all expected migrations")
+	assert.Equal(t, len(allMigrations), i, "Should have all expected migrations")
 }
 
 // TestMigrations_APICallsSchema tests the api_calls table schema
