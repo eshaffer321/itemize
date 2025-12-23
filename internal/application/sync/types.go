@@ -42,7 +42,7 @@ type Orchestrator struct {
 	amazonHandler  *handlers.AmazonHandler
 	walmartHandler *handlers.WalmartHandler
 	simpleHandler  *handlers.SimpleHandler
-	storage        *storage.Storage
+	storage        storage.Repository // Interface instead of concrete type
 	logger         *slog.Logger
 	runID          int64 // Current sync run ID for API logging
 }
@@ -51,7 +51,7 @@ type Orchestrator struct {
 func NewOrchestrator(
 	provider providers.OrderProvider,
 	clients *clients.Clients,
-	storage *storage.Storage,
+	store storage.Repository,
 	logger *slog.Logger,
 ) *Orchestrator {
 	// Create splitter with categorizer from clients (if available)
@@ -70,7 +70,7 @@ func NewOrchestrator(
 	// Create consolidator (if clients available)
 	var consolidator *Consolidator
 	if clients != nil && clients.Monarch != nil {
-		consolidator = NewConsolidator(clients.Monarch, logger, storage, 0)
+		consolidator = NewConsolidator(clients.Monarch, logger, store, 0)
 	}
 
 	// Create Amazon handler (if all dependencies available)
@@ -117,7 +117,7 @@ func NewOrchestrator(
 		amazonHandler:  amazonHandler,
 		walmartHandler: walmartHandler,
 		simpleHandler:  simpleHandler,
-		storage:        storage,
+		storage:        store,
 		logger:         logger,
 	}
 }

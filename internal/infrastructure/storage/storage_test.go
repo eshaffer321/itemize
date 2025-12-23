@@ -9,6 +9,109 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// =============================================================================
+// Mock Repository Tests
+// =============================================================================
+
+func TestMockRepository_ImplementsInterface(t *testing.T) {
+	// This test verifies the mock can be used anywhere Repository is expected
+	var repo Repository = NewMockRepository()
+	require.NotNil(t, repo)
+}
+
+func TestMockRepository_SaveAndGetRecord(t *testing.T) {
+	mock := NewMockRepository()
+
+	record := &ProcessingRecord{
+		OrderID:   "ORDER-123",
+		Provider:  "walmart",
+		Status:    "success",
+		ItemCount: 5,
+		Items: []OrderItem{
+			{Name: "Milk", TotalPrice: 3.99},
+		},
+	}
+
+	err := mock.SaveRecord(record)
+	require.NoError(t, err)
+	assert.True(t, mock.SaveRecordCalled)
+	assert.Equal(t, record, mock.LastSavedRecord)
+
+	retrieved, err := mock.GetRecord("ORDER-123")
+	require.NoError(t, err)
+	assert.True(t, mock.GetRecordCalled)
+	assert.Equal(t, "ORDER-123", retrieved.OrderID)
+	assert.Len(t, retrieved.Items, 1)
+}
+
+func TestMockRepository_IsProcessed(t *testing.T) {
+	mock := NewMockRepository()
+
+	// Not processed initially
+	assert.False(t, mock.IsProcessed("ORDER-1"))
+
+	// Add a dry-run record (should not count as processed)
+	mock.AddRecord(&ProcessingRecord{
+		OrderID: "ORDER-1",
+		Status:  "success",
+		DryRun:  true,
+	})
+	assert.False(t, mock.IsProcessed("ORDER-1"))
+
+	// Add a real success record
+	mock.AddRecord(&ProcessingRecord{
+		OrderID: "ORDER-2",
+		Status:  "success",
+		DryRun:  false,
+	})
+	assert.True(t, mock.IsProcessed("ORDER-2"))
+}
+
+func TestMockRepository_SyncRuns(t *testing.T) {
+	mock := NewMockRepository()
+
+	runID, err := mock.StartSyncRun("costco", 14, false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), runID)
+	assert.True(t, mock.StartSyncRunCalled)
+
+	err = mock.CompleteSyncRun(runID, 10, 8, 1, 1)
+	require.NoError(t, err)
+
+	run := mock.GetSyncRun(runID)
+	require.NotNil(t, run)
+	assert.True(t, run.completed)
+	assert.Equal(t, 10, run.ordersFound)
+	assert.Equal(t, 8, run.processed)
+}
+
+func TestMockRepository_ErrorInjection(t *testing.T) {
+	mock := NewMockRepository()
+	mock.SaveRecordErr = assert.AnError
+
+	err := mock.SaveRecord(&ProcessingRecord{OrderID: "test"})
+	assert.Error(t, err)
+	assert.Equal(t, assert.AnError, err)
+}
+
+func TestMockRepository_Reset(t *testing.T) {
+	mock := NewMockRepository()
+
+	mock.AddRecord(&ProcessingRecord{OrderID: "ORDER-1"})
+	mock.SaveRecordCalled = true
+	mock.SaveRecordErr = assert.AnError
+
+	mock.Reset()
+
+	assert.Empty(t, mock.GetAllRecords())
+	assert.False(t, mock.SaveRecordCalled)
+	assert.Nil(t, mock.SaveRecordErr)
+}
+
+// =============================================================================
+// SQLite Storage Tests
+// =============================================================================
+
 func TestStorage_SaveAndGetRecord_WithItems(t *testing.T) {
 	tmpDB := createTempDB(t)
 	defer os.Remove(tmpDB)

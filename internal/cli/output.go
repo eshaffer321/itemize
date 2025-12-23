@@ -30,7 +30,7 @@ func PrintConfiguration(providerName string, lookbackDays, maxOrders int, force 
 }
 
 // PrintSyncSummary prints the sync result summary
-func PrintSyncSummary(result *sync.Result, store *storage.Storage, dryRun bool) {
+func PrintSyncSummary(result *sync.Result, store storage.Repository, dryRun bool) {
 	fmt.Println(strings.Repeat("-", 60))
 	fmt.Printf("Summary: Processed=%d Skipped=%d Errors=%d\n",
 		result.ProcessedCount,
