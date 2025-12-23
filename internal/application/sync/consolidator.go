@@ -18,12 +18,12 @@ import (
 type Consolidator struct {
 	client  *monarch.Client
 	logger  *slog.Logger
-	storage *storage.Storage
+	storage storage.Repository
 	runID   int64
 }
 
 // NewConsolidator creates a new consolidator
-func NewConsolidator(client *monarch.Client, logger *slog.Logger, store *storage.Storage, runID int64) *Consolidator {
+func NewConsolidator(client *monarch.Client, logger *slog.Logger, store storage.Repository, runID int64) *Consolidator {
 	if logger == nil {
 		logger = slog.Default()
 	}
