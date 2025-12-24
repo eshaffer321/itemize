@@ -64,7 +64,7 @@ export default function Settings() {
     <div className="mx-auto max-w-4xl">
       <Heading>Quick Start</Heading>
       <Text className="mt-2">
-        Monarch Sync is a CLI tool that syncs your retail purchases with Monarch Money. Here&apos;s how to get started.
+        Retail Sync is a CLI tool that syncs your retail purchases with Monarch Money. Here&apos;s how to get started.
       </Text>
 
       <Divider className="my-10" />
