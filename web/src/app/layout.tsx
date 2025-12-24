@@ -4,10 +4,10 @@ import { ThemeProvider } from '@/lib/theme-context'
 
 export const metadata: Metadata = {
   title: {
-    template: '%s - Monarch Sync',
-    default: 'Monarch Sync',
+    template: '%s - Retail Sync',
+    default: 'Retail Sync',
   },
-  description: 'Sync your Walmart, Costco, and Amazon orders with Monarch Money',
+  description: 'Sync your Walmart, Costco, and Amazon orders with Monarch Money. Third-party tool, not affiliated with Monarch Money Inc.',
   icons: {
     icon: '/favicon.svg',
   },
