@@ -3,10 +3,14 @@ package storage
 // MockRepository is an in-memory implementation of Repository for testing.
 // It stores all data in maps and slices, making tests fast and isolated.
 type MockRepository struct {
-	records   map[string]*ProcessingRecord
-	syncRuns  map[int64]*mockSyncRun
-	apiCalls  []APICall
-	nextRunID int64
+	records       map[string]*ProcessingRecord
+	syncRuns      map[int64]*mockSyncRun
+	apiCalls      []APICall
+	ledgers       map[string][]*OrderLedger // Keyed by order_id
+	ledgerCharges map[int64][]LedgerCharge  // Keyed by ledger_id
+	nextRunID     int64
+	nextLedgerID  int64
+	nextChargeID  int64
 
 	// Hooks for test assertions
 	SaveRecordCalled   bool
@@ -15,6 +19,8 @@ type MockRepository struct {
 	IsProcessedCalled  bool
 	StartSyncRunCalled bool
 	LogAPICallCalled   bool
+	SaveLedgerCalled   bool
+	LastSavedLedger    *OrderLedger
 
 	// Error injection for testing error paths
 	SaveRecordErr      error
@@ -22,6 +28,7 @@ type MockRepository struct {
 	StartSyncRunErr    error
 	CompleteSyncRunErr error
 	LogAPICallErr      error
+	SaveLedgerErr      error
 }
 
 type mockSyncRun struct {
@@ -39,10 +46,14 @@ type mockSyncRun struct {
 // NewMockRepository creates a new mock repository for testing
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		records:   make(map[string]*ProcessingRecord),
-		syncRuns:  make(map[int64]*mockSyncRun),
-		apiCalls:  make([]APICall, 0),
-		nextRunID: 1,
+		records:       make(map[string]*ProcessingRecord),
+		syncRuns:      make(map[int64]*mockSyncRun),
+		apiCalls:      make([]APICall, 0),
+		ledgers:       make(map[string][]*OrderLedger),
+		ledgerCharges: make(map[int64][]LedgerCharge),
+		nextRunID:     1,
+		nextLedgerID:  1,
+		nextChargeID:  1,
 	}
 }
 
@@ -386,16 +397,203 @@ func (m *MockRepository) Reset() {
 	m.records = make(map[string]*ProcessingRecord)
 	m.syncRuns = make(map[int64]*mockSyncRun)
 	m.apiCalls = make([]APICall, 0)
+	m.ledgers = make(map[string][]*OrderLedger)
+	m.ledgerCharges = make(map[int64][]LedgerCharge)
 	m.nextRunID = 1
+	m.nextLedgerID = 1
+	m.nextChargeID = 1
 	m.SaveRecordCalled = false
 	m.LastSavedRecord = nil
 	m.GetRecordCalled = false
 	m.IsProcessedCalled = false
 	m.StartSyncRunCalled = false
 	m.LogAPICallCalled = false
+	m.SaveLedgerCalled = false
+	m.LastSavedLedger = nil
 	m.SaveRecordErr = nil
 	m.GetRecordErr = nil
 	m.StartSyncRunErr = nil
 	m.CompleteSyncRunErr = nil
 	m.LogAPICallErr = nil
+	m.SaveLedgerErr = nil
+}
+
+// ================================================================
+// LEDGER REPOSITORY METHODS
+// ================================================================
+
+// SaveLedger saves a ledger snapshot with its charges
+func (m *MockRepository) SaveLedger(ledger *OrderLedger) error {
+	m.SaveLedgerCalled = true
+	m.LastSavedLedger = ledger
+	if m.SaveLedgerErr != nil {
+		return m.SaveLedgerErr
+	}
+
+	// Assign ID
+	ledger.ID = m.nextLedgerID
+	m.nextLedgerID++
+
+	// Calculate version based on existing ledgers for this order
+	existingLedgers := m.ledgers[ledger.OrderID]
+	ledger.LedgerVersion = len(existingLedgers) + 1
+
+	// Deep copy the ledger
+	copied := *ledger
+
+	// Process and store charges
+	var charges []LedgerCharge
+	for i := range ledger.Charges {
+		charge := ledger.Charges[i]
+		charge.ID = m.nextChargeID
+		m.nextChargeID++
+		charge.OrderLedgerID = copied.ID
+		charge.OrderID = copied.OrderID
+		charge.SyncRunID = copied.SyncRunID
+		charges = append(charges, charge)
+	}
+	copied.Charges = charges
+
+	// Store in ledgers map (append to history)
+	m.ledgers[ledger.OrderID] = append(m.ledgers[ledger.OrderID], &copied)
+
+	// Store charges by ledger ID
+	m.ledgerCharges[copied.ID] = charges
+
+	return nil
+}
+
+// GetLatestLedger retrieves the most recent ledger for an order
+func (m *MockRepository) GetLatestLedger(orderID string) (*OrderLedger, error) {
+	ledgers := m.ledgers[orderID]
+	if len(ledgers) == 0 {
+		return nil, nil
+	}
+	// Return the last one (most recent)
+	latest := ledgers[len(ledgers)-1]
+	// Attach charges
+	result := *latest
+	result.Charges = m.ledgerCharges[latest.ID]
+	return &result, nil
+}
+
+// GetLedgerHistory retrieves all ledger snapshots for an order (newest first)
+func (m *MockRepository) GetLedgerHistory(orderID string) ([]*OrderLedger, error) {
+	ledgers := m.ledgers[orderID]
+	if len(ledgers) == 0 {
+		return nil, nil
+	}
+
+	// Return in reverse order (newest first)
+	result := make([]*OrderLedger, len(ledgers))
+	for i, l := range ledgers {
+		copied := *l
+		copied.Charges = m.ledgerCharges[l.ID]
+		result[len(ledgers)-1-i] = &copied
+	}
+	return result, nil
+}
+
+// GetLedgerByID retrieves a specific ledger by ID
+func (m *MockRepository) GetLedgerByID(id int64) (*OrderLedger, error) {
+	for _, ledgers := range m.ledgers {
+		for _, l := range ledgers {
+			if l.ID == id {
+				result := *l
+				result.Charges = m.ledgerCharges[l.ID]
+				return &result, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// ListLedgers returns ledgers matching the given filters with pagination
+func (m *MockRepository) ListLedgers(filters LedgerFilters) (*LedgerListResult, error) {
+	var matching []*OrderLedger
+
+	for _, ledgers := range m.ledgers {
+		for _, l := range ledgers {
+			// Apply filters
+			if filters.OrderID != "" && l.OrderID != filters.OrderID {
+				continue
+			}
+			if filters.Provider != "" && l.Provider != filters.Provider {
+				continue
+			}
+			if filters.State != "" && l.LedgerState != filters.State {
+				continue
+			}
+			matching = append(matching, l)
+		}
+	}
+
+	// Apply defaults
+	limit := filters.Limit
+	if limit == 0 {
+		limit = 50
+	}
+
+	// Apply pagination
+	total := len(matching)
+	start := filters.Offset
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	return &LedgerListResult{
+		Ledgers:    matching[start:end],
+		TotalCount: total,
+		Limit:      limit,
+		Offset:     filters.Offset,
+	}, nil
+}
+
+// UpdateChargeMatch updates a ledger charge's match status
+func (m *MockRepository) UpdateChargeMatch(chargeID int64, transactionID string, confidence float64, splitCount int) error {
+	for ledgerID, charges := range m.ledgerCharges {
+		for i, charge := range charges {
+			if charge.ID == chargeID {
+				m.ledgerCharges[ledgerID][i].MonarchTransactionID = transactionID
+				m.ledgerCharges[ledgerID][i].IsMatched = true
+				m.ledgerCharges[ledgerID][i].MatchConfidence = confidence
+				m.ledgerCharges[ledgerID][i].SplitCount = splitCount
+				return nil
+			}
+		}
+	}
+	return nil
+}
+
+// GetUnmatchedCharges returns charges that haven't been matched to Monarch transactions
+func (m *MockRepository) GetUnmatchedCharges(provider string, limit int) ([]LedgerCharge, error) {
+	if limit == 0 {
+		limit = 50
+	}
+
+	var result []LedgerCharge
+	for _, charges := range m.ledgerCharges {
+		for _, charge := range charges {
+			if charge.IsMatched {
+				continue
+			}
+			if charge.ChargeType != "payment" {
+				continue
+			}
+			// Check provider via the ledger
+			ledger, _ := m.GetLedgerByID(charge.OrderLedgerID)
+			if ledger != nil && provider != "" && ledger.Provider != provider {
+				continue
+			}
+			result = append(result, charge)
+			if len(result) >= limit {
+				return result, nil
+			}
+		}
+	}
+	return result, nil
 }

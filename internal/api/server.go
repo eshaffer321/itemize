@@ -100,6 +100,13 @@ func (s *Server) setupRoutes() {
 		statsHandler := handlers.NewStatsHandler(s.repo)
 		r.Get("/stats", statsHandler.Get)
 
+		// Ledgers
+		ledgersHandler := handlers.NewLedgersHandler(s.repo)
+		r.Get("/ledgers", ledgersHandler.List)
+		r.Get("/ledgers/{id}", ledgersHandler.Get)
+		r.Get("/orders/{orderID}/ledger", ledgersHandler.GetByOrderID)
+		r.Get("/orders/{orderID}/ledgers", ledgersHandler.GetHistoryByOrderID)
+
 		// Sync operations (live sync jobs)
 		if s.syncService != nil {
 			syncHandler := handlers.NewSyncHandler(s.syncService)

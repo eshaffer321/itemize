@@ -7,6 +7,7 @@ type Repository interface {
 	OrderRepository
 	SyncRunRepository
 	APICallRepository
+	LedgerRepository
 	Close() error
 }
 
@@ -101,4 +102,28 @@ type APICallRepository interface {
 
 	// GetAPICallsByRunID retrieves all API calls for a specific sync run
 	GetAPICallsByRunID(runID int64) ([]APICall, error)
+}
+
+// LedgerRepository handles order ledger storage and history
+type LedgerRepository interface {
+	// SaveLedger saves a ledger snapshot with its charges
+	SaveLedger(ledger *OrderLedger) error
+
+	// GetLatestLedger retrieves the most recent ledger for an order
+	GetLatestLedger(orderID string) (*OrderLedger, error)
+
+	// GetLedgerHistory retrieves all ledger snapshots for an order (newest first)
+	GetLedgerHistory(orderID string) ([]*OrderLedger, error)
+
+	// GetLedgerByID retrieves a specific ledger by ID
+	GetLedgerByID(id int64) (*OrderLedger, error)
+
+	// ListLedgers returns ledgers matching the given filters with pagination
+	ListLedgers(filters LedgerFilters) (*LedgerListResult, error)
+
+	// UpdateChargeMatch updates a ledger charge's match status
+	UpdateChargeMatch(chargeID int64, transactionID string, confidence float64, splitCount int) error
+
+	// GetUnmatchedCharges returns charges that haven't been matched to Monarch transactions
+	GetUnmatchedCharges(provider string, limit int) ([]LedgerCharge, error)
 }

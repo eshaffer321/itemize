@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -22,13 +23,21 @@ type WalmartOrder interface {
 	IsMultiDelivery() (bool, error)
 }
 
+// WalmartOrderWithLedger extends WalmartOrder with ledger access for persistence
+type WalmartOrderWithLedger interface {
+	WalmartOrder
+	GetRawLedger() interface{} // Returns *walmartclient.OrderLedger but using interface{} to avoid import
+}
+
 // WalmartHandler processes Walmart orders with multi-delivery and gift card support
 type WalmartHandler struct {
-	matcher      *matcher.Matcher
-	consolidator TransactionConsolidator
-	splitter     CategorySplitter
-	monarch      MonarchClient
-	logger       *slog.Logger
+	matcher       *matcher.Matcher
+	consolidator  TransactionConsolidator
+	splitter      CategorySplitter
+	monarch       MonarchClient
+	ledgerStorage LedgerStorage
+	syncRunID     int64
+	logger        *slog.Logger
 }
 
 // NewWalmartHandler creates a new Walmart order handler
@@ -46,6 +55,12 @@ func NewWalmartHandler(
 		monarch:      monarch,
 		logger:       logger,
 	}
+}
+
+// SetLedgerStorage sets the ledger storage for persisting ledger data
+func (h *WalmartHandler) SetLedgerStorage(storage LedgerStorage, syncRunID int64) {
+	h.ledgerStorage = storage
+	h.syncRunID = syncRunID
 }
 
 // ProcessOrder processes a Walmart order
@@ -81,6 +96,9 @@ func (h *WalmartHandler) ProcessOrder(
 		"order_id", order.GetID(),
 		"charges", bankCharges,
 		"charge_count", len(bankCharges))
+
+	// Save ledger data if storage is configured
+	h.saveLedgerIfAvailable(order)
 
 	// Step 2: Handle based on number of charges
 	if len(bankCharges) > 1 {
@@ -361,4 +379,108 @@ func (h *WalmartHandler) logWarn(msg string, args ...any) {
 	if h.logger != nil {
 		h.logger.Warn(msg, args...)
 	}
+}
+
+// saveLedgerIfAvailable extracts and saves ledger data if storage is configured
+func (h *WalmartHandler) saveLedgerIfAvailable(order WalmartOrder) {
+	// Skip if no storage configured
+	if h.ledgerStorage == nil {
+		return
+	}
+
+	// Try to get the raw ledger from the concrete type
+	walmartOrder, ok := order.(*walmartprovider.Order)
+	if !ok {
+		h.logDebug("Cannot save ledger - order is not a Walmart provider order")
+		return
+	}
+
+	rawLedger := walmartOrder.GetRawLedger()
+	if rawLedger == nil {
+		h.logDebug("Cannot save ledger - no ledger data available")
+		return
+	}
+
+	// Convert the raw ledger to LedgerData
+	ledgerData := h.convertToLedgerData(order.GetID(), rawLedger)
+
+	// Save it
+	if err := h.ledgerStorage.SaveLedger(ledgerData, h.syncRunID); err != nil {
+		h.logWarn("Failed to save ledger data",
+			"order_id", order.GetID(),
+			"error", err)
+	} else {
+		h.logDebug("Saved ledger data",
+			"order_id", order.GetID(),
+			"charge_count", ledgerData.ChargeCount)
+	}
+}
+
+// convertToLedgerData converts raw Walmart ledger to the handler's LedgerData format
+func (h *WalmartHandler) convertToLedgerData(orderID string, rawLedger interface{}) *LedgerData {
+	ledgerData := &LedgerData{
+		OrderID:  orderID,
+		Provider: "walmart",
+		IsValid:  true,
+	}
+
+	// Use reflection-free approach with type assertion
+	// The rawLedger is *walmartclient.OrderLedger
+	type walmartLedger struct {
+		OrderID        string
+		PaymentMethods []struct {
+			PaymentType  string
+			CardType     string
+			LastFour     string
+			FinalCharges []float64
+			TotalCharged float64
+		}
+	}
+
+	// Marshal to JSON and back to extract the data
+	// This avoids importing the walmart client in handlers
+	import_json, _ := json.Marshal(rawLedger)
+	ledgerData.RawJSON = string(import_json)
+
+	// Parse for payment method extraction
+	var parsed walmartLedger
+	if err := json.Unmarshal(import_json, &parsed); err != nil {
+		h.logWarn("Failed to parse ledger JSON", "error", err)
+		return ledgerData
+	}
+
+	// Collect payment method types and charges
+	var paymentTypes []string
+	totalCharged := 0.0
+	chargeCount := 0
+	hasRefunds := false
+
+	for _, pm := range parsed.PaymentMethods {
+		paymentTypes = append(paymentTypes, pm.PaymentType)
+		totalCharged += pm.TotalCharged
+
+		pmData := PaymentMethodData{
+			PaymentType:  pm.PaymentType,
+			CardType:     pm.CardType,
+			CardLastFour: pm.LastFour,
+			FinalCharges: pm.FinalCharges,
+			TotalCharged: pm.TotalCharged,
+		}
+		ledgerData.PaymentMethods = append(ledgerData.PaymentMethods, pmData)
+
+		for _, charge := range pm.FinalCharges {
+			if charge > 0 {
+				chargeCount++
+			} else if charge < 0 {
+				hasRefunds = true
+			}
+		}
+	}
+
+	ledgerData.TotalCharged = totalCharged
+	ledgerData.ChargeCount = chargeCount
+	ledgerData.PaymentMethodTypes = strings.Join(paymentTypes, ",")
+	ledgerData.HasRefunds = hasRefunds
+
+	return ledgerData
 }

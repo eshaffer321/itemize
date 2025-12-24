@@ -132,6 +132,10 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		if o.consolidator != nil {
 			o.consolidator.SetRunID(o.runID)
 		}
+		// Set up ledger storage for Walmart handler
+		if o.walmartHandler != nil {
+			o.walmartHandler.SetLedgerStorage(&ledgerStorageAdapter{repo: o.storage}, o.runID)
+		}
 	}
 
 	// 5. Process orders

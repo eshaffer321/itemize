@@ -164,3 +164,62 @@ func (a *monarchAdapter) UpdateTransaction(ctx context.Context, id string, param
 func (a *monarchAdapter) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {
 	return a.client.Transactions.UpdateSplits(ctx, id, splits)
 }
+
+// ledgerStorageAdapter wraps storage.Repository to implement handlers.LedgerStorage
+type ledgerStorageAdapter struct {
+	repo storage.Repository
+}
+
+func (a *ledgerStorageAdapter) SaveLedger(ledger *handlers.LedgerData, syncRunID int64) error {
+	if a.repo == nil {
+		return nil
+	}
+
+	// Convert handlers.LedgerData to storage.OrderLedger
+	orderLedger := &storage.OrderLedger{
+		OrderID:            ledger.OrderID,
+		SyncRunID:          syncRunID,
+		Provider:           ledger.Provider,
+		LedgerJSON:         ledger.RawJSON,
+		TotalCharged:       ledger.TotalCharged,
+		ChargeCount:        ledger.ChargeCount,
+		PaymentMethodTypes: ledger.PaymentMethodTypes,
+		HasRefunds:         ledger.HasRefunds,
+		IsValid:            ledger.IsValid,
+		ValidationNotes:    ledger.ValidationNotes,
+	}
+
+	// Determine ledger state
+	if ledger.ChargeCount == 0 {
+		orderLedger.LedgerState = storage.LedgerStatePending
+	} else if ledger.HasRefunds {
+		orderLedger.LedgerState = storage.LedgerStatePartialRefund
+	} else {
+		orderLedger.LedgerState = storage.LedgerStateCharged
+	}
+
+	// Convert payment methods to charges
+	chargeSeq := 0
+	for _, pm := range ledger.PaymentMethods {
+		for _, charge := range pm.FinalCharges {
+			chargeSeq++
+			chargeType := "payment"
+			if charge < 0 {
+				chargeType = "refund"
+			}
+			ledgerCharge := storage.LedgerCharge{
+				OrderID:        ledger.OrderID,
+				SyncRunID:      syncRunID,
+				ChargeSequence: chargeSeq,
+				ChargeAmount:   charge,
+				ChargeType:     chargeType,
+				PaymentMethod:  pm.PaymentType,
+				CardType:       pm.CardType,
+				CardLastFour:   pm.CardLastFour,
+			}
+			orderLedger.Charges = append(orderLedger.Charges, ledgerCharge)
+		}
+	}
+
+	return a.repo.SaveLedger(orderLedger)
+}

@@ -274,3 +274,9 @@ func (o *Order) IsMultiDelivery() (bool, error) {
 	}
 	return len(charges) > 1, nil
 }
+
+// GetRawLedger returns the cached ledger data for persistence
+// Returns nil if ledger hasn't been fetched yet
+func (o *Order) GetRawLedger() *walmartclient.OrderLedger {
+	return o.ledgerCache
+}
