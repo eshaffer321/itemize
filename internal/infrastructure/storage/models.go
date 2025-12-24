@@ -121,3 +121,70 @@ type APICall struct {
 	Error        string
 	DurationMs   int64
 }
+
+// LedgerState represents the current state of an order's ledger
+type LedgerState string
+
+const (
+	LedgerStatePending       LedgerState = "payment_pending"
+	LedgerStateCharged       LedgerState = "charged"
+	LedgerStateRefunded      LedgerState = "refunded"
+	LedgerStatePartialRefund LedgerState = "partial_refund"
+)
+
+// OrderLedger represents a snapshot of an order's ledger at a point in time
+type OrderLedger struct {
+	ID                 int64       `json:"id"`
+	OrderID            string      `json:"order_id"`
+	SyncRunID          int64       `json:"sync_run_id,omitempty"`
+	Provider           string      `json:"provider"`
+	FetchedAt          time.Time   `json:"fetched_at"`
+	LedgerState        LedgerState `json:"ledger_state"`
+	LedgerVersion      int         `json:"ledger_version"`
+	LedgerJSON         string      `json:"ledger_json"`          // Raw provider JSON
+	TotalCharged       float64     `json:"total_charged"`        // Sum of all charges
+	ChargeCount        int         `json:"charge_count"`         // Number of charges
+	PaymentMethodTypes string      `json:"payment_method_types"` // Comma-separated: "CREDITCARD,GIFTCARD"
+	HasRefunds         bool        `json:"has_refunds"`
+	IsValid            bool        `json:"is_valid"`
+	ValidationNotes    string      `json:"validation_notes,omitempty"`
+
+	// Populated from ledger_charges table
+	Charges []LedgerCharge `json:"charges,omitempty"`
+}
+
+// LedgerCharge represents a single charge within a ledger
+type LedgerCharge struct {
+	ID                   int64     `json:"id"`
+	OrderLedgerID        int64     `json:"order_ledger_id"`
+	OrderID              string    `json:"order_id"`
+	SyncRunID            int64     `json:"sync_run_id,omitempty"`
+	ChargeSequence       int       `json:"charge_sequence"` // Order within ledger
+	ChargeAmount         float64   `json:"charge_amount"`
+	ChargeType           string    `json:"charge_type"`            // "payment", "refund"
+	PaymentMethod        string    `json:"payment_method"`         // "CREDITCARD", "GIFTCARD"
+	CardType             string    `json:"card_type,omitempty"`    // "VISA", "AMEX"
+	CardLastFour         string    `json:"card_last_four,omitempty"`
+	MonarchTransactionID string    `json:"monarch_transaction_id,omitempty"`
+	IsMatched            bool      `json:"is_matched"`
+	MatchConfidence      float64   `json:"match_confidence,omitempty"`
+	MatchedAt            time.Time `json:"matched_at,omitempty"`
+	SplitCount           int       `json:"split_count,omitempty"`
+}
+
+// LedgerFilters defines filters for querying ledgers
+type LedgerFilters struct {
+	OrderID  string      // Filter by order ID
+	Provider string      // Filter by provider
+	State    LedgerState // Filter by ledger state
+	Limit    int         // Max results (0 = default 50)
+	Offset   int         // Pagination offset
+}
+
+// LedgerListResult contains paginated ledger results
+type LedgerListResult struct {
+	Ledgers    []*OrderLedger `json:"ledgers"`
+	TotalCount int            `json:"total_count"`
+	Limit      int            `json:"limit"`
+	Offset     int            `json:"offset"`
+}

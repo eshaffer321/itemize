@@ -122,3 +122,44 @@ func NewHealthResponse() HealthResponse {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }
+
+// LedgerResponse represents a ledger snapshot in API responses.
+type LedgerResponse struct {
+	ID                 int64            `json:"id"`
+	OrderID            string           `json:"order_id"`
+	SyncRunID          int64            `json:"sync_run_id,omitempty"`
+	Provider           string           `json:"provider"`
+	FetchedAt          string           `json:"fetched_at"`
+	LedgerState        string           `json:"ledger_state"`
+	LedgerVersion      int              `json:"ledger_version"`
+	TotalCharged       float64          `json:"total_charged"`
+	ChargeCount        int              `json:"charge_count"`
+	PaymentMethodTypes string           `json:"payment_method_types"`
+	HasRefunds         bool             `json:"has_refunds"`
+	IsValid            bool             `json:"is_valid"`
+	ValidationNotes    string           `json:"validation_notes,omitempty"`
+	Charges            []ChargeResponse `json:"charges,omitempty"`
+}
+
+// ChargeResponse represents a single charge within a ledger.
+type ChargeResponse struct {
+	ID                   int64   `json:"id"`
+	ChargeSequence       int     `json:"charge_sequence"`
+	ChargeAmount         float64 `json:"charge_amount"`
+	ChargeType           string  `json:"charge_type"`
+	PaymentMethod        string  `json:"payment_method"`
+	CardType             string  `json:"card_type,omitempty"`
+	CardLastFour         string  `json:"card_last_four,omitempty"`
+	MonarchTransactionID string  `json:"monarch_transaction_id,omitempty"`
+	IsMatched            bool    `json:"is_matched"`
+	MatchConfidence      float64 `json:"match_confidence,omitempty"`
+	SplitCount           int     `json:"split_count,omitempty"`
+}
+
+// LedgerListResponse is returned when listing ledgers.
+type LedgerListResponse struct {
+	Ledgers    []LedgerResponse `json:"ledgers"`
+	TotalCount int              `json:"total_count"`
+	Limit      int              `json:"limit"`
+	Offset     int              `json:"offset"`
+}

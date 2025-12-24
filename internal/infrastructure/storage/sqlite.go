@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -661,4 +662,574 @@ func (s *Storage) GetSyncRun(runID int64) (*SyncRun, error) {
 	}
 
 	return &r, nil
+}
+
+// ================================================================
+// LEDGER REPOSITORY IMPLEMENTATION
+// ================================================================
+
+// SaveLedger saves a ledger snapshot with its charges in a transaction
+func (s *Storage) SaveLedger(ledger *OrderLedger) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Determine the next ledger version for this order
+	var currentVersion int
+	err = tx.QueryRow(`
+		SELECT COALESCE(MAX(ledger_version), 0)
+		FROM order_ledgers
+		WHERE order_id = ? AND provider = ?
+	`, ledger.OrderID, ledger.Provider).Scan(&currentVersion)
+	if err != nil {
+		return fmt.Errorf("failed to get current version: %w", err)
+	}
+	ledger.LedgerVersion = currentVersion + 1
+
+	// Insert the ledger
+	result, err := tx.Exec(`
+		INSERT INTO order_ledgers
+		(order_id, sync_run_id, provider, ledger_state, ledger_version,
+		 ledger_json, total_charged, charge_count, payment_method_types,
+		 has_refunds, is_valid, validation_notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		ledger.OrderID,
+		nullInt64(ledger.SyncRunID),
+		ledger.Provider,
+		ledger.LedgerState,
+		ledger.LedgerVersion,
+		ledger.LedgerJSON,
+		ledger.TotalCharged,
+		ledger.ChargeCount,
+		ledger.PaymentMethodTypes,
+		ledger.HasRefunds,
+		ledger.IsValid,
+		ledger.ValidationNotes,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert ledger: %w", err)
+	}
+
+	ledgerID, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get ledger ID: %w", err)
+	}
+	ledger.ID = ledgerID
+
+	// Insert charges
+	for i := range ledger.Charges {
+		charge := &ledger.Charges[i]
+		charge.OrderLedgerID = ledgerID
+		charge.OrderID = ledger.OrderID
+		charge.SyncRunID = ledger.SyncRunID
+
+		result, err := tx.Exec(`
+			INSERT INTO ledger_charges
+			(order_ledger_id, order_id, sync_run_id, charge_sequence,
+			 charge_amount, charge_type, payment_method, card_type, card_last_four,
+			 monarch_transaction_id, is_matched, match_confidence, matched_at, split_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			charge.OrderLedgerID,
+			charge.OrderID,
+			nullInt64(charge.SyncRunID),
+			charge.ChargeSequence,
+			charge.ChargeAmount,
+			charge.ChargeType,
+			charge.PaymentMethod,
+			charge.CardType,
+			charge.CardLastFour,
+			nullString(charge.MonarchTransactionID),
+			charge.IsMatched,
+			charge.MatchConfidence,
+			nullTime(charge.MatchedAt),
+			charge.SplitCount,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert charge: %w", err)
+		}
+
+		chargeID, _ := result.LastInsertId()
+		charge.ID = chargeID
+	}
+
+	return tx.Commit()
+}
+
+// GetLatestLedger retrieves the most recent ledger for an order
+func (s *Storage) GetLatestLedger(orderID string) (*OrderLedger, error) {
+	query := `
+		SELECT id, order_id, sync_run_id, provider, fetched_at, ledger_state,
+		       ledger_version, ledger_json, total_charged, charge_count,
+		       payment_method_types, has_refunds, is_valid, validation_notes
+		FROM order_ledgers
+		WHERE order_id = ?
+		ORDER BY ledger_version DESC
+		LIMIT 1
+	`
+
+	ledger := &OrderLedger{}
+	var syncRunID sql.NullInt64
+	var validationNotes sql.NullString
+
+	err := s.db.QueryRow(query, orderID).Scan(
+		&ledger.ID,
+		&ledger.OrderID,
+		&syncRunID,
+		&ledger.Provider,
+		&ledger.FetchedAt,
+		&ledger.LedgerState,
+		&ledger.LedgerVersion,
+		&ledger.LedgerJSON,
+		&ledger.TotalCharged,
+		&ledger.ChargeCount,
+		&ledger.PaymentMethodTypes,
+		&ledger.HasRefunds,
+		&ledger.IsValid,
+		&validationNotes,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if syncRunID.Valid {
+		ledger.SyncRunID = syncRunID.Int64
+	}
+	if validationNotes.Valid {
+		ledger.ValidationNotes = validationNotes.String
+	}
+
+	// Load charges
+	charges, err := s.getChargesForLedger(ledger.ID)
+	if err != nil {
+		return nil, err
+	}
+	ledger.Charges = charges
+
+	return ledger, nil
+}
+
+// GetLedgerHistory retrieves all ledger snapshots for an order (newest first)
+func (s *Storage) GetLedgerHistory(orderID string) ([]*OrderLedger, error) {
+	query := `
+		SELECT id, order_id, sync_run_id, provider, fetched_at, ledger_state,
+		       ledger_version, ledger_json, total_charged, charge_count,
+		       payment_method_types, has_refunds, is_valid, validation_notes
+		FROM order_ledgers
+		WHERE order_id = ?
+		ORDER BY ledger_version DESC
+	`
+
+	rows, err := s.db.Query(query, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ledgers []*OrderLedger
+	for rows.Next() {
+		ledger := &OrderLedger{}
+		var syncRunID sql.NullInt64
+		var validationNotes sql.NullString
+
+		err := rows.Scan(
+			&ledger.ID,
+			&ledger.OrderID,
+			&syncRunID,
+			&ledger.Provider,
+			&ledger.FetchedAt,
+			&ledger.LedgerState,
+			&ledger.LedgerVersion,
+			&ledger.LedgerJSON,
+			&ledger.TotalCharged,
+			&ledger.ChargeCount,
+			&ledger.PaymentMethodTypes,
+			&ledger.HasRefunds,
+			&ledger.IsValid,
+			&validationNotes,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if syncRunID.Valid {
+			ledger.SyncRunID = syncRunID.Int64
+		}
+		if validationNotes.Valid {
+			ledger.ValidationNotes = validationNotes.String
+		}
+
+		// Load charges for each ledger
+		charges, err := s.getChargesForLedger(ledger.ID)
+		if err != nil {
+			return nil, err
+		}
+		ledger.Charges = charges
+
+		ledgers = append(ledgers, ledger)
+	}
+
+	return ledgers, rows.Err()
+}
+
+// GetLedgerByID retrieves a specific ledger by ID
+func (s *Storage) GetLedgerByID(id int64) (*OrderLedger, error) {
+	query := `
+		SELECT id, order_id, sync_run_id, provider, fetched_at, ledger_state,
+		       ledger_version, ledger_json, total_charged, charge_count,
+		       payment_method_types, has_refunds, is_valid, validation_notes
+		FROM order_ledgers
+		WHERE id = ?
+	`
+
+	ledger := &OrderLedger{}
+	var syncRunID sql.NullInt64
+	var validationNotes sql.NullString
+
+	err := s.db.QueryRow(query, id).Scan(
+		&ledger.ID,
+		&ledger.OrderID,
+		&syncRunID,
+		&ledger.Provider,
+		&ledger.FetchedAt,
+		&ledger.LedgerState,
+		&ledger.LedgerVersion,
+		&ledger.LedgerJSON,
+		&ledger.TotalCharged,
+		&ledger.ChargeCount,
+		&ledger.PaymentMethodTypes,
+		&ledger.HasRefunds,
+		&ledger.IsValid,
+		&validationNotes,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if syncRunID.Valid {
+		ledger.SyncRunID = syncRunID.Int64
+	}
+	if validationNotes.Valid {
+		ledger.ValidationNotes = validationNotes.String
+	}
+
+	// Load charges
+	charges, err := s.getChargesForLedger(ledger.ID)
+	if err != nil {
+		return nil, err
+	}
+	ledger.Charges = charges
+
+	return ledger, nil
+}
+
+// ListLedgers returns ledgers matching the given filters with pagination
+func (s *Storage) ListLedgers(filters LedgerFilters) (*LedgerListResult, error) {
+	// Set defaults
+	if filters.Limit <= 0 {
+		filters.Limit = 50
+	}
+	if filters.Limit > 500 {
+		filters.Limit = 500
+	}
+
+	// Build WHERE clause
+	where := "WHERE 1=1"
+	args := []interface{}{}
+
+	if filters.OrderID != "" {
+		where += " AND order_id = ?"
+		args = append(args, filters.OrderID)
+	}
+	if filters.Provider != "" {
+		where += " AND provider = ?"
+		args = append(args, filters.Provider)
+	}
+	if filters.State != "" {
+		where += " AND ledger_state = ?"
+		args = append(args, filters.State)
+	}
+
+	// Get total count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM order_ledgers %s", where)
+	var totalCount int
+	if err := s.db.QueryRow(countQuery, args...).Scan(&totalCount); err != nil {
+		return nil, err
+	}
+
+	// Get paginated results
+	query := fmt.Sprintf(`
+		SELECT id, order_id, sync_run_id, provider, fetched_at, ledger_state,
+		       ledger_version, ledger_json, total_charged, charge_count,
+		       payment_method_types, has_refunds, is_valid, validation_notes
+		FROM order_ledgers
+		%s
+		ORDER BY fetched_at DESC
+		LIMIT ? OFFSET ?
+	`, where)
+
+	args = append(args, filters.Limit, filters.Offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ledgers []*OrderLedger
+	for rows.Next() {
+		ledger := &OrderLedger{}
+		var syncRunID sql.NullInt64
+		var validationNotes sql.NullString
+
+		err := rows.Scan(
+			&ledger.ID,
+			&ledger.OrderID,
+			&syncRunID,
+			&ledger.Provider,
+			&ledger.FetchedAt,
+			&ledger.LedgerState,
+			&ledger.LedgerVersion,
+			&ledger.LedgerJSON,
+			&ledger.TotalCharged,
+			&ledger.ChargeCount,
+			&ledger.PaymentMethodTypes,
+			&ledger.HasRefunds,
+			&ledger.IsValid,
+			&validationNotes,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if syncRunID.Valid {
+			ledger.SyncRunID = syncRunID.Int64
+		}
+		if validationNotes.Valid {
+			ledger.ValidationNotes = validationNotes.String
+		}
+
+		ledgers = append(ledgers, ledger)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &LedgerListResult{
+		Ledgers:    ledgers,
+		TotalCount: totalCount,
+		Limit:      filters.Limit,
+		Offset:     filters.Offset,
+	}, nil
+}
+
+// UpdateChargeMatch updates a ledger charge's match status
+func (s *Storage) UpdateChargeMatch(chargeID int64, transactionID string, confidence float64, splitCount int) error {
+	query := `
+		UPDATE ledger_charges
+		SET monarch_transaction_id = ?,
+		    is_matched = 1,
+		    match_confidence = ?,
+		    matched_at = CURRENT_TIMESTAMP,
+		    split_count = ?
+		WHERE id = ?
+	`
+
+	_, err := s.db.Exec(query, transactionID, confidence, splitCount, chargeID)
+	return err
+}
+
+// GetUnmatchedCharges returns charges that haven't been matched to Monarch transactions
+func (s *Storage) GetUnmatchedCharges(provider string, limit int) ([]LedgerCharge, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var query string
+	var args []interface{}
+
+	if provider != "" {
+		query = `
+			SELECT c.id, c.order_ledger_id, c.order_id, c.sync_run_id, c.charge_sequence,
+			       c.charge_amount, c.charge_type, c.payment_method, c.card_type, c.card_last_four,
+			       c.monarch_transaction_id, c.is_matched, c.match_confidence, c.matched_at, c.split_count
+			FROM ledger_charges c
+			JOIN order_ledgers l ON c.order_ledger_id = l.id
+			WHERE c.is_matched = 0
+			  AND c.charge_type = 'payment'
+			  AND l.provider = ?
+			ORDER BY l.fetched_at DESC
+			LIMIT ?
+		`
+		args = []interface{}{provider, limit}
+	} else {
+		query = `
+			SELECT c.id, c.order_ledger_id, c.order_id, c.sync_run_id, c.charge_sequence,
+			       c.charge_amount, c.charge_type, c.payment_method, c.card_type, c.card_last_four,
+			       c.monarch_transaction_id, c.is_matched, c.match_confidence, c.matched_at, c.split_count
+			FROM ledger_charges c
+			JOIN order_ledgers l ON c.order_ledger_id = l.id
+			WHERE c.is_matched = 0
+			  AND c.charge_type = 'payment'
+			ORDER BY l.fetched_at DESC
+			LIMIT ?
+		`
+		args = []interface{}{limit}
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var charges []LedgerCharge
+	for rows.Next() {
+		var charge LedgerCharge
+		var syncRunID sql.NullInt64
+		var txID sql.NullString
+		var cardType, cardLastFour sql.NullString
+		var matchedAt sql.NullTime
+
+		err := rows.Scan(
+			&charge.ID,
+			&charge.OrderLedgerID,
+			&charge.OrderID,
+			&syncRunID,
+			&charge.ChargeSequence,
+			&charge.ChargeAmount,
+			&charge.ChargeType,
+			&charge.PaymentMethod,
+			&cardType,
+			&cardLastFour,
+			&txID,
+			&charge.IsMatched,
+			&charge.MatchConfidence,
+			&matchedAt,
+			&charge.SplitCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if syncRunID.Valid {
+			charge.SyncRunID = syncRunID.Int64
+		}
+		if txID.Valid {
+			charge.MonarchTransactionID = txID.String
+		}
+		if cardType.Valid {
+			charge.CardType = cardType.String
+		}
+		if cardLastFour.Valid {
+			charge.CardLastFour = cardLastFour.String
+		}
+		if matchedAt.Valid {
+			charge.MatchedAt = matchedAt.Time
+		}
+
+		charges = append(charges, charge)
+	}
+
+	return charges, rows.Err()
+}
+
+// getChargesForLedger retrieves all charges for a ledger
+func (s *Storage) getChargesForLedger(ledgerID int64) ([]LedgerCharge, error) {
+	query := `
+		SELECT id, order_ledger_id, order_id, sync_run_id, charge_sequence,
+		       charge_amount, charge_type, payment_method, card_type, card_last_four,
+		       monarch_transaction_id, is_matched, match_confidence, matched_at, split_count
+		FROM ledger_charges
+		WHERE order_ledger_id = ?
+		ORDER BY charge_sequence
+	`
+
+	rows, err := s.db.Query(query, ledgerID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var charges []LedgerCharge
+	for rows.Next() {
+		var charge LedgerCharge
+		var syncRunID sql.NullInt64
+		var txID sql.NullString
+		var cardType, cardLastFour sql.NullString
+		var matchedAt sql.NullTime
+
+		err := rows.Scan(
+			&charge.ID,
+			&charge.OrderLedgerID,
+			&charge.OrderID,
+			&syncRunID,
+			&charge.ChargeSequence,
+			&charge.ChargeAmount,
+			&charge.ChargeType,
+			&charge.PaymentMethod,
+			&cardType,
+			&cardLastFour,
+			&txID,
+			&charge.IsMatched,
+			&charge.MatchConfidence,
+			&matchedAt,
+			&charge.SplitCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if syncRunID.Valid {
+			charge.SyncRunID = syncRunID.Int64
+		}
+		if txID.Valid {
+			charge.MonarchTransactionID = txID.String
+		}
+		if cardType.Valid {
+			charge.CardType = cardType.String
+		}
+		if cardLastFour.Valid {
+			charge.CardLastFour = cardLastFour.String
+		}
+		if matchedAt.Valid {
+			charge.MatchedAt = matchedAt.Time
+		}
+
+		charges = append(charges, charge)
+	}
+
+	return charges, rows.Err()
+}
+
+// Helper functions for nullable values
+func nullInt64(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+func nullString(v string) interface{} {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func nullTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
