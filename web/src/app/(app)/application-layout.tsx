@@ -88,8 +88,8 @@ export function ApplicationLayout({ children }: { children: React.ReactNode }) {
         <Sidebar>
           <SidebarHeader>
             <SidebarItem>
-              <Avatar src="/teams/monarch-sync.svg" />
-              <SidebarLabel>Monarch Sync</SidebarLabel>
+              <Avatar src="/teams/retail-sync.svg" />
+              <SidebarLabel>Retail Sync</SidebarLabel>
             </SidebarItem>
           </SidebarHeader>
 
