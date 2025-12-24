@@ -8,6 +8,9 @@ export const metadata: Metadata = {
     default: 'Monarch Sync',
   },
   description: 'Sync your Walmart, Costco, and Amazon orders with Monarch Money',
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
