@@ -71,6 +71,10 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 
 		// Create sync service
 		syncService = service.NewSyncService(cfg, serviceClients, store, logger, providerFactory)
+
+		// Start background cleanup for stale jobs (checks every 5 minutes)
+		syncService.StartBackgroundCleanup(5 * time.Minute)
+
 		logger.Info("sync service initialized", "providers", []string{"walmart", "costco", "amazon"})
 	}
 
@@ -91,6 +95,11 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 	go func() {
 		<-quit
 		logger.Info("received shutdown signal")
+
+		// Stop background cleanup if sync service is running
+		if syncService != nil {
+			syncService.StopBackgroundCleanup()
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

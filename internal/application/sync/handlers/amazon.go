@@ -47,6 +47,34 @@ type MonarchClient interface {
 	UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error
 }
 
+// LedgerData represents ledger data that can be saved
+type LedgerData struct {
+	OrderID            string
+	Provider           string
+	RawJSON            string
+	PaymentMethods     []PaymentMethodData
+	TotalCharged       float64
+	ChargeCount        int
+	PaymentMethodTypes string
+	HasRefunds         bool
+	IsValid            bool
+	ValidationNotes    string
+}
+
+// PaymentMethodData represents a single payment method's charges
+type PaymentMethodData struct {
+	PaymentType  string
+	CardType     string
+	CardLastFour string
+	FinalCharges []float64
+	TotalCharged float64
+}
+
+// LedgerStorage provides access to ledger persistence
+type LedgerStorage interface {
+	SaveLedger(ledger *LedgerData, syncRunID int64) error
+}
+
 // ProcessResult holds the result of processing an order
 type ProcessResult struct {
 	Processed   bool
