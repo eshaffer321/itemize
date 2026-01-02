@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
@@ -233,13 +234,20 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 	}
 
 	if !multiResult.AllFound {
+		// Count actual non-nil matches (len(Matches) includes nil entries for index alignment)
+		foundCount := 0
+		for _, match := range multiResult.Matches {
+			if match != nil {
+				foundCount++
+			}
+		}
 		result.Skipped = true
 		result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
-			len(charges), len(multiResult.Matches))
+			len(charges), foundCount)
 		h.logWarn("Not all transactions found",
 			"order_id", order.GetID(),
 			"expected", len(charges),
-			"found", len(multiResult.Matches))
+			"found", foundCount)
 		return result, nil
 	}
 
@@ -433,6 +441,7 @@ func (h *WalmartHandler) convertToLedgerData(orderID string, rawLedger interface
 			CardType     string
 			LastFour     string
 			FinalCharges []float64
+			ChargedDates []time.Time
 			TotalCharged float64
 		}
 	}
@@ -464,6 +473,7 @@ func (h *WalmartHandler) convertToLedgerData(orderID string, rawLedger interface
 			CardType:     pm.CardType,
 			CardLastFour: pm.LastFour,
 			FinalCharges: pm.FinalCharges,
+			ChargedDates: pm.ChargedDates,
 			TotalCharged: pm.TotalCharged,
 		}
 		ledgerData.PaymentMethods = append(ledgerData.PaymentMethods, pmData)

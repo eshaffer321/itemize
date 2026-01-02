@@ -398,6 +398,43 @@ func TestWalmartHandler_ProcessOrder_MultiDelivery_MissingTransaction(t *testing
 	assert.Contains(t, result.SkipReason, "could not find all transactions")
 }
 
+func TestWalmartHandler_ProcessOrder_MultiDelivery_ErrorMessageReportsActualFoundCount(t *testing.T) {
+	// This test verifies the bug fix: when some charges have no matching transactions,
+	// the error message should report the actual number found, not len(Matches) which
+	// includes nil entries for maintaining index alignment.
+	handler := createTestWalmartHandler(t, nil, nil, nil)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:             "ORDER-MD-PARTIAL",
+		date:           orderDate,
+		total:          150.00,
+		charges:        []float64{80.00, 70.00}, // Two charges expected
+		isMultiDeliver: true,
+	}
+
+	// Only one matching transaction - should find 1 of 2
+	txns := []*monarch.Transaction{
+		{ID: "txn-1", Amount: -80.00, Date: walmartToMonarchDate(orderDate)},
+	}
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		make(map[string]bool),
+		nil, nil,
+		true,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	// The bug was reporting "expected 2, found 2" because len(Matches) includes nil entries
+	// The fix should report the actual count of non-nil matches
+	assert.Contains(t, result.SkipReason, "expected 2, found 1",
+		"Error message should report actual found count (1), not slice length (2). Got: %s", result.SkipReason)
+}
+
 // =============================================================================
 // Tests: Split Application
 // =============================================================================
