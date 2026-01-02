@@ -19,15 +19,18 @@ func (o *Orchestrator) handleResult(order providers.Order, result *handlers.Proc
 		return false, false, err
 	}
 	if result.Skipped {
-		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
 		// Don't treat "payment pending" as an error - it's expected for new orders
 		if result.SkipReason == "payment pending" {
+			o.logger.Info("Order pending (awaiting shipment/charge)", "order_id", order.GetID())
+			o.recordPending(order, result.SkipReason)
 			return false, true, nil
 		}
 		// Don't treat "already has splits" as an error - just skip silently
 		if result.SkipReason == "transaction already has splits" {
+			o.logger.Debug("Order skipped (already has splits)", "order_id", order.GetID())
 			return false, true, nil
 		}
+		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
 		o.recordError(order, result.SkipReason)
 		return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
 	}
@@ -87,6 +90,13 @@ func (o *Orchestrator) processOrder(
 	return false, true, nil
 }
 
+// reportProgress calls the progress callback if set
+func (o *Orchestrator) reportProgress(opts Options, update ProgressUpdate) {
+	if opts.ProgressCallback != nil {
+		opts.ProgressCallback(update)
+	}
+}
+
 // Run executes the sync process for the configured provider
 func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	result := &Result{
@@ -100,6 +110,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		"dry_run", opts.DryRun,
 		"force", opts.Force,
 	)
+
+	// Report initial progress
+	o.reportProgress(opts, ProgressUpdate{Phase: "fetching_orders"})
 
 	// 1. Fetch orders from provider
 	orders, err := o.fetchOrders(ctx, opts)
@@ -138,6 +151,13 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
+	// Report progress: starting order processing
+	totalOrders := len(orders)
+	o.reportProgress(opts, ProgressUpdate{
+		Phase:       "processing_orders",
+		TotalOrders: totalOrders,
+	})
+
 	// 5. Process orders
 	usedTransactionIDs := make(map[string]bool)
 
@@ -160,7 +180,6 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 				order.GetDate().Format("2006-01-02"),
 				order.GetTotal(),
 				err))
-			continue
 		}
 
 		if processed {
@@ -169,6 +188,15 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		if skipped {
 			result.SkippedCount++
 		}
+
+		// Report progress after each order
+		o.reportProgress(opts, ProgressUpdate{
+			Phase:           "processing_orders",
+			TotalOrders:     totalOrders,
+			ProcessedOrders: result.ProcessedCount,
+			SkippedOrders:   result.SkippedCount,
+			ErroredOrders:   result.ErrorCount,
+		})
 	}
 
 	// 6. Complete sync run

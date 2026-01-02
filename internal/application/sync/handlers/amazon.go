@@ -3,9 +3,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
@@ -41,6 +43,30 @@ type CategorySplitter interface {
 	GetSingleCategoryInfo(ctx context.Context, order providers.Order, categories []categorizer.Category) (string, string, error)
 }
 
+// CategorySplitterWithDetails extends CategorySplitter with split details
+type CategorySplitterWithDetails interface {
+	CategorySplitter
+	GetSplitDetails() []SplitDetail
+}
+
+// SplitDetail represents detailed information about a split including items
+type SplitDetail struct {
+	CategoryID   string            `json:"category_id"`
+	CategoryName string            `json:"category_name"`
+	Amount       float64           `json:"amount"`
+	Items        []SplitDetailItem `json:"items"`
+	Notes        string            `json:"notes,omitempty"`
+}
+
+// SplitDetailItem represents an item within a split
+type SplitDetailItem struct {
+	Name       string  `json:"name"`
+	Quantity   float64 `json:"quantity"`
+	UnitPrice  float64 `json:"unit_price"`
+	TotalPrice float64 `json:"total_price"`
+	Category   string  `json:"category,omitempty"`
+}
+
 // MonarchClient provides access to Monarch Money API
 type MonarchClient interface {
 	UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error
@@ -67,6 +93,7 @@ type PaymentMethodData struct {
 	CardType     string
 	CardLastFour string
 	FinalCharges []float64
+	ChargedDates []time.Time // Date/time of each charge (parallel to FinalCharges)
 	TotalCharged float64
 }
 
@@ -77,11 +104,12 @@ type LedgerStorage interface {
 
 // ProcessResult holds the result of processing an order
 type ProcessResult struct {
-	Processed   bool
-	Skipped     bool
-	SkipReason  string
-	Allocations *allocator.Result
-	Splits      []*monarch.TransactionSplit
+	Processed    bool
+	Skipped      bool
+	SkipReason   string
+	Allocations  *allocator.Result
+	Splits       []*monarch.TransactionSplit
+	SplitDetails []SplitDetail // Detailed split info including items (only populated after successful Monarch API call)
 }
 
 // AmazonHandler processes Amazon orders with pro-rata allocation
@@ -125,6 +153,15 @@ func (h *AmazonHandler) ProcessOrder(
 	// Step 1: Get bank charges
 	bankCharges, err := order.GetFinalCharges()
 	if err != nil {
+		// Check if this is a pending payment (order not yet shipped/charged)
+		if errors.Is(err, amazonprovider.ErrPaymentPending) {
+			h.logInfo("Order payment pending (not yet shipped)",
+				"order_id", order.GetID(),
+				"order_total", order.GetTotal())
+			result.Skipped = true
+			result.SkipReason = "payment pending"
+			return result, nil
+		}
 		return nil, fmt.Errorf("failed to get bank charges: %w", err)
 	}
 

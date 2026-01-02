@@ -70,6 +70,30 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 	}
 }
 
+// recordPending records an order that is pending (not yet charged/shipped)
+// This allows tracking without blocking retries on future syncs
+func (o *Orchestrator) recordPending(order providers.Order, reason string) {
+	if o.storage != nil {
+		record := &storage.ProcessingRecord{
+			OrderID:       order.GetID(),
+			Provider:      order.GetProviderName(),
+			OrderDate:     order.GetDate(),
+			OrderTotal:    order.GetTotal(),
+			OrderSubtotal: order.GetSubtotal(),
+			OrderTax:      order.GetTax(),
+			OrderTip:      order.GetTip(),
+			ItemCount:     len(order.GetItems()),
+			ProcessedAt:   time.Now(),
+			Status:        "pending",
+			ErrorMessage:  reason,
+			Items:         convertOrderItems(order.GetItems()),
+		}
+		if err := o.storage.SaveRecord(record); err != nil {
+			o.logger.Error("Failed to save pending record", "order_id", order.GetID(), "error", err)
+		}
+	}
+}
+
 // recordSuccess records a successful processing to storage
 func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch.Transaction, splits []*monarch.TransactionSplit, confidence float64, dryRun bool) {
 	o.recordSuccessWithMultiDelivery(order, transaction, splits, confidence, dryRun, nil)
