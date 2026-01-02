@@ -31,4 +31,22 @@ test.describe('Screenshot capture', () => {
     await page.waitForLoadState('networkidle')
     await page.screenshot({ path: 'screenshots/settings.png', fullPage: true })
   })
+
+  test('capture sync page', async ({ page }) => {
+    await page.goto('/sync')
+    await page.waitForLoadState('networkidle')
+    await page.screenshot({ path: 'screenshots/sync.png', fullPage: true })
+  })
+
+  test('capture transactions page (synced merchants)', async ({ page }) => {
+    await page.goto('/transactions')
+    await page.waitForLoadState('networkidle')
+    await page.screenshot({ path: 'screenshots/transactions-synced.png', fullPage: true })
+  })
+
+  test('capture transactions page (all merchants)', async ({ page }) => {
+    await page.goto('/transactions?merchant=all')
+    await page.waitForLoadState('networkidle')
+    await page.screenshot({ path: 'screenshots/transactions-all.png', fullPage: true })
+  })
 })

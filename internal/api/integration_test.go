@@ -41,7 +41,7 @@ func createTestServer(t *testing.T) (*httptest.Server, *storage.Storage, func())
 
 	// Create real server with real storage
 	cfg := api.DefaultConfig()
-	server := api.NewServer(cfg, store, nil, nil) // nil syncService, nil logger = use defaults
+	server := api.NewServer(cfg, store, nil, nil, nil) // nil syncService, nil monarchClient, nil logger = use defaults
 
 	// Create test server
 	ts := httptest.NewServer(server.Router())

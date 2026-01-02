@@ -14,14 +14,27 @@ import (
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
+// ProgressUpdate represents a progress update during sync
+type ProgressUpdate struct {
+	Phase           string // "fetching_orders", "processing_orders"
+	TotalOrders     int
+	ProcessedOrders int
+	SkippedOrders   int
+	ErroredOrders   int
+}
+
+// ProgressCallback is called to report progress during sync
+type ProgressCallback func(update ProgressUpdate)
+
 // Options holds sync configuration
 type Options struct {
-	DryRun       bool
-	LookbackDays int
-	MaxOrders    int
-	Force        bool
-	Verbose      bool
-	OrderID      string // If set, only process this specific order (for testing)
+	DryRun           bool
+	LookbackDays     int
+	MaxOrders        int
+	Force            bool
+	Verbose          bool
+	OrderID          string           // If set, only process this specific order (for testing)
+	ProgressCallback ProgressCallback // Optional callback for progress updates
 }
 
 // Result holds sync results
@@ -201,7 +214,7 @@ func (a *ledgerStorageAdapter) SaveLedger(ledger *handlers.LedgerData, syncRunID
 	// Convert payment methods to charges
 	chargeSeq := 0
 	for _, pm := range ledger.PaymentMethods {
-		for _, charge := range pm.FinalCharges {
+		for i, charge := range pm.FinalCharges {
 			chargeSeq++
 			chargeType := "payment"
 			if charge < 0 {
@@ -216,6 +229,10 @@ func (a *ledgerStorageAdapter) SaveLedger(ledger *handlers.LedgerData, syncRunID
 				PaymentMethod:  pm.PaymentType,
 				CardType:       pm.CardType,
 				CardLastFour:   pm.CardLastFour,
+			}
+			// Add charged date if available (parallel array to FinalCharges)
+			if i < len(pm.ChargedDates) {
+				ledgerCharge.ChargedAt = pm.ChargedDates[i]
 			}
 			orderLedger.Charges = append(orderLedger.Charges, ledgerCharge)
 		}

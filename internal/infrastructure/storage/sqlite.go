@@ -730,8 +730,8 @@ func (s *Storage) SaveLedger(ledger *OrderLedger) error {
 			INSERT INTO ledger_charges
 			(order_ledger_id, order_id, sync_run_id, charge_sequence,
 			 charge_amount, charge_type, payment_method, card_type, card_last_four,
-			 monarch_transaction_id, is_matched, match_confidence, matched_at, split_count)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 charged_at, monarch_transaction_id, is_matched, match_confidence, matched_at, split_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			charge.OrderLedgerID,
 			charge.OrderID,
@@ -742,6 +742,7 @@ func (s *Storage) SaveLedger(ledger *OrderLedger) error {
 			charge.PaymentMethod,
 			charge.CardType,
 			charge.CardLastFour,
+			nullTime(charge.ChargedAt),
 			nullString(charge.MonarchTransactionID),
 			charge.IsMatched,
 			charge.MatchConfidence,
@@ -1149,7 +1150,7 @@ func (s *Storage) getChargesForLedger(ledgerID int64) ([]LedgerCharge, error) {
 	query := `
 		SELECT id, order_ledger_id, order_id, sync_run_id, charge_sequence,
 		       charge_amount, charge_type, payment_method, card_type, card_last_four,
-		       monarch_transaction_id, is_matched, match_confidence, matched_at, split_count
+		       charged_at, monarch_transaction_id, is_matched, match_confidence, matched_at, split_count
 		FROM ledger_charges
 		WHERE order_ledger_id = ?
 		ORDER BY charge_sequence
@@ -1167,7 +1168,7 @@ func (s *Storage) getChargesForLedger(ledgerID int64) ([]LedgerCharge, error) {
 		var syncRunID sql.NullInt64
 		var txID sql.NullString
 		var cardType, cardLastFour sql.NullString
-		var matchedAt sql.NullTime
+		var chargedAt, matchedAt sql.NullTime
 
 		err := rows.Scan(
 			&charge.ID,
@@ -1180,6 +1181,7 @@ func (s *Storage) getChargesForLedger(ledgerID int64) ([]LedgerCharge, error) {
 			&charge.PaymentMethod,
 			&cardType,
 			&cardLastFour,
+			&chargedAt,
 			&txID,
 			&charge.IsMatched,
 			&charge.MatchConfidence,
@@ -1201,6 +1203,9 @@ func (s *Storage) getChargesForLedger(ledgerID int64) ([]LedgerCharge, error) {
 		}
 		if cardLastFour.Valid {
 			charge.CardLastFour = cardLastFour.String
+		}
+		if chargedAt.Valid {
+			charge.ChargedAt = chargedAt.Time
 		}
 		if matchedAt.Valid {
 			charge.MatchedAt = matchedAt.Time

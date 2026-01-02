@@ -3,8 +3,10 @@ import { test, expect } from '@playwright/test'
 test.describe('Sync Page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/sync')
-    // Wait for page to fully load
-    await page.waitForLoadState('networkidle')
+    // Wait for page to be ready - don't use networkidle as sync page polls for status
+    await page.waitForLoadState('domcontentloaded')
+    // Wait for the sync form to appear
+    await page.waitForSelector('h1:has-text("Sync")', { timeout: 10000 })
   })
 
   test('should display the sync page with title', async ({ page }) => {
@@ -68,7 +70,8 @@ test.describe('Sync Page', () => {
   test('should navigate to sync page from home', async ({ page }) => {
     // Go to home first
     await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
+    await page.waitForSelector('h1:has-text("Dashboard")', { timeout: 10000 })
 
     // Click on Sync in navigation
     await page.locator('a[href="/sync"]').first().click()

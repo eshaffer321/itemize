@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/handlers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/middleware"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/service"
@@ -31,27 +32,30 @@ func DefaultConfig() Config {
 
 // Server is the HTTP API server.
 type Server struct {
-	config      Config
-	router      chi.Router
-	httpServer  *http.Server
-	logger      *slog.Logger
-	repo        storage.Repository
-	syncService *service.SyncService
+	config        Config
+	router        chi.Router
+	httpServer    *http.Server
+	logger        *slog.Logger
+	repo          storage.Repository
+	syncService   *service.SyncService
+	monarchClient *monarch.Client
 }
 
 // NewServer creates a new API server.
 // If syncService is nil, sync endpoints will not be available.
-func NewServer(cfg Config, repo storage.Repository, syncService *service.SyncService, logger *slog.Logger) *Server {
+// If monarchClient is nil, transactions endpoints will not be available.
+func NewServer(cfg Config, repo storage.Repository, syncService *service.SyncService, monarchClient *monarch.Client, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	s := &Server{
-		config:      cfg,
-		router:      chi.NewRouter(),
-		logger:      logger,
-		repo:        repo,
-		syncService: syncService,
+		config:        cfg,
+		router:        chi.NewRouter(),
+		logger:        logger,
+		repo:          repo,
+		syncService:   syncService,
+		monarchClient: monarchClient,
 	}
 
 	s.setupMiddleware()
@@ -115,6 +119,13 @@ func (s *Server) setupRoutes() {
 			r.Get("/sync/active", syncHandler.ListActiveSyncs)
 			r.Get("/sync/{jobId}", syncHandler.GetSyncStatus)
 			r.Delete("/sync/{jobId}", syncHandler.CancelSync)
+		}
+
+		// Transactions (Monarch Money)
+		if s.monarchClient != nil {
+			transactionsHandler := handlers.NewTransactionsHandler(s.monarchClient)
+			r.Get("/transactions", transactionsHandler.List)
+			r.Get("/transactions/{id}", transactionsHandler.Get)
 		}
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api"
@@ -84,8 +85,14 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 		AllowedOrigins: []string{"http://localhost:3000", "http://localhost:5173"},
 	}
 
+	// Get monarch client for transactions API (may be nil if client init failed)
+	var monarchClient *monarch.Client
+	if serviceClients != nil {
+		monarchClient = serviceClients.Monarch
+	}
+
 	// Create and start server
-	server := api.NewServer(apiCfg, store, syncService, logger)
+	server := api.NewServer(apiCfg, store, syncService, monarchClient, logger)
 
 	// Handle graceful shutdown
 	done := make(chan bool, 1)

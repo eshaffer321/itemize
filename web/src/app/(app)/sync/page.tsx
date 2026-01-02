@@ -7,6 +7,7 @@ import { Divider } from '@/components/divider'
 import { Fieldset, Label, Legend } from '@/components/fieldset'
 import { Heading, Subheading } from '@/components/heading'
 import { Input } from '@/components/input'
+import { Link } from '@/components/link'
 import { Select } from '@/components/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/table'
 import { Text } from '@/components/text'
@@ -58,6 +59,24 @@ function formatRelativeTime(dateString: string): string {
   return `${diffDays}d ago`
 }
 
+// Convert machine phase names to human-friendly display text
+function formatPhase(phase: string, provider?: string): string {
+  const providerName = provider
+    ? provider.charAt(0).toUpperCase() + provider.slice(1)
+    : 'provider'
+
+  const phaseMap: Record<string, string> = {
+    pending: 'Waiting to start...',
+    initializing: 'Initializing...',
+    fetching_orders: `Fetching orders from ${providerName}...`,
+    processing_orders: 'Processing orders...',
+    completed: 'Completed',
+    failed: 'Failed',
+  }
+
+  return phaseMap[phase] || phase
+}
+
 function StatusBadge({ status }: { status: string }) {
   const colorMap: Record<string, 'green' | 'red' | 'amber' | 'zinc' | 'cyan'> = {
     completed: 'green',
@@ -75,9 +94,9 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function ProviderBadge({ provider }: { provider: string }) {
-  const colorMap: Record<string, 'blue' | 'red' | 'orange' | 'zinc'> = {
+  const colorMap: Record<string, 'blue' | 'rose' | 'orange' | 'zinc'> = {
     walmart: 'blue',
-    costco: 'red',
+    costco: 'rose',
     amazon: 'orange',
   }
   const color = colorMap[provider] || 'zinc'
@@ -101,7 +120,10 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
 // Mobile-friendly job card component
 function JobCard({ job, onCancel }: { job: SyncJob; onCancel: (jobId: string) => void }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+    <Link
+      href={`/sync/${job.job_id}`}
+      className="block rounded-lg border border-zinc-200 p-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800/50"
+    >
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-2">
           <ProviderBadge provider={job.provider} />
@@ -111,33 +133,49 @@ function JobCard({ job, onCancel }: { job: SyncJob; onCancel: (jobId: string) =>
           )}
         </div>
         {job.status === 'running' && (
-          <Button plain onClick={() => onCancel(job.job_id)} className="text-red-600">
+          <Button
+            plain
+            onClick={(e: React.MouseEvent) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onCancel(job.job_id)
+            }}
+            className="text-red-600"
+          >
             <XMarkIcon className="h-4 w-4" />
           </Button>
         )}
       </div>
       <div className="mt-3">
-        <Text className="font-mono text-xs text-zinc-500">{job.job_id.substring(0, 8)}</Text>
+        <Text className="font-mono text-xs text-cyan-600 dark:text-cyan-400">{job.job_id}</Text>
         <Text className="text-xs text-zinc-500">{formatRelativeTime(job.started_at)}</Text>
       </div>
       {job.status === 'running' && (
-        <div className="mt-3 space-y-1">
+        <div className="mt-3 space-y-2">
           <ProgressBar current={job.progress.processed_orders} total={job.progress.total_orders} />
-          <Text className="text-xs text-zinc-500">
-            {job.progress.current_phase}
-            {job.progress.errored_orders > 0 && ` (${job.progress.errored_orders} errors)`}
+          <Text className="block text-xs text-zinc-500">
+            {formatPhase(job.progress.current_phase, job.provider)}
           </Text>
+          {job.progress.errored_orders > 0 && (
+            <Text className="block text-xs text-red-500">
+              {job.progress.errored_orders} error{job.progress.errored_orders > 1 ? 's' : ''}
+            </Text>
+          )}
         </div>
       )}
       {job.status !== 'running' && job.result && (
-        <div className="mt-3">
-          <Text className="text-sm">
-            {job.result.orders_processed} / {job.result.orders_found} orders
-            {job.result.orders_errored > 0 && ` (${job.result.orders_errored} errors)`}
+        <div className="mt-3 space-y-1">
+          <Text className="block text-sm">
+            {job.result.processed_count} of {job.progress.total_orders} orders
           </Text>
+          {job.result.error_count > 0 && (
+            <Text className="block text-xs text-red-500">
+              {job.result.error_count} error{job.result.error_count > 1 ? 's' : ''}
+            </Text>
+          )}
         </div>
       )}
-    </div>
+    </Link>
   )
 }
 
@@ -473,7 +511,11 @@ export default function SyncPage() {
           <TableBody>
             {jobs.map((job) => (
               <TableRow key={job.job_id}>
-                <TableCell className="font-mono text-xs">{job.job_id.substring(0, 8)}</TableCell>
+                <TableCell className="font-mono text-xs" title={job.job_id}>
+                  <Link href={`/sync/${job.job_id}`} className="text-cyan-600 hover:text-cyan-700 hover:underline dark:text-cyan-400 dark:hover:text-cyan-300">
+                    {job.job_id}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <ProviderBadge provider={job.provider} />
                 </TableCell>
@@ -487,18 +529,28 @@ export default function SyncPage() {
                 </TableCell>
                 <TableCell>
                   {job.status === 'running' ? (
-                    <div className="w-40 space-y-1">
+                    <div className="w-48 space-y-2">
                       <ProgressBar current={job.progress.processed_orders} total={job.progress.total_orders} />
-                      <Text className="text-xs text-zinc-500">
-                        {job.progress.current_phase}
-                        {job.progress.errored_orders > 0 && ` (${job.progress.errored_orders} errors)`}
+                      <Text className="block text-xs text-zinc-500">
+                        {formatPhase(job.progress.current_phase, job.provider)}
                       </Text>
+                      {job.progress.errored_orders > 0 && (
+                        <Text className="block text-xs text-red-500">
+                          {job.progress.errored_orders} error{job.progress.errored_orders > 1 ? 's' : ''}
+                        </Text>
+                      )}
                     </div>
                   ) : job.result ? (
-                    <Text className="text-sm">
-                      {job.result.orders_processed} / {job.result.orders_found}
-                      {job.result.orders_errored > 0 && ` (${job.result.orders_errored} errors)`}
-                    </Text>
+                    <div className="space-y-1">
+                      <Text className="block text-sm">
+                        {job.result.processed_count} of {job.progress.total_orders} orders
+                      </Text>
+                      {job.result.error_count > 0 && (
+                        <Text className="block text-xs text-red-500">
+                          {job.result.error_count} error{job.result.error_count > 1 ? 's' : ''}
+                        </Text>
+                      )}
+                    </div>
                   ) : (
                     <Text className="text-sm text-zinc-500">-</Text>
                   )}
