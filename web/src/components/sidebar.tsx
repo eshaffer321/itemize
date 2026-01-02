@@ -17,7 +17,7 @@ export function SidebarHeader({ className, ...props }: React.ComponentPropsWitho
       {...props}
       className={clsx(
         className,
-        'flex flex-col border-b border-zinc-950/5 p-4 dark:border-white/5 [&>[data-slot=section]+[data-slot=section]]:mt-2.5'
+        'flex flex-col border-b border-brand-100 bg-gradient-to-b from-brand-50/50 to-transparent p-4 dark:border-brand-900/30 dark:from-brand-950/30 [&>[data-slot=section]+[data-slot=section]]:mt-2.5'
       )}
     />
   )
@@ -96,13 +96,13 @@ export const SidebarItem = forwardRef(function SidebarItem(
     'data-hover:bg-zinc-950/5 data-hover:*:data-[slot=icon]:fill-zinc-950',
     // Active
     'data-active:bg-zinc-950/5 data-active:*:data-[slot=icon]:fill-zinc-950',
-    // Current
-    'data-current:*:data-[slot=icon]:fill-zinc-950',
+    // Current - use brand color for icon
+    'data-current:*:data-[slot=icon]:fill-brand-600 data-current:text-brand-900 data-current:bg-brand-50/50',
     // Dark mode
     'dark:text-white dark:*:data-[slot=icon]:fill-zinc-400',
     'dark:data-hover:bg-white/5 dark:data-hover:*:data-[slot=icon]:fill-white',
     'dark:data-active:bg-white/5 dark:data-active:*:data-[slot=icon]:fill-white',
-    'dark:data-current:*:data-[slot=icon]:fill-white'
+    'dark:data-current:*:data-[slot=icon]:fill-brand-400 dark:data-current:text-brand-100 dark:data-current:bg-brand-950/30'
   )
 
   return (

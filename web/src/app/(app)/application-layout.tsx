@@ -31,6 +31,7 @@ import {
 import { ThemeToggleItems } from '@/components/theme-toggle'
 import {
   ArrowPathIcon,
+  BanknotesIcon,
   BookOpenIcon,
   HomeIcon,
   QuestionMarkCircleIcon,
@@ -106,6 +107,10 @@ export function ApplicationLayout({ children }: { children: React.ReactNode }) {
               <SidebarItem href="/orders" current={pathname.startsWith('/orders')}>
                 <ShoppingCartIcon />
                 <SidebarLabel>Orders</SidebarLabel>
+              </SidebarItem>
+              <SidebarItem href="/transactions" current={pathname.startsWith('/transactions')}>
+                <BanknotesIcon />
+                <SidebarLabel>Transactions</SidebarLabel>
               </SidebarItem>
               <SidebarItem href="/runs" current={pathname.startsWith('/runs')}>
                 <ArrowPathIcon />
