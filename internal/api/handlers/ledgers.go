@@ -156,7 +156,7 @@ func toLedgerResponse(ledger *storage.OrderLedger) dto.LedgerResponse {
 	}
 
 	for _, charge := range ledger.Charges {
-		response.Charges = append(response.Charges, dto.ChargeResponse{
+		chargeResp := dto.ChargeResponse{
 			ID:                   charge.ID,
 			ChargeSequence:       charge.ChargeSequence,
 			ChargeAmount:         charge.ChargeAmount,
@@ -168,7 +168,12 @@ func toLedgerResponse(ledger *storage.OrderLedger) dto.LedgerResponse {
 			IsMatched:            charge.IsMatched,
 			MatchConfidence:      charge.MatchConfidence,
 			SplitCount:           charge.SplitCount,
-		})
+		}
+		// Only include charged_at if it's not zero
+		if !charge.ChargedAt.IsZero() {
+			chargeResp.ChargedAt = charge.ChargedAt.Format("2006-01-02T15:04:05Z07:00")
+		}
+		response.Charges = append(response.Charges, chargeResp)
 	}
 
 	return response
