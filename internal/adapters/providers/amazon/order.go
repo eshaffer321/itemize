@@ -1,12 +1,16 @@
 package amazon
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 )
+
+// ErrPaymentPending indicates an order has no bank charges yet because it hasn't shipped
+var ErrPaymentPending = errors.New("payment pending: order has not been charged yet (awaiting shipment)")
 
 // Order wraps a ParsedOrder to implement the providers.Order interface
 type Order struct {
@@ -83,10 +87,12 @@ func (o *Order) GetRawData() interface{} {
 // Filters out non-bank transactions like gift cards, points, etc.
 func (o *Order) GetFinalCharges() ([]float64, error) {
 	if len(o.parsedOrder.Transactions) == 0 {
-		return nil, fmt.Errorf("no transactions found for order")
+		// No transactions at all - order hasn't been charged yet (awaiting shipment)
+		return nil, ErrPaymentPending
 	}
 
 	var bankCharges []float64
+	var hasNonBankPayments bool
 	for _, tx := range o.parsedOrder.Transactions {
 		// Skip refunds
 		if tx.Type == "refund" {
@@ -107,6 +113,7 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 		// Real bank charges have Last4 populated (card ending digits)
 		// Points, gift cards, etc. have empty Last4
 		if tx.Last4 == "" {
+			hasNonBankPayments = true
 			if o.logger != nil {
 				o.logger.Debug("Skipping non-bank transaction",
 					"order_id", o.GetID(),
@@ -128,7 +135,12 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	}
 
 	if len(bankCharges) == 0 {
-		return nil, fmt.Errorf("no bank charges found (order may be paid with gift cards/points only)")
+		if hasNonBankPayments {
+			// Order was paid entirely with gift cards/points - no bank transaction to match
+			return nil, fmt.Errorf("no bank charges found (order paid entirely with gift cards/points)")
+		}
+		// No bank charges and no non-bank payments processed yet - still pending
+		return nil, ErrPaymentPending
 	}
 
 	return bankCharges, nil
