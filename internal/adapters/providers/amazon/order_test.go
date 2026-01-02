@@ -72,7 +72,41 @@ func TestOrder_GetFinalCharges_OnlyGiftCard(t *testing.T) {
 	charges, err := order.GetFinalCharges()
 	assert.Error(t, err, "Should return error when no bank charges found")
 	assert.Nil(t, charges)
-	assert.Contains(t, err.Error(), "no bank charges found")
+	assert.Contains(t, err.Error(), "paid entirely with gift cards/points")
+}
+
+func TestOrder_GetFinalCharges_NoTransactions_ReturnsPending(t *testing.T) {
+	// Test order with no transactions (not yet shipped/charged)
+	parsedOrder := &ParsedOrder{
+		ID:           "test-pending-order",
+		Date:         time.Now(),
+		Total:        50.00,
+		Transactions: []*ParsedTransaction{}, // Empty - not charged yet
+	}
+
+	order := NewOrder(parsedOrder, nil)
+
+	charges, err := order.GetFinalCharges()
+	assert.Error(t, err, "Should return error when no transactions")
+	assert.Nil(t, charges)
+	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders not yet charged")
+}
+
+func TestOrder_GetFinalCharges_NilTransactions_ReturnsPending(t *testing.T) {
+	// Test order with nil transactions slice
+	parsedOrder := &ParsedOrder{
+		ID:           "test-pending-order-nil",
+		Date:         time.Now(),
+		Total:        50.00,
+		Transactions: nil, // Nil - not charged yet
+	}
+
+	order := NewOrder(parsedOrder, nil)
+
+	charges, err := order.GetFinalCharges()
+	assert.Error(t, err, "Should return error when no transactions")
+	assert.Nil(t, charges)
+	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders not yet charged")
 }
 
 func TestOrder_GetFinalCharges_SkipsRefunds(t *testing.T) {
