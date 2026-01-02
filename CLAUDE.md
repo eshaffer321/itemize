@@ -1,17 +1,20 @@
 # Developer Guide for AI Assistants
 
-**Last Updated:** October 2024
-**Project Status:** Production-ready CLI application
+**Last Updated:** December 2024
+**Project Status:** Production-ready CLI application with Web UI
 
 ## What This Project Is
 
-A working CLI application that syncs Walmart and Costco purchases with Monarch Money, automatically categorizing items and splitting transactions. **This is NOT a web server or API** - it's a command-line tool that runs locally.
+A CLI application that syncs Walmart, Costco, and Amazon purchases with Monarch Money, automatically categorizing items and splitting transactions. It now includes:
+- **CLI tool** for command-line syncing
+- **API server** (`./monarch-sync serve`) for programmatic access
+- **Web UI** (Next.js) for monitoring and triggering syncs
 
 ## Quick Reference
 
 ### Build and Run
 ```bash
-# Build
+# Build Go backend
 go build -o monarch-sync ./cmd/monarch-sync/
 
 # Run with dry-run (preview, no changes)
@@ -24,11 +27,31 @@ go build -o monarch-sync ./cmd/monarch-sync/
 
 # Force reprocess already-processed orders
 ./monarch-sync walmart -force
+
+# Start API server (for web UI)
+./monarch-sync serve -port 8085
+```
+
+### Web UI
+```bash
+cd web
+
+# Install dependencies
+npm install
+
+# Start development server (port 3000)
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
 ```
 
 ### Test
 ```bash
-# All tests
+# Go tests (all)
 go test ./... -v
 
 # Specific layer
@@ -41,6 +64,33 @@ go test ./... -cover
 # Race detection
 go test ./... -race
 ```
+
+### Frontend E2E Tests (Playwright)
+```bash
+cd web
+
+# Run all E2E tests (requires dev server running or uses webServer config)
+npx playwright test
+
+# Run specific test file
+npx playwright test navigation.spec.ts
+
+# Run tests with UI mode (interactive)
+npx playwright test --ui
+
+# Run tests with visible browser
+npx playwright test --headed
+
+# Generate HTML report
+npx playwright show-report
+```
+
+**Playwright Test Files:**
+- `web/e2e/navigation.spec.ts` - Navigation and page loading tests
+- `web/e2e/sync.spec.ts` - Sync page functionality
+- `web/e2e/dark-mode.spec.ts` - Theme switching tests
+- `web/e2e/search.spec.ts` - Search and filtering
+- `web/e2e/date-filter.spec.ts` - Date range filtering
 
 ### Configuration
 The app reads from `config.yaml` or environment variables:
@@ -72,6 +122,37 @@ internal/
 **Dependency flow:** CLI → Application → Domain ← Adapters → Infrastructure
 
 See [docs/architecture.md](docs/architecture.md) for complete details.
+
+### Web Frontend Architecture
+
+```
+web/
+├── src/
+│   ├── app/(app)/           # Next.js App Router pages
+│   │   ├── page.tsx         # Dashboard
+│   │   ├── orders/          # Orders list and detail
+│   │   ├── runs/            # Sync runs list
+│   │   ├── sync/            # Sync page with job detail
+│   │   └── transactions/    # Transactions list and detail
+│   ├── components/          # Catalyst UI components
+│   └── lib/
+│       └── api/             # API client and types
+├── e2e/                     # Playwright E2E tests
+└── playwright.config.ts     # Playwright configuration
+```
+
+**Frontend Tech Stack:**
+- **Next.js 15** with App Router
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **Catalyst UI** component library
+- **Playwright** for E2E testing
+
+**Key Patterns:**
+- Server components (page.tsx) for data fetching
+- Client components for interactivity (e.g., `orders-table.tsx` with sorting)
+- API types in `web/src/lib/api/types.ts`
+- Shared table components with sorting in `web/src/components/table.tsx`
 
 ## Development Methodology: TDD
 
@@ -297,12 +378,14 @@ CREATE TABLE sync_runs (
 
 Schema auto-migrates on startup. See [internal/infrastructure/storage/storage.go](internal/infrastructure/storage/storage.go).
 
-## What This Project Is NOT
+## Project Scope
 
-- ❌ **NOT a web server** - No HTTP endpoints, no API
+- ✅ **CLI tool** - Primary command-line interface
+- ✅ **API server** - HTTP endpoints for programmatic access (`./monarch-sync serve`)
+- ✅ **Web UI** - Next.js dashboard for monitoring and triggering syncs
 - ❌ **NOT a Chrome extension** - Direct provider API integration
-- ❌ **NOT a SaaS** - Local CLI tool
-- ❌ **NOT real-time** - Manual runs or scheduled via cron
+- ❌ **NOT a SaaS** - Local deployment only
+- ❌ **NOT real-time** - Manual runs, web-triggered, or scheduled via cron
 - ❌ **NOT multi-user** - Single user per config
 
 ## Troubleshooting
