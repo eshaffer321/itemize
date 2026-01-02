@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -125,6 +126,15 @@ func (h *AmazonHandler) ProcessOrder(
 	// Step 1: Get bank charges
 	bankCharges, err := order.GetFinalCharges()
 	if err != nil {
+		// Check if this is a pending payment (order not yet shipped/charged)
+		if errors.Is(err, amazonprovider.ErrPaymentPending) {
+			h.logInfo("Order payment pending (not yet shipped)",
+				"order_id", order.GetID(),
+				"order_total", order.GetTotal())
+			result.Skipped = true
+			result.SkipReason = "payment pending"
+			return result, nil
+		}
 		return nil, fmt.Errorf("failed to get bank charges: %w", err)
 	}
 

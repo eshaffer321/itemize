@@ -139,6 +139,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
               <option value="">All Statuses</option>
               <option value="success">Success</option>
               <option value="failed">Failed</option>
+              <option value="pending">Pending</option>
               <option value="dry-run">Dry Run</option>
             </Select>
             <Button type="submit">Filter</Button>
