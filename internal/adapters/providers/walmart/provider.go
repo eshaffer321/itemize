@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	walmartclient "github.com/eshaffer321/walmart-client-go"
+	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 
 // Provider implements the OrderProvider interface for Walmart
@@ -59,7 +59,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	}
 
 	// Fetch purchase history from Walmart API
-	resp, err := p.client.GetPurchaseHistory(req)
+	resp, err := p.client.GetPurchaseHistory(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch walmart orders: %w", err)
 	}
@@ -67,10 +67,15 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	// Convert OrderSummary to full Orders
 	var providerOrders []providers.Order
 	for _, summary := range resp.Data.OrderHistoryV2.OrderGroups {
+		// Check for context cancellation before each order fetch
+		if err := ctx.Err(); err != nil {
+			return providerOrders, fmt.Errorf("cancelled during order fetch: %w", err)
+		}
+
 		// Fetch full order details if requested
 		if opts.IncludeDetails {
 			isInStore := summary.FulfillmentType == "IN_STORE"
-			fullOrder, err := p.client.GetOrder(summary.OrderID, isInStore)
+			fullOrder, err := p.client.GetOrder(ctx, summary.OrderID, isInStore)
 			if err != nil {
 				p.logger.Warn("failed to fetch order details, skipping",
 					slog.String("order_id", summary.OrderID),
@@ -82,12 +87,13 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 				walmartOrder: fullOrder,
 				client:       p.client,
 				logger:       p.logger,
+				ctx:          ctx,
 			})
 		} else {
 			// For basic listing, we'd need to create a minimal Order
 			// For now, always fetch details
 			isInStore := summary.FulfillmentType == "IN_STORE"
-			fullOrder, err := p.client.GetOrder(summary.OrderID, isInStore)
+			fullOrder, err := p.client.GetOrder(ctx, summary.OrderID, isInStore)
 			if err != nil {
 				p.logger.Warn("failed to fetch order details, skipping",
 					slog.String("order_id", summary.OrderID),
@@ -99,6 +105,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 				walmartOrder: fullOrder,
 				client:       p.client,
 				logger:       p.logger,
+				ctx:          ctx,
 			})
 		}
 	}
@@ -154,7 +161,7 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 		MaxTimestamp: &nowTimestamp,
 	}
 
-	_, err := p.client.GetPurchaseHistory(req)
+	_, err := p.client.GetPurchaseHistory(ctx, req)
 	if err != nil {
 		return fmt.Errorf("walmart health check failed: %w", err)
 	}

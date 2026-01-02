@@ -147,6 +147,7 @@ type ChargeResponse struct {
 	ChargeSequence       int     `json:"charge_sequence"`
 	ChargeAmount         float64 `json:"charge_amount"`
 	ChargeType           string  `json:"charge_type"`
+	ChargedAt            string  `json:"charged_at,omitempty"` // ISO8601 timestamp of when charge occurred
 	PaymentMethod        string  `json:"payment_method"`
 	CardType             string  `json:"card_type,omitempty"`
 	CardLastFour         string  `json:"card_last_four,omitempty"`

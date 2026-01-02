@@ -40,6 +40,11 @@ var allMigrations = []Migration{
 		Name:    "add_ledger_tables",
 		Up:      migration005AddLedgerTables,
 	},
+	{
+		Version: 6,
+		Name:    "add_charged_at_column",
+		Up:      migration006AddChargedAtColumn,
+	},
 }
 
 // runMigrations executes all pending migrations
@@ -376,6 +381,19 @@ func migration005AddLedgerTables(db *sql.Tx) error {
 		if _, err := db.Exec(query); err != nil {
 			return fmt.Errorf("failed to create ledger tables: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// migration006AddChargedAtColumn adds the charged_at column to ledger_charges table.
+// This allows tracking when each charge actually occurred for display in the UI.
+func migration006AddChargedAtColumn(db *sql.Tx) error {
+	query := `ALTER TABLE ledger_charges ADD COLUMN charged_at TIMESTAMP`
+
+	_, err := db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to add charged_at column: %w", err)
 	}
 
 	return nil
