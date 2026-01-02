@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
@@ -68,6 +69,7 @@ type PaymentMethodData struct {
 	CardType     string
 	CardLastFour string
 	FinalCharges []float64
+	ChargedDates []time.Time
 	TotalCharged float64
 }
 
