@@ -225,8 +225,8 @@ test.describe('UX Investigation - Navigation Flow', () => {
     await page.waitForLoadState('networkidle')
     await page.screenshot({ path: 'screenshots/ux/19-journey-03-runs.png', fullPage: true })
 
-    // 4. Check settings
-    await page.click('text=Settings')
+    // 4. Check settings (Quick Start page)
+    await page.click('text=Quick Start')
     await page.waitForLoadState('networkidle')
     await page.screenshot({ path: 'screenshots/ux/20-journey-04-settings.png', fullPage: true })
 

@@ -17,13 +17,16 @@ test.describe('Order Search', () => {
     const initialCount = await page.locator('tbody tr').count()
     expect(initialCount).toBeGreaterThan(0)
 
-    // Type a search term and submit
+    // Type a search term and submit - use type() for better compatibility with controlled inputs
     const searchInput = page.locator('input[name="search"]')
-    await searchInput.fill('200014')
+    await searchInput.click()
+    await searchInput.pressSequentially('200014', { delay: 50 })
+    await expect(searchInput).toHaveValue('200014')
     await page.click('button[type="submit"]')
 
-    // Wait for navigation with search param
-    await page.waitForURL(/search=200014/)
+    // Wait for navigation to complete
+    await page.waitForLoadState('networkidle')
+    expect(page.url()).toContain('search=200014')
 
     // Verify results are filtered
     const filteredCount = await page.locator('tbody tr').count()

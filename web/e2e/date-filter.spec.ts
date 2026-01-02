@@ -26,13 +26,16 @@ test.describe('Date Range Filter', () => {
     const countText = await page.locator('text=/Showing.*of.*orders/').textContent()
     const initialTotal = parseInt(countText?.match(/of (\d+) orders/)?.[1] || '0')
 
-    // Select "Last 7 Days" and submit
+    // Select "Last 7 Days" and submit - wait for the select to be ready
     const dateSelect = page.locator('select[name="days"]')
+    await dateSelect.click()
     await dateSelect.selectOption('7')
+    await expect(dateSelect).toHaveValue('7')
     await page.click('button[type="submit"]')
 
-    // Wait for navigation with days param
-    await page.waitForURL(/days=7/)
+    // Wait for navigation to complete
+    await page.waitForLoadState('networkidle')
+    expect(page.url()).toContain('days=7')
 
     // Take screenshot showing filtered results
     await page.screenshot({ path: 'screenshots/date-filter-7-days.png', fullPage: true })
@@ -64,19 +67,24 @@ test.describe('Date Range Filter', () => {
     // Apply both date range and provider filter
     await page.goto('/orders')
 
-    // Select date range
+    // Select date range - click first to ensure focus, then select and verify
     const dateSelect = page.locator('select[name="days"]')
+    await dateSelect.click()
     await dateSelect.selectOption('90')
+    await expect(dateSelect).toHaveValue('90')
 
-    // Select provider
+    // Select provider - click first to ensure focus, then select and verify
     const providerSelect = page.locator('select[name="provider"]')
+    await providerSelect.click()
     await providerSelect.selectOption('walmart')
+    await expect(providerSelect).toHaveValue('walmart')
 
     // Submit
     await page.click('button[type="submit"]')
 
-    // Wait for both params in URL
-    await page.waitForURL(/days=90/)
+    // Wait for navigation to complete
+    await page.waitForLoadState('networkidle')
+    expect(page.url()).toContain('days=90')
     expect(page.url()).toContain('provider=walmart')
 
     // Take screenshot of combined filters
