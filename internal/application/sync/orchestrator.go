@@ -19,15 +19,18 @@ func (o *Orchestrator) handleResult(order providers.Order, result *handlers.Proc
 		return false, false, err
 	}
 	if result.Skipped {
-		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
 		// Don't treat "payment pending" as an error - it's expected for new orders
 		if result.SkipReason == "payment pending" {
+			o.logger.Info("Order pending (awaiting shipment/charge)", "order_id", order.GetID())
+			o.recordPending(order, result.SkipReason)
 			return false, true, nil
 		}
 		// Don't treat "already has splits" as an error - just skip silently
 		if result.SkipReason == "transaction already has splits" {
+			o.logger.Debug("Order skipped (already has splits)", "order_id", order.GetID())
 			return false, true, nil
 		}
+		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
 		o.recordError(order, result.SkipReason)
 		return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
 	}

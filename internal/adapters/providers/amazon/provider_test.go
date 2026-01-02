@@ -188,7 +188,7 @@ func TestNewProvider_NilLogger(t *testing.T) {
 	assert.NotNil(t, provider.logger)
 }
 
-// TestOrder_GetFinalCharges_NoTransactions tests GetFinalCharges returns error without transactions
+// TestOrder_GetFinalCharges_NoTransactions tests GetFinalCharges returns ErrPaymentPending without transactions
 func TestOrder_GetFinalCharges_NoTransactions(t *testing.T) {
 	parsedOrder := &ParsedOrder{
 		ID:           "114-0000000-0000000",
@@ -201,10 +201,10 @@ func TestOrder_GetFinalCharges_NoTransactions(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, charges)
-	assert.Contains(t, err.Error(), "no transactions found")
+	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders without transactions")
 }
 
-// TestOrder_IsMultiDelivery_NoTransactions tests IsMultiDelivery returns error without transactions
+// TestOrder_IsMultiDelivery_NoTransactions tests IsMultiDelivery returns ErrPaymentPending without transactions
 func TestOrder_IsMultiDelivery_NoTransactions(t *testing.T) {
 	parsedOrder := &ParsedOrder{
 		ID:           "114-0000000-0000000",
@@ -217,7 +217,7 @@ func TestOrder_IsMultiDelivery_NoTransactions(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.False(t, isMulti)
-	assert.Contains(t, err.Error(), "no transactions found")
+	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders without transactions")
 }
 
 // TestCalculateLookbackDays tests lookback days calculation
