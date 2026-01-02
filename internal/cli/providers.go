@@ -13,7 +13,7 @@ import (
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/walmart"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
-	walmartclient "github.com/eshaffer321/walmart-client-go"
+	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 
 // NewCostcoProvider creates a new Costco provider with a system-scoped logger

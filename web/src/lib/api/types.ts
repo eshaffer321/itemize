@@ -119,11 +119,9 @@ export interface SyncJobProgress {
 }
 
 export interface SyncJobResult {
-  orders_found: number
-  orders_processed: number
-  orders_skipped: number
-  orders_errored: number
-  dry_run: boolean
+  processed_count: number
+  skipped_count: number
+  error_count: number
 }
 
 export interface SyncJob {
@@ -142,4 +140,131 @@ export interface SyncJob {
 export interface SyncJobListResponse {
   jobs: SyncJob[]
   count: number
+}
+
+// Ledger Types
+export interface LedgerCharge {
+  id: number
+  order_ledger_id: number
+  order_id: string
+  sync_run_id?: number
+  charge_sequence: number
+  charge_amount: number
+  charge_type: string
+  payment_method: string
+  card_type?: string
+  card_last_four?: string
+  charged_at?: string
+  monarch_transaction_id?: string
+  is_matched: boolean
+  match_confidence?: number
+  matched_at?: string
+  split_count?: number
+}
+
+export interface Ledger {
+  id: number
+  order_id: string
+  sync_run_id?: number
+  provider: string
+  fetched_at: string
+  ledger_state: string
+  ledger_version: number
+  total_charged: number
+  charge_count: number
+  payment_method_types: string
+  has_refunds: boolean
+  is_valid: boolean
+  validation_notes?: string
+  charges?: LedgerCharge[]
+}
+
+export interface LedgerListResponse {
+  ledgers: Ledger[]
+  total_count: number
+  limit: number
+  offset: number
+}
+
+// Transaction Types (from Monarch Money)
+export interface TransactionMerchant {
+  id: string
+  name: string
+}
+
+export interface TransactionAccount {
+  id: string
+  display_name: string
+  mask?: string
+  logo_url?: string
+}
+
+export interface CategoryGroup {
+  id: string
+  name: string
+  type: string
+}
+
+export interface TransactionCategory {
+  id: string
+  name: string
+  icon?: string
+  is_system_category: boolean
+  group?: CategoryGroup
+}
+
+export interface TransactionTag {
+  id: string
+  name: string
+  color?: string
+}
+
+export interface Transaction {
+  id: string
+  date: string
+  amount: number
+  pending: boolean
+  hide_from_reports: boolean
+  plaid_name?: string
+  merchant?: TransactionMerchant
+  notes?: string
+  has_splits: boolean
+  is_recurring: boolean
+  needs_review: boolean
+  reviewed_at?: string
+  created_at: string
+  updated_at: string
+  account?: TransactionAccount
+  category?: TransactionCategory
+  tags?: TransactionTag[]
+}
+
+export interface TransactionSplit {
+  id: string
+  amount: number
+  merchant?: TransactionMerchant
+  notes?: string
+  category?: TransactionCategory
+}
+
+export interface TransactionDetail extends Transaction {
+  original_merchant?: string
+  original_category?: TransactionCategory
+  splits?: TransactionSplit[]
+}
+
+export interface TransactionListResponse {
+  transactions: Transaction[]
+  total_count: number
+  limit: number
+  offset: number
+  has_more: boolean
+}
+
+export interface TransactionFilters {
+  search?: string
+  days_back?: number
+  pending?: boolean
+  limit?: number
+  offset?: number
 }

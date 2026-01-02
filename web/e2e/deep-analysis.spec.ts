@@ -39,7 +39,8 @@ test.describe('Order Detail Navigation', () => {
 
     // Check for expected elements
     const hasBackLink = await page.locator('text=Orders').first().isVisible()
-    const hasOrderId = await page.getByRole('heading', { name: /Order/ }).isVisible()
+    // Use a more specific selector to match the h1 order heading (not "Order Summary")
+    const hasOrderId = await page.locator('h1:has-text("Order")').isVisible()
 
     console.log('Has back link:', hasBackLink)
     console.log('Has order heading:', hasOrderId)
@@ -54,27 +55,29 @@ test.describe('Pagination Flow', () => {
     // Screenshot page 1
     await page.screenshot({ path: 'screenshots/analysis/04-pagination-page1.png', fullPage: true })
 
-    // Check we're on page 1
-    await expect(page.locator('text=Page 1 of')).toBeVisible()
-    await expect(page.locator('text=Showing 1–25')).toBeVisible()
+    // Check we're on page 1 - use first() to handle mobile/desktop duplicates
+    await expect(page.locator('text=Page 1 of').first()).toBeVisible()
+    // Match "Showing 1-25" with either dash type (regular or en-dash)
+    await expect(page.locator('text=/Showing 1.25/').first()).toBeVisible()
 
     // Click Next
-    await page.locator('a:has-text("Next")').click()
+    await page.locator('a:has-text("Next")').first().click()
     await page.waitForLoadState('networkidle')
 
     // Screenshot page 2
     await page.screenshot({ path: 'screenshots/analysis/05-pagination-page2.png', fullPage: true })
 
-    // Check we're on page 2
-    await expect(page.locator('text=Page 2 of')).toBeVisible()
-    await expect(page.locator('text=Showing 26–50')).toBeVisible()
+    // Check we're on page 2 - use first() to handle mobile/desktop duplicates
+    await expect(page.locator('text=Page 2 of').first()).toBeVisible()
+    // Match "Showing 26-50" with either dash type (regular or en-dash)
+    await expect(page.locator('text=/Showing 26.50/').first()).toBeVisible()
 
     // Click Previous
-    await page.locator('a:has-text("Previous")').click()
+    await page.locator('a:has-text("Previous")').first().click()
     await page.waitForLoadState('networkidle')
 
     // Should be back on page 1
-    await expect(page.locator('text=Page 1 of')).toBeVisible()
+    await expect(page.locator('text=Page 1 of').first()).toBeVisible()
   })
 
   test('pagination to last page', async ({ page }) => {

@@ -1,12 +1,13 @@
 package walmart
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	walmartclient "github.com/eshaffer321/walmart-client-go"
+	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 
 // Order wraps a Walmart order and implements providers.Order interface
@@ -14,6 +15,7 @@ type Order struct {
 	walmartOrder *walmartclient.Order
 	client       *walmartclient.WalmartClient
 	logger       *slog.Logger
+	ctx          context.Context
 
 	// ledgerCache stores the order ledger to avoid duplicate API calls.
 	// Note: Assumes single-threaded access per Order instance.
@@ -206,7 +208,11 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 
 		// Fetch ledger from API
 		var err error
-		ledger, err = o.client.GetOrderLedger(o.GetID())
+		ctx := o.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ledger, err = o.client.GetOrderLedger(ctx, o.GetID())
 		if err != nil {
 			return nil, fmt.Errorf("failed to get order ledger: %w", err)
 		}

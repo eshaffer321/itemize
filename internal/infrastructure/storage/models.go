@@ -165,6 +165,7 @@ type LedgerCharge struct {
 	PaymentMethod        string    `json:"payment_method"`         // "CREDITCARD", "GIFTCARD"
 	CardType             string    `json:"card_type,omitempty"`    // "VISA", "AMEX"
 	CardLastFour         string    `json:"card_last_four,omitempty"`
+	ChargedAt            time.Time `json:"charged_at,omitempty"` // When the charge occurred
 	MonarchTransactionID string    `json:"monarch_transaction_id,omitempty"`
 	IsMatched            bool      `json:"is_matched"`
 	MatchConfidence      float64   `json:"match_confidence,omitempty"`

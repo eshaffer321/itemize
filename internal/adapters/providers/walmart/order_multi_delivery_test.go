@@ -3,7 +3,7 @@ package walmart
 import (
 	"testing"
 
-	walmartclient "github.com/eshaffer321/walmart-client-go"
+	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

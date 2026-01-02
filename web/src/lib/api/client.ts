@@ -10,6 +10,11 @@ import {
   StartSyncResponse,
   SyncJob,
   SyncJobListResponse,
+  Ledger,
+  Transaction,
+  TransactionDetail,
+  TransactionListResponse,
+  TransactionFilters,
 } from './types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -135,4 +140,45 @@ export async function cancelSyncJob(jobId: string): Promise<void> {
   await fetchJSON<void>(`${API_BASE_URL}/api/sync/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',
   })
+}
+
+// Ledger API functions
+export async function getOrderLedger(orderId: string): Promise<Ledger | null> {
+  try {
+    return await fetchJSON<Ledger>(`${API_BASE_URL}/api/orders/${encodeURIComponent(orderId)}/ledger`)
+  } catch (error) {
+    // Return null if ledger not found (404)
+    if (error instanceof Error && error.message.includes('not found')) {
+      return null
+    }
+    throw error
+  }
+}
+
+// Transaction API functions (Monarch Money)
+export async function getTransactions(filters?: TransactionFilters): Promise<TransactionListResponse> {
+  const params = new URLSearchParams()
+  if (filters?.search) params.append('search', filters.search)
+  if (filters?.days_back) params.append('days_back', filters.days_back.toString())
+  if (filters?.pending !== undefined) params.append('pending', filters.pending.toString())
+  if (filters?.limit) params.append('limit', filters.limit.toString())
+  if (filters?.offset) params.append('offset', filters.offset.toString())
+
+  const queryString = params.toString()
+  const url = `${API_BASE_URL}/api/transactions${queryString ? `?${queryString}` : ''}`
+
+  return fetchJSON<TransactionListResponse>(url)
+}
+
+export async function getTransaction(id: string): Promise<TransactionDetail> {
+  return fetchJSON<TransactionDetail>(`${API_BASE_URL}/api/transactions/${encodeURIComponent(id)}`)
+}
+
+// Get orders linked to a specific transaction ID
+export async function getOrdersByTransactionId(transactionId: string): Promise<OrderListResponse> {
+  // Use search to find orders with this transaction ID
+  const params = new URLSearchParams()
+  params.append('search', transactionId)
+  params.append('limit', '10')
+  return fetchJSON<OrderListResponse>(`${API_BASE_URL}/api/orders?${params.toString()}`)
 }
