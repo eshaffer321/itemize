@@ -117,7 +117,10 @@ func NewSyncService(
 }
 
 // StartSync starts a new sync job asynchronously.
-func (s *SyncService) StartSync(ctx context.Context, req SyncRequest) (string, error) {
+// Note: The passed context is NOT used as the parent for the background job.
+// Background sync jobs use context.Background() to avoid being cancelled when
+// the HTTP request completes. Use CancelSync() to cancel a running job.
+func (s *SyncService) StartSync(_ context.Context, req SyncRequest) (string, error) {
 	// Validate provider
 	if !s.isValidProvider(req.Provider) {
 		return "", fmt.Errorf("invalid provider: %s", req.Provider)
@@ -131,8 +134,9 @@ func (s *SyncService) StartSync(ctx context.Context, req SyncRequest) (string, e
 	// Create job ID
 	jobID := s.generateJobID(req.Provider)
 
-	// Create cancellable context
-	jobCtx, cancel := context.WithCancel(ctx)
+	// Create cancellable context from Background - NOT from the request context.
+	// This prevents the job from being cancelled when the HTTP request completes.
+	jobCtx, cancel := context.WithCancel(context.Background())
 
 	// Create job
 	job := &SyncJob{
@@ -266,7 +270,7 @@ func (s *SyncService) runSyncJob(ctx context.Context, job *SyncJob) {
 		LastUpdate:   time.Now(),
 	})
 
-	// Convert request to options
+	// Convert request to options with progress callback
 	opts := appsync.Options{
 		DryRun:       job.Request.DryRun,
 		LookbackDays: job.Request.LookbackDays,
@@ -274,6 +278,9 @@ func (s *SyncService) runSyncJob(ctx context.Context, job *SyncJob) {
 		Force:        job.Request.Force,
 		Verbose:      job.Request.Verbose,
 		OrderID:      job.Request.OrderID,
+		ProgressCallback: func(update appsync.ProgressUpdate) {
+			s.updateJobProgress(job.ID, update)
+		},
 	}
 
 	// Run sync
@@ -303,6 +310,21 @@ func (s *SyncService) updateJobStatus(jobID string, status SyncStatus, progress 
 	}
 }
 
+// updateJobProgress updates job progress from orchestrator callback.
+func (s *SyncService) updateJobProgress(jobID string, update appsync.ProgressUpdate) {
+	s.jobsMutex.Lock()
+	defer s.jobsMutex.Unlock()
+
+	if job, exists := s.jobs[jobID]; exists {
+		job.Progress.CurrentPhase = update.Phase
+		job.Progress.TotalOrders = update.TotalOrders
+		job.Progress.ProcessedOrders = update.ProcessedOrders
+		job.Progress.SkippedOrders = update.SkippedOrders
+		job.Progress.ErroredOrders = update.ErroredOrders
+		job.Progress.LastUpdate = time.Now()
+	}
+}
+
 // completeJob marks a job as completed with results.
 func (s *SyncService) completeJob(jobID string, result *appsync.Result) {
 	s.jobsMutex.Lock()
@@ -313,15 +335,15 @@ func (s *SyncService) completeJob(jobID string, result *appsync.Result) {
 		job.Status = StatusCompleted
 		job.CompletedAt = &now
 		job.Result = result
-		job.Progress = SyncProgress{
-			CurrentPhase:    "completed",
-			ProcessedOrders: result.ProcessedCount,
-			SkippedOrders:   result.SkippedCount,
-			ErroredOrders:   result.ErrorCount,
-			LastUpdate:      now,
-		}
+		// Preserve TotalOrders from the existing progress while updating other fields
+		job.Progress.CurrentPhase = "completed"
+		job.Progress.ProcessedOrders = result.ProcessedCount
+		job.Progress.SkippedOrders = result.SkippedCount
+		job.Progress.ErroredOrders = result.ErrorCount
+		job.Progress.LastUpdate = now
 		s.logger.Info("sync job completed",
 			"job_id", jobID,
+			"total", job.Progress.TotalOrders,
 			"processed", result.ProcessedCount,
 			"skipped", result.SkippedCount,
 			"errors", result.ErrorCount,

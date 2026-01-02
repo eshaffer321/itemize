@@ -176,6 +176,12 @@ func (h *SimpleHandler) applyMultiCategorySplits(
 			"order_id", order.GetID(),
 			"transaction_id", transaction.ID,
 			"split_count", len(splits))
+
+		// Populate SplitDetails ONLY after successful Monarch API call
+		// Check if the splitter supports returning detailed split information
+		if detailedSplitter, ok := h.splitter.(CategorySplitterWithDetails); ok {
+			result.SplitDetails = detailedSplitter.GetSplitDetails()
+		}
 	} else {
 		h.logDebug("[DRY RUN] Would apply splits",
 			"order_id", order.GetID(),
