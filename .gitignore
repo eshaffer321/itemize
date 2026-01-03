@@ -63,6 +63,7 @@ temp/
 
 # Database files
 *.db
+*.db.backup
 *.sqlite
 *.sqlite3
 
