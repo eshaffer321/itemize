@@ -2,12 +2,21 @@ package storage
 
 import (
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/pressly/goose/v3"
+
+	// Import migrations package to register Go migrations
+	_ "github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage/migrations"
 )
+
+//go:embed migrations/*.sql
+var embedMigrations embed.FS
 
 // Storage provides SQLite database access for processing records.
 // It implements the Repository interface.
@@ -33,13 +42,142 @@ func NewStorage(dbPath string) (*Storage, error) {
 
 	s := &Storage{db: db}
 
-	// Run all pending migrations
+	// Run all pending migrations using goose
 	if err := s.runMigrations(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 
 	return s, nil
+}
+
+// runMigrations uses goose to run all pending migrations
+func (s *Storage) runMigrations() error {
+	// Check if we're migrating from the old custom migration system
+	if err := s.migrateFromLegacyMigrations(); err != nil {
+		return fmt.Errorf("failed to migrate from legacy migrations: %w", err)
+	}
+
+	// Set goose to use our embedded migrations
+	goose.SetBaseFS(embedMigrations)
+
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return fmt.Errorf("failed to set goose dialect: %w", err)
+	}
+
+	// Disable verbose logging (goose logs each migration by default)
+	goose.SetLogger(goose.NopLogger())
+
+	// Run all pending migrations
+	if err := goose.Up(s.db, "migrations"); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	log.Printf("Database migrations complete")
+	return nil
+}
+
+// migrateFromLegacyMigrations checks if the old schema_migrations table exists
+// and if so, creates the goose_db_version table with the existing versions
+// marked as applied. This prevents goose from re-running already applied migrations.
+func (s *Storage) migrateFromLegacyMigrations() error {
+	// Check if schema_migrations table exists (old system)
+	var exists int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name='schema_migrations'
+	`).Scan(&exists)
+	if err != nil {
+		return err
+	}
+
+	if exists == 0 {
+		// No legacy migrations - goose will handle everything
+		return nil
+	}
+
+	// Check if goose_db_version already exists
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type='table' AND name='goose_db_version'
+	`).Scan(&exists)
+	if err != nil {
+		return err
+	}
+
+	if exists > 0 {
+		// Already migrated to goose
+		return nil
+	}
+
+	log.Printf("Migrating from legacy migration system to goose...")
+
+	// Create goose_db_version table manually
+	_, err = s.db.Exec(`
+		CREATE TABLE goose_db_version (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version_id INTEGER NOT NULL,
+			is_applied INTEGER NOT NULL DEFAULT 1,
+			tstamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create goose_db_version table: %w", err)
+	}
+
+	// Insert initial version 0 (goose convention)
+	_, err = s.db.Exec(`INSERT INTO goose_db_version (version_id, is_applied) VALUES (0, 1)`)
+	if err != nil {
+		return fmt.Errorf("failed to insert goose version 0: %w", err)
+	}
+
+	// Copy existing migration versions from schema_migrations
+	// Read all versions first, then insert (SQLite doesn't like concurrent read/write)
+	type migrationVersion struct {
+		version   int
+		appliedAt sql.NullTime
+	}
+	var versions []migrationVersion
+
+	rows, err := s.db.Query(`SELECT version, applied_at FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return fmt.Errorf("failed to query schema_migrations: %w", err)
+	}
+
+	for rows.Next() {
+		var v migrationVersion
+		if err := rows.Scan(&v.version, &v.appliedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		versions = append(versions, v)
+	}
+	rows.Close()
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Now insert all versions
+	for _, v := range versions {
+		if v.appliedAt.Valid {
+			_, err = s.db.Exec(`
+				INSERT INTO goose_db_version (version_id, is_applied, tstamp)
+				VALUES (?, 1, ?)
+			`, v.version, v.appliedAt.Time)
+		} else {
+			_, err = s.db.Exec(`
+				INSERT INTO goose_db_version (version_id, is_applied)
+				VALUES (?, 1)
+			`, v.version)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to insert goose version %d: %w", v.version, err)
+		}
+	}
+
+	log.Printf("Successfully migrated legacy migrations to goose")
+	return nil
 }
 
 // Close closes the database connection
