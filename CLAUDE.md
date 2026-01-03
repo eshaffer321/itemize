@@ -1,6 +1,6 @@
 # Developer Guide for AI Assistants
 
-**Last Updated:** December 2024
+**Last Updated:** January 2025
 **Project Status:** Production-ready CLI application with Web UI
 
 ## What This Project Is
@@ -333,6 +333,9 @@ Ask yourself:
 - **costco-go** - [github.com/eshaffer321/costco-go](https://github.com/eshaffer321/costco-go)
   - Fetches Costco orders
   - Uses saved credentials
+- **goose** - [github.com/pressly/goose/v3](https://github.com/pressly/goose)
+  - Database migration management
+  - SQL and Go migrations supported
 
 ### API Integrations
 - **OpenAI GPT-4** - Item categorization (~$0.01-0.05 per order)
@@ -342,7 +345,45 @@ Ask yourself:
 
 ## Database Schema
 
-SQLite database at `monarch_sync.db` with auto-migration:
+SQLite database at `monarch_sync.db` with auto-migration using [goose](https://github.com/pressly/goose).
+
+### Migration System
+
+Migrations are managed by **goose** and stored as SQL files in `internal/infrastructure/storage/migrations/`:
+
+```
+migrations/
+├── 00001_initial_schema.sql      # processing_records table
+├── 00002_add_sync_runs_table.sql # sync_runs table
+├── 00003_add_api_calls_table.sql # api_calls table
+├── 00004_backfill_null_values.sql
+├── 00005_add_ledger_tables.sql   # order_ledgers, ledger_charges
+├── 00006_add_charged_at_column.sql
+└── 00007_goose_bridge.go         # Bridge migration for legacy system
+```
+
+**Adding a new migration:**
+```bash
+# Create a new SQL migration
+touch internal/infrastructure/storage/migrations/00008_your_migration.sql
+
+# Use goose format:
+# -- +goose Up
+# CREATE TABLE ...
+# -- +goose Down
+# DROP TABLE ...
+```
+
+**Migration commands** (via goose CLI if installed):
+```bash
+goose -dir internal/infrastructure/storage/migrations sqlite3 ./monarch_sync.db status
+goose -dir internal/infrastructure/storage/migrations sqlite3 ./monarch_sync.db up
+goose -dir internal/infrastructure/storage/migrations sqlite3 ./monarch_sync.db down
+```
+
+Note: Migrations run automatically on app startup. The goose CLI is optional for manual operations.
+
+### Core Tables
 
 ```sql
 -- Processing history and deduplication
@@ -356,7 +397,7 @@ CREATE TABLE processing_records (
   item_count INTEGER,
   split_count INTEGER,
   processed_at TIMESTAMP,
-  status TEXT,  -- 'success', 'failed', 'dry-run'
+  status TEXT,  -- 'success', 'failed', 'dry-run', 'pending'
   error_message TEXT,
   match_confidence REAL,
   dry_run BOOLEAN
@@ -374,9 +415,51 @@ CREATE TABLE sync_runs (
   dry_run BOOLEAN,
   lookback_days INTEGER
 );
+
+-- API call logging
+CREATE TABLE api_calls (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER REFERENCES sync_runs(id),
+  order_id TEXT,
+  method TEXT,
+  request_json TEXT,
+  response_json TEXT,
+  error TEXT,
+  duration_ms INTEGER
+);
+
+-- Order payment ledgers (Walmart multi-charge tracking)
+CREATE TABLE order_ledgers (
+  id INTEGER PRIMARY KEY,
+  order_id TEXT,
+  provider TEXT,
+  ledger_state TEXT,
+  ledger_json TEXT,
+  total_charged REAL,
+  charge_count INTEGER
+);
+
+CREATE TABLE ledger_charges (
+  id INTEGER PRIMARY KEY,
+  order_ledger_id INTEGER REFERENCES order_ledgers(id),
+  order_id TEXT,
+  charge_amount REAL,
+  charge_type TEXT,
+  charged_at TIMESTAMP,
+  monarch_transaction_id TEXT,
+  is_matched BOOLEAN
+);
+
+-- Goose migration tracking (managed by goose)
+CREATE TABLE goose_db_version (
+  id INTEGER PRIMARY KEY,
+  version_id INTEGER,
+  is_applied INTEGER,
+  tstamp TIMESTAMP
+);
 ```
 
-Schema auto-migrates on startup. See [internal/infrastructure/storage/storage.go](internal/infrastructure/storage/storage.go).
+See [internal/infrastructure/storage/sqlite.go](internal/infrastructure/storage/sqlite.go) for the storage implementation.
 
 ## Project Scope
 
