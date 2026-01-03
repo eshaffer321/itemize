@@ -147,12 +147,12 @@ func (s *Storage) migrateFromLegacyMigrations() error {
 	for rows.Next() {
 		var v migrationVersion
 		if err := rows.Scan(&v.version, &v.appliedAt); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		versions = append(versions, v)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	if err := rows.Err(); err != nil {
 		return err
