@@ -4,8 +4,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/eshaffer321/costco-go v0.3.4 h1:xRyZGgk63V8A68jEuCR9gvFSk1c1n/lLjEf3E5/Y66M=
 github.com/eshaffer321/costco-go v0.3.4/go.mod h1:pIIKOjw+KyiQ2+xn9EUdZTIRPbts3b4mU7+OzDY/Jdo=
-github.com/eshaffer321/monarchmoney-go v1.0.4 h1:qPWJie2mZCkbE9l9cQHKWiiQHv0rJNq55YzqB2gIe2s=
-github.com/eshaffer321/monarchmoney-go v1.0.4/go.mod h1:ZKPCYT7NcsKGI+YpJ2EqPtfE3dKfuPbiTUrj6J84ot4=
+github.com/eshaffer321/monarchmoney-go v1.0.5 h1:V3iP0bvB1q3+m9Gkl6KBCFL44sNsiHDbTxSOU9fHZco=
+github.com/eshaffer321/monarchmoney-go v1.0.5/go.mod h1:ZKPCYT7NcsKGI+YpJ2EqPtfE3dKfuPbiTUrj6J84ot4=
 github.com/eshaffer321/walmart-client-go/v2 v2.0.1 h1:R8NFqKqfdri02Jhmr6jOMpCLAzjdiRbStLtjGKo6WaA=
 github.com/eshaffer321/walmart-client-go/v2 v2.0.1/go.mod h1:4PVK9TsqFscTZypC67dgCt/vnPxXdtaheJVM7HOnod0=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
