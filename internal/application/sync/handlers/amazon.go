@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
@@ -85,6 +86,11 @@ type ProcessResult struct {
 	SkipReason  string
 	Allocations *allocator.Result
 	Splits      []*monarch.TransactionSplit
+
+	// Audit trail fields for single-category orders
+	CategoryID   string // Category ID assigned (for single-category updates)
+	CategoryName string // Human-readable category name
+	MonarchNotes string // Notes sent to Monarch
 }
 
 // AmazonHandler processes Amazon orders with pro-rata allocation
@@ -294,6 +300,16 @@ func (h *AmazonHandler) ProcessOrder(
 		categoryID, notes, err := h.splitter.GetSingleCategoryInfo(ctx, allocatedOrder, catCategories)
 		if err != nil {
 			return nil, fmt.Errorf("get category info error: %w", err)
+		}
+
+		// Populate audit trail fields
+		result.CategoryID = categoryID
+		result.MonarchNotes = notes
+		// Extract category name from notes (format: "CategoryName:\n...")
+		if colonIdx := len(notes); colonIdx > 0 {
+			if idx := strings.Index(notes, ":"); idx > 0 {
+				result.CategoryName = notes[:idx]
+			}
 		}
 
 		if !dryRun {

@@ -35,7 +35,8 @@ func (o *Orchestrator) handleResult(order providers.Order, result *handlers.Proc
 		return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
 	}
 	if result.Processed {
-		o.recordSuccess(order, nil, result.Splits, 0, opts.DryRun)
+		// Pass the full result to capture audit trail data (category, notes, etc.)
+		o.recordSuccessWithResult(order, nil, result.Splits, 0, opts.DryRun, result, nil)
 	}
 	return result.Processed, result.Skipped, nil
 }

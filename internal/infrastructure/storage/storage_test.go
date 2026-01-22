@@ -810,3 +810,171 @@ func TestStorage_GetRecord_NonExistent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, record)
 }
+
+// =============================================================================
+// Audit Trail Column Tests (Migration 8)
+// =============================================================================
+// These tests verify the audit trail columns added for debugging and reconstruction
+
+func TestStorage_SaveRecord_AuditColumns(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create a record with all audit trail fields populated
+	record := &ProcessingRecord{
+		OrderID:       "ORDER-AUDIT-TEST",
+		Provider:      "walmart",
+		OrderDate:     time.Now(),
+		Status:        "success",
+		MonarchNotes:  "Groceries:\n- Milk $5.99\n- Bread $3.49",
+		CategoryID:    "cat-123-groceries",
+		CategoryName:  "Groceries",
+		OrderFeesJSON: `{"delivery_fee":5.99,"service_fee":2.00}`,
+		RawOrderJSON:  `{"orderId":"walmart-123","total":50.00,"items":[{"name":"Milk"}]}`,
+	}
+
+	err = store.SaveRecord(record)
+	require.NoError(t, err)
+
+	// Retrieve and verify all audit fields are preserved
+	retrieved, err := store.GetRecord("ORDER-AUDIT-TEST")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+
+	assert.Equal(t, "Groceries:\n- Milk $5.99\n- Bread $3.49", retrieved.MonarchNotes)
+	assert.Equal(t, "cat-123-groceries", retrieved.CategoryID)
+	assert.Equal(t, "Groceries", retrieved.CategoryName)
+	assert.Equal(t, `{"delivery_fee":5.99,"service_fee":2.00}`, retrieved.OrderFeesJSON)
+	assert.Equal(t, `{"orderId":"walmart-123","total":50.00,"items":[{"name":"Milk"}]}`, retrieved.RawOrderJSON)
+}
+
+func TestStorage_SaveRecord_AuditColumns_NullableFields(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create a record without audit trail fields (should allow NULL)
+	record := &ProcessingRecord{
+		OrderID:   "ORDER-NO-AUDIT",
+		Provider:  "costco",
+		OrderDate: time.Now(),
+		Status:    "success",
+		// All audit fields left empty/nil
+	}
+
+	err = store.SaveRecord(record)
+	require.NoError(t, err)
+
+	// Verify retrieval works with NULL audit fields
+	retrieved, err := store.GetRecord("ORDER-NO-AUDIT")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+
+	assert.Equal(t, "", retrieved.MonarchNotes)
+	assert.Equal(t, "", retrieved.CategoryID)
+	assert.Equal(t, "", retrieved.CategoryName)
+	assert.Equal(t, "", retrieved.OrderFeesJSON)
+	assert.Equal(t, "", retrieved.RawOrderJSON)
+}
+
+func TestStorage_ListOrders_AuditColumns(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Create records with different audit data
+	records := []*ProcessingRecord{
+		{
+			OrderID:      "ORDER-1",
+			Provider:     "walmart",
+			OrderDate:    time.Now(),
+			Status:       "success",
+			CategoryID:   "cat-groceries",
+			CategoryName: "Groceries",
+			MonarchNotes: "Groceries: items",
+		},
+		{
+			OrderID:      "ORDER-2",
+			Provider:     "costco",
+			OrderDate:    time.Now().AddDate(0, 0, -1),
+			Status:       "success",
+			CategoryID:   "cat-electronics",
+			CategoryName: "Electronics",
+			MonarchNotes: "Electronics: gadgets",
+		},
+	}
+
+	for _, r := range records {
+		err := store.SaveRecord(r)
+		require.NoError(t, err)
+	}
+
+	// Verify ListOrders returns audit data
+	result, err := store.ListOrders(OrderFilters{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.TotalCount)
+
+	// Create map for easy lookup
+	orderMap := make(map[string]*ProcessingRecord)
+	for _, order := range result.Orders {
+		orderMap[order.OrderID] = order
+	}
+
+	// Verify audit fields are returned in list
+	assert.Equal(t, "cat-groceries", orderMap["ORDER-1"].CategoryID)
+	assert.Equal(t, "Groceries", orderMap["ORDER-1"].CategoryName)
+	assert.Equal(t, "Groceries: items", orderMap["ORDER-1"].MonarchNotes)
+
+	assert.Equal(t, "cat-electronics", orderMap["ORDER-2"].CategoryID)
+	assert.Equal(t, "Electronics", orderMap["ORDER-2"].CategoryName)
+}
+
+func TestStorage_AuditColumns_UpdateExisting(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Save initial record without audit data (e.g., dry-run)
+	record := &ProcessingRecord{
+		OrderID:   "ORDER-UPDATE-AUDIT",
+		Provider:  "walmart",
+		OrderDate: time.Now(),
+		Status:    "dry-run",
+	}
+
+	err = store.SaveRecord(record)
+	require.NoError(t, err)
+
+	// Update with audit data (e.g., real run)
+	record.Status = "success"
+	record.CategoryID = "cat-personal-care"
+	record.CategoryName = "Personal Care"
+	record.MonarchNotes = "Personal Care:\n- Shampoo $8.99"
+	record.RawOrderJSON = `{"orderId":"walmart-456"}`
+
+	err = store.SaveRecord(record)
+	require.NoError(t, err)
+
+	// Verify update preserved audit data
+	retrieved, err := store.GetRecord("ORDER-UPDATE-AUDIT")
+	require.NoError(t, err)
+
+	assert.Equal(t, "success", retrieved.Status)
+	assert.Equal(t, "cat-personal-care", retrieved.CategoryID)
+	assert.Equal(t, "Personal Care", retrieved.CategoryName)
+	assert.Equal(t, "Personal Care:\n- Shampoo $8.99", retrieved.MonarchNotes)
+	assert.Equal(t, `{"orderId":"walmart-456"}`, retrieved.RawOrderJSON)
+}

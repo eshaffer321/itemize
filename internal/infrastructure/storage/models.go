@@ -33,6 +33,13 @@ type ProcessingRecord struct {
 
 	// Multi-delivery tracking (JSON)
 	MultiDeliveryData string `json:"multi_delivery_data,omitempty"` // For DB storage
+
+	// Audit trail fields for debugging and reconstruction
+	MonarchNotes  string `json:"monarch_notes,omitempty"`   // Notes/description sent to Monarch
+	CategoryID    string `json:"category_id,omitempty"`     // Category ID for single-category orders
+	CategoryName  string `json:"category_name,omitempty"`   // Human-readable category name
+	OrderFeesJSON string `json:"order_fees_json,omitempty"` // Raw fees breakdown from provider
+	RawOrderJSON  string `json:"raw_order_json,omitempty"`  // Complete raw order data from provider
 }
 
 // OrderItem represents an item in the order
