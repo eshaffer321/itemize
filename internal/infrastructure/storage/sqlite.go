@@ -201,8 +201,9 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 	(order_id, provider, transaction_id, order_date, processed_at,
 	 order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	 split_count, status, error_message, item_count, match_confidence,
-	 dry_run, items_json, splits_json, multi_delivery_data)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	 dry_run, items_json, splits_json, multi_delivery_data,
+	 monarch_notes, category_id, category_name, order_fees_json, raw_order_json)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.Exec(query,
@@ -225,6 +226,11 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 		string(itemsJSON),
 		string(splitsJSON),
 		record.MultiDeliveryData,
+		nullString(record.MonarchNotes),
+		nullString(record.CategoryID),
+		nullString(record.CategoryName),
+		nullString(record.OrderFeesJSON),
+		nullString(record.RawOrderJSON),
 	)
 
 	return err
@@ -236,7 +242,8 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	SELECT id, order_id, provider, transaction_id, order_date, processed_at,
 	       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	       split_count, status, error_message, item_count, match_confidence,
-	       dry_run, items_json, splits_json, multi_delivery_data
+	       dry_run, items_json, splits_json, multi_delivery_data,
+	       monarch_notes, category_id, category_name, order_fees_json, raw_order_json
 	FROM processing_records WHERE order_id = ?
 	`
 
@@ -247,6 +254,11 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		itemsJSON         sql.NullString
 		splitsJSON        sql.NullString
 		multiDeliveryData sql.NullString
+		monarchNotes      sql.NullString
+		categoryID        sql.NullString
+		categoryName      sql.NullString
+		orderFeesJSON     sql.NullString
+		rawOrderJSON      sql.NullString
 	)
 	err := s.db.QueryRow(query, orderID).Scan(
 		&record.ID,
@@ -269,6 +281,11 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		&itemsJSON,
 		&splitsJSON,
 		&multiDeliveryData,
+		&monarchNotes,
+		&categoryID,
+		&categoryName,
+		&orderFeesJSON,
+		&rawOrderJSON,
 	)
 
 	if err != nil {
@@ -293,6 +310,21 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	}
 	if multiDeliveryData.Valid {
 		record.MultiDeliveryData = multiDeliveryData.String
+	}
+	if monarchNotes.Valid {
+		record.MonarchNotes = monarchNotes.String
+	}
+	if categoryID.Valid {
+		record.CategoryID = categoryID.String
+	}
+	if categoryName.Valid {
+		record.CategoryName = categoryName.String
+	}
+	if orderFeesJSON.Valid {
+		record.OrderFeesJSON = orderFeesJSON.String
+	}
+	if rawOrderJSON.Valid {
+		record.RawOrderJSON = rawOrderJSON.String
 	}
 
 	// Unmarshal JSON fields (errors ignored as these are optional enrichment fields)
@@ -565,7 +597,8 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 		SELECT id, order_id, provider, transaction_id, order_date, processed_at,
 		       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 		       split_count, status, error_message, item_count, match_confidence,
-		       dry_run, items_json, splits_json, multi_delivery_data
+		       dry_run, items_json, splits_json, multi_delivery_data,
+		       monarch_notes, category_id, category_name, order_fees_json, raw_order_json
 		FROM processing_records
 		%s
 		ORDER BY %s %s
@@ -589,6 +622,11 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 			itemsJSON         sql.NullString
 			splitsJSON        sql.NullString
 			multiDeliveryData sql.NullString
+			monarchNotes      sql.NullString
+			categoryID        sql.NullString
+			categoryName      sql.NullString
+			orderFeesJSON     sql.NullString
+			rawOrderJSON      sql.NullString
 		)
 		err := rows.Scan(
 			&record.ID,
@@ -611,6 +649,11 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 			&itemsJSON,
 			&splitsJSON,
 			&multiDeliveryData,
+			&monarchNotes,
+			&categoryID,
+			&categoryName,
+			&orderFeesJSON,
+			&rawOrderJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -631,6 +674,21 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 		}
 		if multiDeliveryData.Valid {
 			record.MultiDeliveryData = multiDeliveryData.String
+		}
+		if monarchNotes.Valid {
+			record.MonarchNotes = monarchNotes.String
+		}
+		if categoryID.Valid {
+			record.CategoryID = categoryID.String
+		}
+		if categoryName.Valid {
+			record.CategoryName = categoryName.String
+		}
+		if orderFeesJSON.Valid {
+			record.OrderFeesJSON = orderFeesJSON.String
+		}
+		if rawOrderJSON.Valid {
+			record.RawOrderJSON = rawOrderJSON.String
 		}
 
 		// Unmarshal JSON fields

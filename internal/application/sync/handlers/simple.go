@@ -115,6 +115,14 @@ func (h *SimpleHandler) applySingleCategory(
 		return nil, fmt.Errorf("get category info error: %w", err)
 	}
 
+	// Populate audit trail fields
+	result.CategoryID = categoryID
+	result.MonarchNotes = notes
+	// Extract category name from notes (format: "CategoryName:\n...")
+	if idx := strings.Index(notes, ":"); idx > 0 {
+		result.CategoryName = notes[:idx]
+	}
+
 	if !dryRun {
 		params := &monarch.UpdateTransactionParams{
 			CategoryID: &categoryID,

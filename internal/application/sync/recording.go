@@ -1,10 +1,12 @@
 package sync
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync/handlers"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
 )
 
@@ -96,16 +98,17 @@ func (o *Orchestrator) recordPending(order providers.Order, reason string) {
 
 // recordSuccess records a successful processing to storage
 func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch.Transaction, splits []*monarch.TransactionSplit, confidence float64, dryRun bool) {
-	o.recordSuccessWithMultiDelivery(order, transaction, splits, confidence, dryRun, nil)
+	o.recordSuccessWithResult(order, transaction, splits, confidence, dryRun, nil, nil)
 }
 
-// recordSuccessWithMultiDelivery records a successful processing with optional multi-delivery info
-func (o *Orchestrator) recordSuccessWithMultiDelivery(
+// recordSuccessWithResult records a successful processing with optional handler result and multi-delivery info
+func (o *Orchestrator) recordSuccessWithResult(
 	order providers.Order,
 	transaction *monarch.Transaction,
 	splits []*monarch.TransactionSplit,
 	confidence float64,
 	dryRun bool,
+	result *handlers.ProcessResult,
 	multiDeliveryInfo *storage.MultiDeliveryInfo,
 ) {
 	if o.storage != nil {
@@ -143,8 +146,75 @@ func (o *Orchestrator) recordSuccessWithMultiDelivery(
 			}
 		}
 
+		// Add audit trail data from handler result
+		if result != nil {
+			record.CategoryID = result.CategoryID
+			record.CategoryName = result.CategoryName
+			record.MonarchNotes = result.MonarchNotes
+		}
+
+		// Serialize raw order data for audit trail
+		if rawData := order.GetRawData(); rawData != nil {
+			if rawJSON, err := json.Marshal(rawData); err == nil {
+				record.RawOrderJSON = string(rawJSON)
+			}
+		}
+
+		// Extract fees breakdown if available (provider-specific)
+		if feesData := extractFeesBreakdown(order); feesData != "" {
+			record.OrderFeesJSON = feesData
+		}
+
 		if err := o.storage.SaveRecord(record); err != nil {
 			o.logger.Error("Failed to save success record", "order_id", order.GetID(), "error", err)
 		}
 	}
+}
+
+// recordSuccessWithMultiDelivery records a successful processing with optional multi-delivery info
+// Deprecated: Use recordSuccessWithResult instead
+func (o *Orchestrator) recordSuccessWithMultiDelivery(
+	order providers.Order,
+	transaction *monarch.Transaction,
+	splits []*monarch.TransactionSplit,
+	confidence float64,
+	dryRun bool,
+	multiDeliveryInfo *storage.MultiDeliveryInfo,
+) {
+	o.recordSuccessWithResult(order, transaction, splits, confidence, dryRun, nil, multiDeliveryInfo)
+}
+
+// extractFeesBreakdown extracts fee breakdown from provider-specific order data
+func extractFeesBreakdown(order providers.Order) string {
+	rawData := order.GetRawData()
+	if rawData == nil {
+		return ""
+	}
+
+	// Try to extract fees from the raw data structure
+	// Different providers have different fee structures
+	type feesExtractor interface {
+		GetFees() interface{}
+	}
+
+	if extractor, ok := rawData.(feesExtractor); ok {
+		if fees := extractor.GetFees(); fees != nil {
+			if feesJSON, err := json.Marshal(fees); err == nil {
+				return string(feesJSON)
+			}
+		}
+	}
+
+	// Fallback: try to extract from a map structure
+	if dataMap, ok := rawData.(map[string]interface{}); ok {
+		if priceDetails, ok := dataMap["priceDetails"].(map[string]interface{}); ok {
+			if fees, ok := priceDetails["fees"]; ok {
+				if feesJSON, err := json.Marshal(fees); err == nil {
+					return string(feesJSON)
+				}
+			}
+		}
+	}
+
+	return ""
 }

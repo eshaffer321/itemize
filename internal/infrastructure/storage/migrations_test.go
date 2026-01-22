@@ -15,7 +15,7 @@ import (
 // expectedMigrationCount is the number of migrations we expect to have
 // Update this when adding new migrations
 // Note: goose adds a version 0 entry when initializing, so total count is migrations + 1
-const expectedMigrationCount = 7
+const expectedMigrationCount = 8
 const gooseVersionCount = expectedMigrationCount + 1 // includes goose's version 0 entry
 
 // TestMigrations_FreshDatabase tests running migrations on a fresh database
