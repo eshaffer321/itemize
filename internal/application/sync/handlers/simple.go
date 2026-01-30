@@ -141,6 +141,7 @@ func (h *SimpleHandler) applySingleCategory(
 			"category_id", categoryID)
 	}
 
+	result.Transaction = transaction
 	result.Processed = true
 	return result, nil
 }
@@ -190,6 +191,7 @@ func (h *SimpleHandler) applyMultiCategorySplits(
 			"split_count", len(splits))
 	}
 
+	result.Transaction = transaction
 	result.Processed = true
 	return result, nil
 }

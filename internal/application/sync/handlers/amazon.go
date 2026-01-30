@@ -87,6 +87,9 @@ type ProcessResult struct {
 	Allocations *allocator.Result
 	Splits      []*monarch.TransactionSplit
 
+	// Transaction tracking for audit trail - the matched/consolidated transaction
+	Transaction *monarch.Transaction
+
 	// Audit trail fields for single-category orders
 	CategoryID   string // Category ID assigned (for single-category updates)
 	CategoryName string // Human-readable category name
@@ -346,6 +349,7 @@ func (h *AmazonHandler) ProcessOrder(
 		}
 	}
 
+	result.Transaction = consolidatedTxn
 	result.Processed = true
 	return result, nil
 }

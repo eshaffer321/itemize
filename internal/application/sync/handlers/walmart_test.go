@@ -508,3 +508,51 @@ func TestWalmartHandler_ProcessOrder_DryRun_DoesNotApply(t *testing.T) {
 	assert.False(t, monarchClient.updateCalled, "Should not have called UpdateTransaction in dry run")
 	assert.False(t, monarchClient.updateSplitsCaled, "Should not have called UpdateSplits in dry run")
 }
+
+// =============================================================================
+// Tests: Transaction Tracking in ProcessResult
+// =============================================================================
+
+func TestWalmartHandler_ProcessOrder_ReturnsMatchedTransaction(t *testing.T) {
+	// This test verifies that ProcessResult includes the matched transaction
+	// so the orchestrator can record transaction_id in the processing_records table.
+	// Bug: Previously transaction_id was not being recorded because ProcessResult
+	// didn't include the matched transaction.
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:       "ORDER-TXN-TRACKING",
+		date:     orderDate,
+		total:    50.00,
+		subtotal: 45.00,
+		tax:      5.00,
+		items:    []providers.OrderItem{&walmartTestItem{name: "Milk", price: 45.00, quantity: 1}},
+		charges:  []float64{50.00},
+	}
+
+	expectedTxn := &monarch.Transaction{
+		ID:     "txn-matched",
+		Amount: -50.00,
+		Date:   walmartToMonarchDate(orderDate),
+	}
+
+	txns := []*monarch.Transaction{expectedTxn}
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		make(map[string]bool),
+		nil, nil,
+		true, // dry run
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	require.NotNil(t, result.Transaction, "ProcessResult should include the matched transaction")
+	assert.Equal(t, "txn-matched", result.Transaction.ID, "Transaction ID should match")
+	assert.Equal(t, -50.00, result.Transaction.Amount, "Transaction amount should match")
+}

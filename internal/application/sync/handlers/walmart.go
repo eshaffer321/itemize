@@ -340,6 +340,7 @@ func (h *WalmartHandler) categorizeAndApplySplits(
 		}
 	}
 
+	result.Transaction = transaction
 	result.Processed = true
 	return result, nil
 }
