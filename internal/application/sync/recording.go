@@ -96,11 +96,6 @@ func (o *Orchestrator) recordPending(order providers.Order, reason string) {
 	}
 }
 
-// recordSuccess records a successful processing to storage
-func (o *Orchestrator) recordSuccess(order providers.Order, transaction *monarch.Transaction, splits []*monarch.TransactionSplit, confidence float64, dryRun bool) {
-	o.recordSuccessWithResult(order, transaction, splits, confidence, dryRun, nil, nil)
-}
-
 // recordSuccessWithResult records a successful processing with optional handler result and multi-delivery info
 func (o *Orchestrator) recordSuccessWithResult(
 	order providers.Order,
@@ -169,19 +164,6 @@ func (o *Orchestrator) recordSuccessWithResult(
 			o.logger.Error("Failed to save success record", "order_id", order.GetID(), "error", err)
 		}
 	}
-}
-
-// recordSuccessWithMultiDelivery records a successful processing with optional multi-delivery info
-// Deprecated: Use recordSuccessWithResult instead
-func (o *Orchestrator) recordSuccessWithMultiDelivery(
-	order providers.Order,
-	transaction *monarch.Transaction,
-	splits []*monarch.TransactionSplit,
-	confidence float64,
-	dryRun bool,
-	multiDeliveryInfo *storage.MultiDeliveryInfo,
-) {
-	o.recordSuccessWithResult(order, transaction, splits, confidence, dryRun, nil, multiDeliveryInfo)
 }
 
 // extractFeesBreakdown extracts fee breakdown from provider-specific order data
