@@ -26,8 +26,8 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Mone
 ### Install
 
 ```bash
-git clone https://github.com/eshaffer321/monarchmoney-sync-backend
-cd monarchmoney-sync-backend
+git clone https://github.com/eshaffer321/itemize
+cd itemize
 go build -o monarch-sync ./cmd/monarch-sync/
 ```
 
