@@ -80,7 +80,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.txt
+          files: ./coverage.txt
           flags: unittests
           name: codecov-go-${{ matrix.go-version }}
           fail_ci_if_error: true
