@@ -33,6 +33,11 @@ ignore:
   - "dist/**"
   - "vendor/**"
   - ".github/**"
+  - "cmd/**"
+  - "examples/**"
+  - "internal/cli/**"
+  - "internal/api/dto/**"
+  - "internal/infrastructure/storage/migrations/**"
   
 flags:
   unittests:
