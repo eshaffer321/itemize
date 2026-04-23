@@ -29,9 +29,31 @@ jobs:
           version: v2.4.0
           args: --timeout=5m
 
+  module-integrity:
+    name: Module Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify dependency checksums
+        run: go mod verify
+
+      - name: Check go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: [module-integrity]
     strategy:
       matrix:
         go-version: ['1.22', '1.23', '1.24']
