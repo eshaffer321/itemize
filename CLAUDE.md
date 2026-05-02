@@ -263,7 +263,7 @@ See [docs/deduplication-safety.md](docs/deduplication-safety.md).
 ### Configuration Flexibility
 Supports both YAML and environment variables:
 - YAML preferred for local development
-- Env vars for production/containers
+- Env vars as an alternative
 - Graceful fallback and validation
 
 ### Logging Pattern
