@@ -106,7 +106,7 @@ Only `success` status prevents reprocessing:
 The `--force` flag **bypasses Layer 1 only**:
 
 ```bash
-./monarch-sync walmart sync --force
+./itemize walmart sync --force
 ```
 
 **What it does:**
@@ -204,10 +204,10 @@ WHERE provider = 'unknown' AND status = 'success';
 ### Test 1: Database Protection
 ```bash
 # Process an order
-./monarch-sync walmart sync --dry-run=false
+./itemize walmart sync --dry-run=false
 
 # Try again (should skip)
-./monarch-sync walmart sync --dry-run=false
+./itemize walmart sync --dry-run=false
 # Output: "Skipping already processed order"
 ```
 
@@ -217,14 +217,14 @@ WHERE provider = 'unknown' AND status = 'success';
 rm monarch_sync.db
 
 # Re-run sync
-./monarch-sync walmart sync --dry-run=false
+./itemize walmart sync --dry-run=false
 # Output: "Transaction already has splits" (Layer 2 kicks in)
 ```
 
 ### Test 3: Force Flag
 ```bash
 # Force reprocess
-./monarch-sync walmart sync --force
+./itemize walmart sync --force
 # Output: "Transaction already has splits" (Layer 2 still protects)
 ```
 

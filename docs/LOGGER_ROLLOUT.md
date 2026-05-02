@@ -104,7 +104,7 @@ go mod tidy
 Once all three projects are updated, you'll see consistent logging:
 
 ```
-monarch-sync: Costco (PRODUCTION mode)
+itemize: Costco (PRODUCTION mode)
 Database: monarch_sync.db
 Provider: Costco | Lookback: 17 days
 
@@ -162,10 +162,10 @@ After updating each library:
 After integrating in monarchmoney-sync-backend:
 
 - [ ] Build succeeds
-- [ ] `./monarch-sync costco -dry-run -days 7 -verbose` shows consistent logs
-- [ ] `./monarch-sync walmart -dry-run -days 7 -verbose` shows consistent logs
+- [ ] `./itemize costco -dry-run -days 7 -verbose` shows consistent logs
+- [ ] `./itemize walmart -dry-run -days 7 -verbose` shows consistent logs
 - [ ] Colors appear in terminal
-- [ ] No colors when piping: `./monarch-sync costco -verbose 2>&1 | cat`
+- [ ] No colors when piping: `./itemize costco -verbose 2>&1 | cat`
 
 ## Documentation
 

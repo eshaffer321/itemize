@@ -7,28 +7,28 @@
 
 A CLI application that syncs Walmart, Costco, and Amazon purchases with Monarch Money, automatically categorizing items and splitting transactions. It includes:
 - **CLI tool** for command-line syncing
-- **API server** (`./monarch-sync serve`) for programmatic access
+- **API server** (`./itemize serve`) for programmatic access
 
 ## Quick Reference
 
 ### Build and Run
 ```bash
 # Build Go backend
-go build -o monarch-sync ./cmd/monarch-sync/
+go build -o itemize ./cmd/itemize/
 
 # Run with dry-run (preview, no changes)
-./monarch-sync walmart -dry-run -days 14 -verbose
-./monarch-sync costco -dry-run -days 7
+./itemize walmart -dry-run -days 14 -verbose
+./itemize costco -dry-run -days 7
 
 # Apply changes
-./monarch-sync walmart -days 14
-./monarch-sync costco -days 7 -max 10
+./itemize walmart -days 14
+./itemize costco -days 7 -max 10
 
 # Force reprocess already-processed orders
-./monarch-sync walmart -force
+./itemize walmart -force
 
 # Start API server
-./monarch-sync serve -port 8085
+./itemize serve -port 8085
 ```
 
 ### Test
@@ -230,7 +230,7 @@ This gives us clean code with proper level-based filtering instead of scattered 
 ## File Organization
 
 ### Where Things Live
-- **Entry point:** [cmd/monarch-sync/main.go](cmd/monarch-sync/main.go)
+- **Entry point:** [cmd/itemize/main.go](cmd/itemize/main.go)
 - **Business logic:** `internal/domain/`
 - **Workflow coordination:** `internal/application/sync/`
 - **External APIs:** `internal/adapters/`
@@ -388,7 +388,7 @@ See [internal/infrastructure/storage/sqlite.go](internal/infrastructure/storage/
 ## Project Scope
 
 - ✅ **CLI tool** - Primary command-line interface
-- ✅ **API server** - HTTP endpoints for programmatic access (`./monarch-sync serve`)
+- ✅ **API server** - HTTP endpoints for programmatic access (`./itemize serve`)
 - ❌ **NOT a Chrome extension** - Direct provider API integration
 - ❌ **NOT a SaaS** - Local deployment only
 - ❌ **NOT real-time** - Manual runs or scheduled via cron
