@@ -254,7 +254,7 @@ This provides flexibility without full hexagonal overhead.
 - Created `internal/adapters/` for external integrations
 - Moved `internal/providers/` → `internal/adapters/providers/`
 - Moved `internal/clients/` → `internal/adapters/clients/`
-- Moved CLI from `cmd/monarch-sync/cli/` → `internal/cli/`
+- Moved CLI from `cmd/itemize/cli/` → `internal/cli/`
 
 **Key Improvements:**
 - Fixed broken module paths and imports

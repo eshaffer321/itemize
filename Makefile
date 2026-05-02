@@ -1,5 +1,5 @@
 # Variables
-BINARY_NAME=monarch-sync
+BINARY_NAME=itemize
 GO_FILES=$(shell find . -name '*.go' -type f -not -path "./vendor/*")
 COVERAGE_FILE=coverage.out
 COVERAGE_HTML=coverage.html
@@ -33,7 +33,7 @@ all: pre-commit build
 ## build: Build the CLI binary
 build:
 	@echo "$(GREEN)Building $(BINARY_NAME)...$(NC)"
-	$(GOBUILD) -v -o $(BINARY_NAME) ./cmd/monarch-sync
+	$(GOBUILD) -v -o $(BINARY_NAME) ./cmd/itemize
 	@echo "$(GREEN)Build complete!$(NC)"
 
 ## clean: Remove build artifacts and temporary files
@@ -96,11 +96,11 @@ pre-commit: fmt vet test
 release:
 	@echo "$(GREEN)Building release binaries...$(NC)"
 	@mkdir -p dist
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-darwin-amd64 ./cmd/monarch-sync
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) -o dist/$(BINARY_NAME)-darwin-arm64 ./cmd/monarch-sync
-	GOOS=linux GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-linux-amd64 ./cmd/monarch-sync
-	GOOS=linux GOARCH=arm64 $(GOBUILD) -o dist/$(BINARY_NAME)-linux-arm64 ./cmd/monarch-sync
-	GOOS=windows GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-windows-amd64.exe ./cmd/monarch-sync
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-darwin-amd64 ./cmd/itemize
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) -o dist/$(BINARY_NAME)-darwin-arm64 ./cmd/itemize
+	GOOS=linux GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-linux-amd64 ./cmd/itemize
+	GOOS=linux GOARCH=arm64 $(GOBUILD) -o dist/$(BINARY_NAME)-linux-arm64 ./cmd/itemize
+	GOOS=windows GOARCH=amd64 $(GOBUILD) -o dist/$(BINARY_NAME)-windows-amd64.exe ./cmd/itemize
 	@echo "$(GREEN)Release binaries built in dist/$(NC)"
 
 ## version: Display version information
@@ -114,7 +114,7 @@ version:
 ## run-costco: Run Costco sync in dry-run mode (safe testing)
 run-costco:
 	@echo "$(GREEN)Running Costco sync (dry-run)...$(NC)"
-	$(GOCMD) run ./cmd/monarch-sync costco -dry-run -verbose
+	$(GOCMD) run ./cmd/itemize costco -dry-run -verbose
 
 ## install-tools: Install development tools (goimports)
 install-tools:

@@ -1,4 +1,4 @@
-# Monarch Money Sync
+# Itemize
 
 CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Money. Automatically splits transactions by category using AI.
 
@@ -28,7 +28,7 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Mone
 ```bash
 git clone https://github.com/eshaffer321/itemize
 cd itemize
-go build -o monarch-sync ./cmd/monarch-sync/
+go build -o itemize ./cmd/itemize/
 ```
 
 ### Configure
@@ -56,14 +56,14 @@ storage:
 
 ```bash
 # Preview changes (dry run)
-./monarch-sync walmart -dry-run -days 14
-./monarch-sync costco -dry-run -days 7
-./monarch-sync amazon -dry-run -days 7
+./itemize walmart -dry-run -days 14
+./itemize costco -dry-run -days 7
+./itemize amazon -dry-run -days 7
 
 # Apply changes
-./monarch-sync walmart -days 14
-./monarch-sync costco -days 7
-./monarch-sync amazon -days 7
+./itemize walmart -days 14
+./itemize costco -days 7
+./itemize amazon -days 7
 ```
 
 ### Flags

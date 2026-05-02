@@ -141,13 +141,13 @@ Use the `-verbose` flag to see detailed logs:
 
 ```bash
 # Minimal output
-./monarch-sync costco -days 14
+./itemize costco -days 14
 
 # Verbose output (shows all INFO logs)
-./monarch-sync costco -days 14 -verbose
+./itemize costco -days 14 -verbose
 
 # Debug output (shows DEBUG logs too)
-LOG_LEVEL=debug ./monarch-sync costco -days 14 -verbose
+LOG_LEVEL=debug ./itemize costco -days 14 -verbose
 ```
 
 ## Implementation Details
