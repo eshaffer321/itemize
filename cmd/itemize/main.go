@@ -106,7 +106,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Usage: monarch-sync <command> [flags]")
+	fmt.Println("Usage: itemize <command> [flags]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  serve       Start the API server")

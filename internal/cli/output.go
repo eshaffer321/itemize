@@ -14,7 +14,7 @@ func PrintHeader(providerName string, dryRun bool) {
 	if dryRun {
 		mode = "DRY-RUN"
 	}
-	fmt.Printf("monarch-sync: %s (%s mode)\n", providerName, mode)
+	fmt.Printf("itemize: %s (%s mode)\n", providerName, mode)
 }
 
 // PrintConfiguration prints sync configuration

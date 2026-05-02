@@ -361,7 +361,7 @@ func NewStorage(dbPath string) (*Storage, error) {
 
 ```bash
 rm monarch_sync.db
-./monarch-sync walmart -dry-run -days 7
+./itemize walmart -dry-run -days 7
 sqlite3 monarch_sync.db "SELECT * FROM schema_migrations"
 # Should show: 1, 2, 3
 ```
@@ -370,7 +370,7 @@ sqlite3 monarch_sync.db "SELECT * FROM schema_migrations"
 
 ```bash
 # Use existing monarch_sync.db
-./monarch-sync walmart -dry-run -days 7
+./itemize walmart -dry-run -days 7
 sqlite3 monarch_sync.db "SELECT * FROM schema_migrations"
 # Should show: 1, 2, 3
 # processing_records should be unchanged
@@ -381,7 +381,7 @@ sqlite3 monarch_sync.db "SELECT * FROM schema_migrations"
 ```bash
 # Manually create schema_migrations and add version 1 and 2
 sqlite3 monarch_sync.db "INSERT INTO schema_migrations (version, name) VALUES (1, 'initial'), (2, 'sync_runs')"
-./monarch-sync walmart -dry-run -days 7
+./itemize walmart -dry-run -days 7
 sqlite3 monarch_sync.db "SELECT * FROM schema_migrations"
 # Should show: 1, 2, 3 (only ran migration 3)
 ```
