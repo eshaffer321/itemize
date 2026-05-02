@@ -112,13 +112,13 @@ jobs:
           GOOS: ${{ matrix.os == 'ubuntu-latest' && 'linux' || matrix.os == 'macos-latest' && 'darwin' || 'windows' }}
           GOARCH: ${{ matrix.arch }}
         run: |
-          go build -v -o monarchmoney-sync-backend${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/monarch-sync/
+          go build -v -o itemize${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/itemize/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: monarchmoney-sync-backend*
+          path: itemize*
 
   security:
     name: Security Scan
