@@ -1,16 +1,16 @@
 module github.com/eshaffer321/monarchmoney-sync-backend
 
-go 1.24.0
+go 1.25.10
 
 require (
 	github.com/eshaffer321/costco-go v0.3.6
 	github.com/eshaffer321/monarchmoney-go v1.0.5
 	github.com/eshaffer321/walmart-client-go/v2 v2.0.1
-	github.com/go-chi/chi/v5 v5.2.3
-	github.com/mattn/go-sqlite3 v1.14.32
-	github.com/pressly/goose/v3 v3.26.0
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/mattn/go-sqlite3 v1.14.44
+	github.com/pressly/goose/v3 v3.27.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/term v0.35.0
+	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -28,7 +28,7 @@ require (
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 )
