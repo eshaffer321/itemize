@@ -467,4 +467,37 @@ func TestConvertReceipt_DiscountNetting(t *testing.T) {
 		assert.Equal(t, 4.99, itemMap["ROTISSERIE CHICKEN"].GetPrice(), "Chicken at full price")
 		assert.Equal(t, 23.00, itemMap["TOILET PAPER"].GetPrice(), "TP at full price")
 	})
+
+	t.Run("discount references parent by description instead of item number", func(t *testing.T) {
+		// Costco sometimes emits discount lines like "/AAA BATTERY" (description)
+		// rather than "/1234567" (item number). The discount should still be applied.
+		receipt := &costcogo.Receipt{
+			TransactionBarcode: "TEST505",
+			TransactionDate:    "2025-10-20",
+			Total:              12.49,
+			SubTotal:           12.49,
+			Taxes:              0.00,
+			ItemArray: []costcogo.ReceiptItem{
+				{
+					ItemNumber:        "379938",
+					ItemDescription01: "AAA BATTERY",
+					Amount:            14.99,
+					Unit:              1,
+				},
+				{
+					ItemNumber:        "999001",
+					ItemDescription01: "/AAA BATTERY", // description ref, not item number
+					Amount:            -2.50,
+					Unit:              -1,
+				},
+			},
+		}
+
+		order := provider.convertReceipt(receipt, true)
+		items := order.GetItems()
+
+		require.Len(t, items, 1, "Should have 1 item after netting description-referenced discount")
+		assert.Equal(t, "AAA BATTERY", items[0].GetName())
+		assert.Equal(t, 12.49, items[0].GetPrice(), "Discount should be applied via description fallback")
+	})
 }

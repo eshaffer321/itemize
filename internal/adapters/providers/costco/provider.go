@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
@@ -244,13 +245,14 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 
 	var items []providers.OrderItem
 	if hasDetails {
-		// Build a map to net out discount line items
+		// Build maps to net out discount line items
 		itemMap := make(map[string]*CostcoOrderItem)
+		descMap := make(map[string]*CostcoOrderItem) // fallback: keyed by uppercased description
 
 		// First pass: collect all non-discount items
 		for _, item := range receipt.ItemArray {
 			if !item.IsDiscount() {
-				itemMap[item.ItemNumber] = &CostcoOrderItem{
+				entry := &CostcoOrderItem{
 					name:        item.ItemDescription01,
 					price:       item.Amount,
 					quantity:    float64(item.Unit),
@@ -258,21 +260,27 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 					sku:         item.ItemNumber,
 					description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
 				}
+				itemMap[item.ItemNumber] = entry
+				descMap[strings.ToUpper(strings.TrimSpace(item.ItemDescription01))] = entry
 			}
 		}
 
 		// Second pass: apply discounts to parent items
 		for _, item := range receipt.ItemArray {
 			if item.IsDiscount() {
-				parentNum := item.GetParentItemNumber()
-				if parentItem, exists := itemMap[parentNum]; exists {
-					// Apply discount (item.Amount is already negative)
+				parentRef := item.GetParentItemNumber()
+				parentItem, exists := itemMap[parentRef]
+				if !exists {
+					// Costco sometimes references the parent by description (e.g. "/AAA BATTERY")
+					// rather than by item number (e.g. "/1234567").
+					parentItem, exists = descMap[strings.ToUpper(parentRef)]
+				}
+				if exists {
 					parentItem.price += item.Amount
 				} else {
-					// Orphaned discount - log warning and skip
 					p.logger.Warn("found orphaned discount with no matching parent item",
 						"discount_item", item.ItemNumber,
-						"parent_item_ref", parentNum,
+						"parent_item_ref", parentRef,
 						"discount_amount", item.Amount,
 					)
 				}

@@ -12,6 +12,32 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-05-24: Costco discount applied by description instead of item number
+
+**Description:**
+Some Costco receipt line items reference their parent via description (e.g. `/AAA BATTERY`) rather than item number (e.g. `/1234567`). The discount lookup only checked the item-number map, so these discounts were logged as "orphaned" and silently dropped, leaving the item price too high.
+
+**Test Case:**
+```go
+// provider_test.go: "discount references parent by description instead of item number"
+// Discount item has ItemDescription01 = "/AAA BATTERY"; parent has ItemNumber "379938"
+// Expected: discount of -$2.50 applied → price $12.49
+// Actual before fix: price remained $14.99, WARN logged
+```
+
+**Root Cause:**
+`convertReceipt` built a single `itemMap` keyed by `ItemNumber`. `GetParentItemNumber()` strips the leading `/`, returning `"AAA BATTERY"` — a string that never matches a numeric key.
+
+**Fix Applied:**
+Added a parallel `descMap` keyed by uppercased `ItemDescription01`. When the item-number lookup misses, fall back to the description map before declaring the discount orphaned.
+
+**Verification:**
+- New test `discount references parent by description instead of item number` passes.
+- All existing discount-netting tests continue to pass.
+- `go test ./... -race` green.
+
+---
+
 ### 2025-09-01: No bugs discovered yet
 The project was developed using strict TDD methodology from the start, preventing bugs through test-first development.
 
