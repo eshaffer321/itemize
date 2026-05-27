@@ -500,4 +500,38 @@ func TestConvertReceipt_DiscountNetting(t *testing.T) {
 		assert.Equal(t, "AAA BATTERY", items[0].GetName())
 		assert.Equal(t, 12.49, items[0].GetPrice(), "Discount should be applied via description fallback")
 	})
+
+	t.Run("discount references parent by partial description substring", func(t *testing.T) {
+		// Real receipts sometimes have the parent item named e.g. "AA/AAA BATTERY" but the
+		// discount line references it as "/AAA BATTERY" — neither item-number nor exact
+		// description match will succeed, so we need a substring/contains fallback.
+		receipt := &costcogo.Receipt{
+			TransactionBarcode: "TEST506",
+			TransactionDate:    "2025-10-20",
+			Total:              12.49,
+			SubTotal:           12.49,
+			Taxes:              0.00,
+			ItemArray: []costcogo.ReceiptItem{
+				{
+					ItemNumber:        "379938",
+					ItemDescription01: "AA/AAA BATTERY", // full name differs from discount ref
+					Amount:            14.99,
+					Unit:              1,
+				},
+				{
+					ItemNumber:        "999001",
+					ItemDescription01: "/AAA BATTERY", // partial description ref
+					Amount:            -2.50,
+					Unit:              -1,
+				},
+			},
+		}
+
+		order := provider.convertReceipt(receipt, true)
+		items := order.GetItems()
+
+		require.Len(t, items, 1, "Should have 1 item after netting partial-description-referenced discount")
+		assert.Equal(t, "AA/AAA BATTERY", items[0].GetName())
+		assert.Equal(t, 12.49, items[0].GetPrice(), "Discount should be applied via partial description fallback")
+	})
 }
