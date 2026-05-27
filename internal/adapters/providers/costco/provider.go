@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
@@ -245,51 +244,23 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 
 	var items []providers.OrderItem
 	if hasDetails {
-		// Build maps to net out discount line items
-		itemMap := make(map[string]*CostcoOrderItem)
-		descMap := make(map[string]*CostcoOrderItem) // fallback: keyed by uppercased description
-
-		// First pass: collect all non-discount items
-		for _, item := range receipt.ItemArray {
-			if !item.IsDiscount() {
-				entry := &CostcoOrderItem{
-					name:        item.ItemDescription01,
-					price:       item.Amount,
-					quantity:    float64(item.Unit),
-					unitPrice:   item.ItemUnitPriceAmount,
-					sku:         item.ItemNumber,
-					description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
-				}
-				itemMap[item.ItemNumber] = entry
-				descMap[strings.ToUpper(strings.TrimSpace(item.ItemDescription01))] = entry
-			}
+		netted, orphaned := costcogo.NetDiscounts(receipt.ItemArray)
+		for _, disc := range orphaned {
+			p.logger.Warn("found orphaned discount with no matching parent item",
+				"discount_item", disc.ItemNumber,
+				"parent_item_ref", disc.GetParentItemNumber(),
+				"discount_amount", disc.Amount,
+			)
 		}
-
-		// Second pass: apply discounts to parent items
-		for _, item := range receipt.ItemArray {
-			if item.IsDiscount() {
-				parentRef := item.GetParentItemNumber()
-				parentItem, exists := itemMap[parentRef]
-				if !exists {
-					// Costco sometimes references the parent by description (e.g. "/AAA BATTERY")
-					// rather than by item number (e.g. "/1234567").
-					parentItem, exists = descMap[strings.ToUpper(parentRef)]
-				}
-				if exists {
-					parentItem.price += item.Amount
-				} else {
-					p.logger.Warn("found orphaned discount with no matching parent item",
-						"discount_item", item.ItemNumber,
-						"parent_item_ref", parentRef,
-						"discount_amount", item.Amount,
-					)
-				}
-			}
-		}
-
-		// Convert map to slice
-		for _, item := range itemMap {
-			items = append(items, item)
+		for _, item := range netted {
+			items = append(items, &CostcoOrderItem{
+				name:        item.ItemDescription01,
+				price:       item.Amount,
+				quantity:    float64(item.Unit),
+				unitPrice:   item.ItemUnitPriceAmount,
+				sku:         item.ItemNumber,
+				description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
+			})
 		}
 	}
 
