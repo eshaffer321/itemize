@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
+	"strings"
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
@@ -242,6 +244,8 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 		}
 	}
 
+	chargeTotal, allocationRatio := receiptChargeTotal(receipt)
+
 	var items []providers.OrderItem
 	if hasDetails {
 		netted, orphaned := costcogo.NetDiscounts(receipt.ItemArray)
@@ -253,28 +257,86 @@ func (p *Provider) convertReceipt(receipt *costcogo.Receipt, hasDetails bool) pr
 			)
 		}
 		for _, item := range netted {
+			itemAmount := roundCurrency(item.Amount * allocationRatio)
+			unitPrice := item.ItemUnitPriceAmount
+			if unitPrice != 0 {
+				unitPrice = roundCurrency(unitPrice * allocationRatio)
+			}
+
 			items = append(items, &CostcoOrderItem{
 				name:        item.ItemDescription01,
-				price:       item.Amount,
+				price:       itemAmount,
 				quantity:    float64(item.Unit),
-				unitPrice:   item.ItemUnitPriceAmount,
+				unitPrice:   unitPrice,
 				sku:         item.ItemNumber,
 				description: fmt.Sprintf("%s %s", item.ItemDescription01, item.ItemDescription02),
 			})
 		}
 	}
 
+	subtotal := roundCurrency(receipt.SubTotal * allocationRatio)
+	tax := roundCurrency(chargeTotal - subtotal)
+
 	return &CostcoOrder{
 		id:           receipt.TransactionBarcode,
 		date:         receiptDate,
-		total:        receipt.Total,
-		subtotal:     receipt.SubTotal,
-		tax:          receipt.Taxes,
+		total:        chargeTotal,
+		subtotal:     subtotal,
+		tax:          tax,
 		items:        items,
 		providerName: "Costco",
 		orderType:    "receipt",
 		rawData:      receipt,
 	}
+}
+
+func receiptChargeTotal(receipt *costcogo.Receipt) (float64, float64) {
+	total := roundCurrency(receipt.Total)
+	cardTotal := 0.0
+
+	for _, tender := range receipt.TenderArray {
+		if isBankCardTender(tender) {
+			cardTotal += tender.AmountTender
+		}
+	}
+
+	if cardTotal == 0 || receipt.Total == 0 {
+		return total, 1.0
+	}
+
+	if receipt.Total < 0 {
+		cardTotal = -math.Abs(cardTotal)
+	} else {
+		cardTotal = math.Abs(cardTotal)
+	}
+
+	chargeTotal := roundCurrency(cardTotal)
+	return chargeTotal, math.Abs(chargeTotal / receipt.Total)
+}
+
+func isBankCardTender(tender costcogo.Tender) bool {
+	description := strings.ToUpper(strings.TrimSpace(tender.TenderDescription))
+	typeName := strings.ToUpper(strings.TrimSpace(tender.TenderTypeName))
+	value := description + " " + typeName
+
+	excluded := []string{"CASH", "CHANGE", "REBATE", "SHOP CARD", "GIFT CARD"}
+	for _, term := range excluded {
+		if strings.Contains(value, term) {
+			return false
+		}
+	}
+
+	cardTerms := []string{"VISA", "MASTERCARD", "DEBIT", "DISCOVER", "AMEX", "AMERICAN EXPRESS"}
+	for _, term := range cardTerms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func roundCurrency(amount float64) float64 {
+	return math.Round(amount*100) / 100
 }
 
 // CostcoOrder implements the Order interface for Costco
