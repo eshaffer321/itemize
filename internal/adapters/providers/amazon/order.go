@@ -2,7 +2,6 @@ package amazon
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -11,6 +10,10 @@ import (
 
 // ErrPaymentPending indicates an order has no bank charges yet because it hasn't shipped
 var ErrPaymentPending = errors.New("payment pending: order has not been charged yet (awaiting shipment)")
+
+// ErrGiftCardOrder indicates an order was paid entirely with gift cards or points —
+// no bank transaction exists in Monarch to match against.
+var ErrGiftCardOrder = errors.New("no bank charges found (order paid entirely with gift cards/points)")
 
 // Order wraps a ParsedOrder to implement the providers.Order interface
 type Order struct {
@@ -137,7 +140,7 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	if len(bankCharges) == 0 {
 		if hasNonBankPayments {
 			// Order was paid entirely with gift cards/points - no bank transaction to match
-			return nil, fmt.Errorf("no bank charges found (order paid entirely with gift cards/points)")
+			return nil, ErrGiftCardOrder
 		}
 		// No bank charges and no non-bank payments processed yet - still pending
 		return nil, ErrPaymentPending
