@@ -535,3 +535,49 @@ func TestConvertReceipt_DiscountNetting(t *testing.T) {
 		assert.Equal(t, 12.49, items[0].GetPrice(), "Discount should be applied via partial description fallback")
 	})
 }
+
+func TestConvertReceipt_MixedTenderUsesCardAmount(t *testing.T) {
+	logger := slog.Default()
+	provider := NewProvider(nil, logger)
+
+	receipt := &costcogo.Receipt{
+		TransactionBarcode: "MIXED123",
+		TransactionDate:    "2026-05-09",
+		Total:              150.00,
+		SubTotal:           140.00,
+		Taxes:              10.00,
+		ItemArray: []costcogo.ReceiptItem{
+			{
+				ItemNumber:          "111111",
+				ItemDescription01:   "ITEM A",
+				Amount:              70.00,
+				Unit:                1,
+				ItemUnitPriceAmount: 70.00,
+			},
+			{
+				ItemNumber:          "222222",
+				ItemDescription01:   "ITEM B",
+				Amount:              70.00,
+				Unit:                1,
+				ItemUnitPriceAmount: 70.00,
+			},
+		},
+		TenderArray: []costcogo.Tender{
+			{TenderDescription: "COSTCO VISA", AmountTender: 100.00},
+			{TenderDescription: "CASH", AmountTender: 50.00},
+		},
+	}
+
+	order := provider.convertReceipt(receipt, true)
+
+	assert.InDelta(t, 100.00, order.GetTotal(), 0.001, "Order total should match the card charge, not the receipt total")
+	assert.InDelta(t, 93.33, order.GetSubtotal(), 0.001, "Subtotal should be allocated to the card-paid portion")
+	assert.InDelta(t, 6.67, order.GetTax(), 0.001, "Tax should be allocated to the card-paid portion")
+
+	items := order.GetItems()
+	require.Len(t, items, 2)
+	assert.InDelta(t, 46.67, items[0].GetPrice(), 0.001)
+	assert.InDelta(t, 46.67, items[0].GetUnitPrice(), 0.001)
+	assert.InDelta(t, 46.67, items[1].GetPrice(), 0.001)
+	assert.InDelta(t, 46.67, items[1].GetUnitPrice(), 0.001)
+}
