@@ -137,16 +137,24 @@ func (h *AmazonHandler) ProcessOrder(
 	// Step 1: Get bank charges
 	bankCharges, err := order.GetFinalCharges()
 	if err != nil {
-		// Check if this is a pending payment (order not yet shipped/charged)
-		if errors.Is(err, amazonprovider.ErrPaymentPending) {
+		switch {
+		case errors.Is(err, amazonprovider.ErrPaymentPending):
 			h.logInfo("Order payment pending (not yet shipped)",
 				"order_id", order.GetID(),
 				"order_total", order.GetTotal())
 			result.Skipped = true
 			result.SkipReason = "payment pending"
 			return result, nil
+		case errors.Is(err, amazonprovider.ErrGiftCardOrder):
+			h.logInfo("Order paid entirely with gift cards/points — no bank transaction to match",
+				"order_id", order.GetID(),
+				"order_total", order.GetTotal())
+			result.Skipped = true
+			result.SkipReason = "paid entirely with gift cards/points"
+			return result, nil
+		default:
+			return nil, fmt.Errorf("failed to get bank charges: %w", err)
 		}
-		return nil, fmt.Errorf("failed to get bank charges: %w", err)
 	}
 
 	h.logDebug("Got bank charges",

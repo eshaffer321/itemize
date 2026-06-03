@@ -67,6 +67,20 @@ func ValidateCharges(bankCharges []float64, orderTotal, nonBankAmount float64) *
 		}
 	}
 
+	// Also valid when bank charges match the full order total.
+	// Some non-bank entries (promotional credits, rewards earned) appear in the
+	// transaction list with no card digits but do NOT reduce the actual card charge.
+	diffFromTotal := roundToCents(bankSum - orderTotal)
+	if math.Abs(diffFromTotal) <= tolerance {
+		return &ChargeValidation{
+			Valid:          true,
+			BankChargesSum: bankSum,
+			ExpectedSum:    expectedSum,
+			Difference:     diff,
+			Reason:         "",
+		}
+	}
+
 	// Validation failed - determine reason
 	var reason string
 	if diff < 0 {
