@@ -1,6 +1,6 @@
 module github.com/eshaffer321/monarchmoney-sync-backend
 
-go 1.25.10
+go 1.25.11
 
 require (
 	github.com/eshaffer321/costco-go v0.3.10
