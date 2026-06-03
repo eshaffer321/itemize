@@ -206,6 +206,21 @@ func TestValidateCharges_RoundingEdgeCases(t *testing.T) {
 	}
 }
 
+func TestValidateCharges_BankMatchesOrderTotalWithNonBankEntry(t *testing.T) {
+	// Reproduces order 113-6125291-9439466:
+	// Bank charged full order total ($68.86) but there's a $6.99 non-bank
+	// accounting entry (promotional credit / rewards earned) that does NOT
+	// actually reduce the card charge. Validation must pass.
+	bankCharges := []float64{68.86}
+	orderTotal := 68.86
+	nonBankAmount := 6.99
+
+	result := ValidateCharges(bankCharges, orderTotal, nonBankAmount)
+
+	assert.True(t, result.Valid, "Should pass when bank charges equal order total regardless of non-bank accounting entries")
+	assert.Equal(t, 68.86, result.BankChargesSum)
+}
+
 func TestValidateCharges_ReasonMessages(t *testing.T) {
 	t.Run("missing charge has helpful message", func(t *testing.T) {
 		result := ValidateCharges([]float64{50.00}, 100.00, 0.0)

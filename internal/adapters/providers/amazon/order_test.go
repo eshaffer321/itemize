@@ -70,9 +70,8 @@ func TestOrder_GetFinalCharges_OnlyGiftCard(t *testing.T) {
 	order := NewOrder(parsedOrder, nil)
 
 	charges, err := order.GetFinalCharges()
-	assert.Error(t, err, "Should return error when no bank charges found")
+	assert.ErrorIs(t, err, ErrGiftCardOrder, "Should return ErrGiftCardOrder when no bank charges found")
 	assert.Nil(t, charges)
-	assert.Contains(t, err.Error(), "paid entirely with gift cards/points")
 }
 
 func TestOrder_GetFinalCharges_NoTransactions_ReturnsPending(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	amazonprovider "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/matcher"
 	"github.com/stretchr/testify/assert"
@@ -401,6 +402,34 @@ func TestAmazonHandler_ProcessOrder_WithGiftCard(t *testing.T) {
 	require.NotNil(t, result.Allocations, "Allocations should not be nil")
 	// Allocation should be based on bank charges ($100), not order total ($150)
 	assert.InDelta(t, 100.00, result.Allocations.TotalAllocated, 0.01)
+}
+
+func TestAmazonHandler_ProcessOrder_FullyGiftCardOrder(t *testing.T) {
+	// Reproduces order 112-4444156-8489869:
+	// Order paid entirely with gift cards/points — no bank transaction exists in Monarch.
+	// Handler must skip (not error) so the sync continues.
+	order := &mockAmazonOrder{
+		id:             "112-4444156-8489869",
+		date:           time.Now(),
+		total:          50.00,
+		items:          []providers.OrderItem{&mockItem{name: "Item", price: 50.00}},
+		bankChargesErr: amazonprovider.ErrGiftCardOrder,
+	}
+
+	handler := NewAmazonHandler(nil, nil, nil, nil, nil)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		nil,
+		make(map[string]bool),
+		nil, nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Contains(t, result.SkipReason, "gift card")
 }
 
 func TestAllocatedItem(t *testing.T) {

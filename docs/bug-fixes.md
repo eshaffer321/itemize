@@ -12,6 +12,57 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-05-31: Amazon charge validation incorrectly rejects orders with non-reducing non-bank entries
+
+**Description:**
+`itemize amazon -dry-run` emitted `WARN: Charge validation failed ... bank charges ($68.86) exceed expected ($61.87) by $6.99` and skipped the order. The $6.99 was a non-bank transaction entry (promotional credit / reward earned) that appears in Amazon's transaction list with no card digits but does NOT actually reduce the card charge. The validator subtracted it from the order total to compute `expectedSum`, making the real bank charge look like an overcharge.
+
+**Test Case:**
+```go
+// validator/charges_test.go: TestValidateCharges_BankMatchesOrderTotalWithNonBankEntry
+// bankCharges=[68.86], orderTotal=68.86, nonBankAmount=6.99
+// Expected: valid (bank charge equals full order total)
+// Actual before fix: invalid ("bank charges exceed expected by $6.99")
+```
+
+**Root Cause:**
+`ValidateCharges` only checked `bankSum ≈ orderTotal - nonBankAmount`. When a non-bank entry doesn't reduce the card charge (e.g. rewards earned, promotional accounting), the formula underestimates what the bank should receive.
+
+**Fix Applied:**
+Added a secondary check in `ValidateCharges`: if `bankSum ≈ orderTotal` (within 2¢ tolerance), the validation passes regardless of the non-bank amount. The bank charged the full order total, which is a valid scenario.
+
+**Verification:**
+- `TestValidateCharges_BankMatchesOrderTotalWithNonBankEntry` now passes.
+- All existing validator tests continue to pass.
+
+---
+
+### 2026-05-31: Amazon gift-card-only orders cause handler error instead of skip
+
+**Description:**
+`itemize amazon -dry-run` emitted `ERROR: Handler error order_id=112-4444156-8489869 error=failed to get bank charges: no bank charges found (order paid entirely with gift cards/points)`. Orders paid entirely with gift cards/points have no bank transaction in Monarch to match, so they should be silently skipped — not crash the handler.
+
+**Test Case:**
+```go
+// handlers/amazon_test.go: TestAmazonHandler_ProcessOrder_FullyGiftCardOrder
+// GetFinalCharges() returns ErrGiftCardOrder
+// Expected: result.Skipped=true, no error returned
+// Actual before fix: returned a fatal error, logged as ERROR
+```
+
+**Root Cause:**
+`GetFinalCharges()` returned a plain `fmt.Errorf(...)` for this case instead of a sentinel error. The handler only checked `errors.Is(err, ErrPaymentPending)` and treated everything else as a fatal error.
+
+**Fix Applied:**
+Introduced `ErrGiftCardOrder` sentinel in `amazon/order.go` and updated `GetFinalCharges()` to return it. The handler now checks `errors.Is(err, ErrGiftCardOrder)` and skips the order with reason `"paid entirely with gift cards/points"`.
+
+**Verification:**
+- `TestAmazonHandler_ProcessOrder_FullyGiftCardOrder` now passes.
+- `TestOrder_GetFinalCharges_OnlyGiftCard` updated to use `errors.Is(err, ErrGiftCardOrder)`.
+- All existing tests continue to pass.
+
+---
+
 ### 2026-05-31: Costco mixed-tender receipts matched against full receipt total
 
 **Description:**
