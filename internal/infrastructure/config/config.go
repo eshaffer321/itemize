@@ -122,7 +122,7 @@ func LoadFromEnv() *Config {
 		},
 		OpenAI: OpenAIConfig{
 			APIKey: os.Getenv("OPENAI_API_KEY"),
-			Model:  getEnv("OPENAI_MODEL", "gpt-4o"),
+			Model:  getEnv("OPENAI_MODEL", "gpt-5.4-nano"),
 		},
 		Providers: ProvidersConfig{
 			Walmart: WalmartConfig{

@@ -37,10 +37,11 @@ type CategorizationResult struct {
 
 // OpenAI API types
 type ChatCompletionRequest struct {
-	Model          string          `json:"model"`
-	Messages       []Message       `json:"messages"`
-	Temperature    float64         `json:"temperature"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []Message       `json:"messages"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	ReasoningEffort *string         `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *ResponseFormat `json:"response_format,omitempty"`
 }
 
 type ResponseFormat struct {
@@ -75,15 +76,23 @@ type Cache interface {
 type Categorizer struct {
 	client OpenAIClient
 	cache  Cache
+	Model  string
 }
 
 // NewCategorizer creates a new categorizer
-func NewCategorizer(client OpenAIClient, cache Cache) *Categorizer {
+func NewCategorizer(client OpenAIClient, cache Cache, model string) *Categorizer {
+	if strings.TrimSpace(model) == "" {
+		model = DefaultModel
+	}
+
 	return &Categorizer{
 		client: client,
 		cache:  cache,
+		Model:  model,
 	}
 }
+
+const DefaultModel = "gpt-5.4-nano"
 
 // CategorizeItems categorizes a list of items using available categories
 func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
@@ -147,9 +156,9 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 
 // Retry configuration
 const (
-	maxRetries    = 3
-	baseDelay     = 1 * time.Second
-	maxDelay      = 8 * time.Second
+	maxRetries = 3
+	baseDelay  = 1 * time.Second
+	maxDelay   = 8 * time.Second
 )
 
 // isRetryableError determines if an error is transient and worth retrying
@@ -177,8 +186,7 @@ func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories [
 	prompt := c.buildPrompt(items, categories)
 
 	request := ChatCompletionRequest{
-		Model:       "gpt-4o", // Using GPT-4o for better performance and lower cost
-		Temperature: 0.1,      // Low temperature for consistent categorization
+		Model: c.Model,
 		ResponseFormat: &ResponseFormat{
 			Type: "json_object",
 		},
@@ -192,6 +200,13 @@ func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories [
 				Content: prompt,
 			},
 		},
+	}
+	if isGPT5Model(c.Model) {
+		reasoningEffort := "low"
+		request.ReasoningEffort = &reasoningEffort
+	} else {
+		temperature := 0.1
+		request.Temperature = &temperature
 	}
 
 	var lastErr error
@@ -225,6 +240,10 @@ func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories [
 	}
 
 	return nil, fmt.Errorf("%w after %d attempts", lastErr, maxRetries)
+}
+
+func isGPT5Model(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-5")
 }
 
 // buildPrompt creates the prompt for OpenAI

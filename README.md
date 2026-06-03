@@ -46,7 +46,7 @@ monarch:
 
 openai:
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-4o"
+  model: "gpt-5.4-nano"
 
 storage:
   database_path: "monarch_sync.db"

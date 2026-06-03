@@ -25,7 +25,7 @@ func NewClients(cfg *config.Config) (*Clients, error) {
 	// Initialize OpenAI client and cache for categorizer
 	openAIClient := categorizer.NewRealOpenAIClient(openAIKey)
 	cache := categorizer.NewMemoryCache()
-	cat := categorizer.NewCategorizer(openAIClient, cache)
+	cat := categorizer.NewCategorizer(openAIClient, cache, cfg.OpenAI.Model)
 
 	return &Clients{
 		Monarch:     mClient,

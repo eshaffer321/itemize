@@ -43,7 +43,7 @@ func TestCategorizer_CategorizeItems_Success(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "gpt-4o-mini")
 
 	// Test data
 	items := []Item{
@@ -77,8 +77,11 @@ func TestCategorizer_CategorizeItems_Success(t *testing.T) {
 
 	// Mock OpenAI call
 	mockClient.On("CreateChatCompletion", ctx, mock.MatchedBy(func(req ChatCompletionRequest) bool {
-		// Verify the request contains the right model and has a system message
-		return req.Model == "gpt-4o" &&
+		// Verify the request contains the configured model and has a system message
+		return req.Model == "gpt-4o-mini" &&
+			req.Temperature != nil &&
+			*req.Temperature == 0.1 &&
+			req.ReasoningEffort == nil &&
 			len(req.Messages) > 0 &&
 			req.ResponseFormat != nil &&
 			req.ResponseFormat.Type == "json_object"
@@ -119,7 +122,7 @@ func TestCategorizer_CategorizeItems_WithCache(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "")
 
 	// Test data
 	items := []Item{
@@ -160,7 +163,7 @@ func TestCategorizer_CategorizeItems_PartialCache(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "gpt-5.4-nano")
 
 	// Test data
 	items := []Item{
@@ -188,8 +191,11 @@ func TestCategorizer_CategorizeItems_PartialCache(t *testing.T) {
 
 	// Mock OpenAI call for uncached item
 	mockClient.On("CreateChatCompletion", ctx, mock.MatchedBy(func(req ChatCompletionRequest) bool {
-		// Should only include uncached item
-		return req.Model == "gpt-4o"
+		// Should only include uncached item, and GPT-5-family models should omit temperature.
+		return req.Model == "gpt-5.4-nano" &&
+			req.Temperature == nil &&
+			req.ReasoningEffort != nil &&
+			*req.ReasoningEffort == "low"
 	})).Return(&ChatCompletionResponse{
 		Choices: []Choice{
 			{
@@ -229,7 +235,7 @@ func TestCategorizer_CategorizeItems_EmptyItems(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "")
 
 	// Test with empty items
 	result, err := categorizer.CategorizeItems(ctx, []Item{}, []Category{{ID: "cat_1", Name: "Groceries"}})
@@ -249,7 +255,7 @@ func TestCategorizer_CategorizeItems_OpenAIError(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "")
 
 	items := []Item{
 		{Name: "Test Item", Price: 10.00},
@@ -329,7 +335,7 @@ func TestCategorizer_CategorizeItems_RetriesOnTransientError(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "")
 
 	items := []Item{
 		{Name: "Test Item", Price: 10.00},
@@ -385,7 +391,7 @@ func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
 	mockClient := new(MockOpenAIClient)
 	mockCache := new(MockCache)
 
-	categorizer := NewCategorizer(mockClient, mockCache)
+	categorizer := NewCategorizer(mockClient, mockCache, "")
 
 	items := []Item{
 		{Name: "Test Item", Price: 10.00},
@@ -412,4 +418,10 @@ func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
 	// Verify OpenAI was called 3 times (all retries exhausted)
 	mockClient.AssertNumberOfCalls(t, "CreateChatCompletion", 3)
 	mockCache.AssertExpectations(t)
+}
+
+func TestNewCategorizer_DefaultsModelWhenEmpty(t *testing.T) {
+	categorizer := NewCategorizer(new(MockOpenAIClient), new(MockCache), "")
+
+	assert.Equal(t, "gpt-5.4-nano", categorizer.Model)
 }

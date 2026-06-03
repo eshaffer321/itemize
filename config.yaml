@@ -35,7 +35,7 @@ monarch:
 # OpenAI configuration
 openai:
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-4o"
+  model: "gpt-5.4-nano"
 
 # Storage configuration
 storage:
