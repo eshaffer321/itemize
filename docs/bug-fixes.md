@@ -63,6 +63,33 @@ Introduced `ErrGiftCardOrder` sentinel in `amazon/order.go` and updated `GetFina
 
 ---
 
+### 2026-05-31: Costco mixed-tender receipts matched against full receipt total
+
+**Description:**
+Costco in-warehouse receipts can be paid with multiple tenders, such as part Costco Visa and part cash/rebate. Itemize matched the full receipt total against Monarch, so mixed-tender receipts were skipped when Monarch only had the card-funded portion.
+
+**Test Case:**
+```go
+// provider_test.go: TestConvertReceipt_MixedTenderUsesCardAmount
+// Receipt total is $150.00, paid $100.00 by COSTCO VISA and $50.00 cash.
+// Expected: order total is $100.00 and items/subtotal/tax are scaled to the card-paid portion.
+// Actual before fix: order total remained $150.00, so no Monarch transaction matched.
+```
+
+**Root Cause:**
+`convertReceipt` always used `receipt.Total` for `Order.GetTotal()`. For mixed tender purchases, the matchable Monarch transaction is the bank-card tender amount, not the full Costco receipt total.
+
+**Fix Applied:**
+Added Costco tender detection for bank-card payments, use the card tender total as the order total when present, and proportionally allocate item prices, subtotal, and tax to that card-paid amount.
+
+**Verification:**
+- New test `TestConvertReceipt_MixedTenderUsesCardAmount` fails before the fix and passes after.
+- Existing Costco discount-netting tests pass.
+- `go test ./...` passes.
+- Temporary-db dry-run for receipt `21134300601232605091211` matched Monarch transaction `243571290918193554` at `$209.65`.
+
+---
+
 ### 2026-05-24: Costco discount applied by description instead of item number
 
 **Description:**
