@@ -37,8 +37,10 @@ go test ./internal/domain/categorizer/... -v   # single package
 
 Reads `config.yaml` or env vars:
 - `MONARCH_TOKEN` — Monarch API token (required)
-- `OPENAI_APIKEY` / `OPENAI_API_KEY` — OpenAI key (required)
-- `OPENAI_MODEL` — categorization model (default in `config.go`; override per-run for A/B testing)
+- LLM categorizer — set **one** of:
+  - `OPENAI_API_KEY` (also `OPENAI_APIKEY`) with optional `OPENAI_MODEL` (default `gpt-5.4-nano`)
+  - `ANTHROPIC_API_KEY` (also `CLAUDE_API_KEY`) with optional `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`)
+- `CATEGORIZER_PROVIDER` — `openai` or `anthropic` to force a backend when both keys are set (auto-detected otherwise)
 - SQLite DB auto-created at `monarch_sync.db`
 
 ## Architecture
@@ -48,11 +50,15 @@ Layered, with the domain core kept dependency-free. Flow: **CLI → application 
 ```
 internal/
   application/sync/   orchestrator + per-provider handlers (walmart, costco, amazon, simple)
-  domain/             pure logic: categorizer/ (OpenAI), matcher/ (fuzzy), splitter/ (splits + tax)
-  adapters/           providers/ (walmart, costco, amazon) and clients/ (Monarch, OpenAI builders)
+  domain/             pure logic: categorizer/ (pluggable LLM backend), matcher/ (fuzzy), splitter/ (splits + tax)
+  adapters/           providers/ (walmart, costco, amazon) and clients/ (Monarch, openai/, anthropic/)
   infrastructure/     config/, storage/ (SQLite + goose migrations), logging/ (slog)
   cli/                flag parsing + output
 ```
+
+The categorizer depends on a `ChatClient` interface; concrete LLM backends
+live under `internal/adapters/clients/{openai,anthropic}`. Selection happens
+in `internal/adapters/clients/clients.go:newChatClient`.
 
 Key entry points:
 - Orchestrator — `internal/application/sync/orchestrator.go`
