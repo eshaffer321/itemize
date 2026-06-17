@@ -35,7 +35,10 @@ type CategorizationResult struct {
 	Categorizations []ItemCategorization `json:"categorizations"`
 }
 
-// OpenAI API types
+// Chat-completion request/response types.
+// The shape mirrors OpenAI's chat-completions API and is treated as the
+// shared vocabulary that adapters translate to and from. Adapters for
+// non-OpenAI backends (e.g. Anthropic) consume the same types.
 type ChatCompletionRequest struct {
 	Model           string          `json:"model"`
 	Messages        []Message       `json:"messages"`
@@ -61,8 +64,9 @@ type Choice struct {
 	Message Message `json:"message"`
 }
 
-// OpenAIClient interface for OpenAI API calls
-type OpenAIClient interface {
+// ChatClient is the LLM-backend interface the categorizer depends on.
+// Concrete implementations live in internal/adapters/clients/{openai,anthropic}.
+type ChatClient interface {
 	CreateChatCompletion(ctx context.Context, request ChatCompletionRequest) (*ChatCompletionResponse, error)
 }
 
@@ -72,15 +76,15 @@ type Cache interface {
 	Set(key string, value string)
 }
 
-// Categorizer handles item categorization using OpenAI
+// Categorizer handles item categorization using a pluggable LLM backend.
 type Categorizer struct {
-	client OpenAIClient
+	client ChatClient
 	cache  Cache
 	Model  string
 }
 
 // NewCategorizer creates a new categorizer
-func NewCategorizer(client OpenAIClient, cache Cache, model string) *Categorizer {
+func NewCategorizer(client ChatClient, cache Cache, model string) *Categorizer {
 	if strings.TrimSpace(model) == "" {
 		model = DefaultModel
 	}
@@ -135,14 +139,14 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 		return result, nil
 	}
 
-	// Call OpenAI for uncached items
-	openAIResult, err := c.callOpenAI(ctx, uncachedItems, categories)
+	// Call the LLM for uncached items
+	llmResult, err := c.callLLM(ctx, uncachedItems, categories)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI categorization failed: %w", err)
+		return nil, fmt.Errorf("LLM categorization failed: %w", err)
 	}
 
-	// Process OpenAI results
-	for _, cat := range openAIResult.Categorizations {
+	// Process LLM results
+	for _, cat := range llmResult.Categorizations {
 		// Cache the result
 		normalizedName := c.normalizeItemName(cat.ItemName)
 		c.cache.Set(normalizedName, cat.CategoryID)
@@ -181,8 +185,8 @@ func isRetryableError(err error) bool {
 		strings.Contains(errMsg, "504")
 }
 
-// callOpenAI makes the actual API call to OpenAI with retry logic
-func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
+// callLLM makes the actual API call to the LLM with retry logic
+func (c *Categorizer) callLLM(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
 	prompt := c.buildPrompt(items, categories)
 
 	request := ChatCompletionRequest{
@@ -227,13 +231,13 @@ func (c *Categorizer) callOpenAI(ctx context.Context, items []Item, categories [
 		}
 
 		if len(response.Choices) == 0 {
-			return nil, fmt.Errorf("no response from OpenAI")
+			return nil, fmt.Errorf("no response from LLM")
 		}
 
 		// Parse JSON response
 		var result CategorizationResult
 		if err := json.Unmarshal([]byte(response.Choices[0].Message.Content), &result); err != nil {
-			return nil, fmt.Errorf("failed to parse OpenAI response: %w", err)
+			return nil, fmt.Errorf("failed to parse LLM response: %w", err)
 		}
 
 		return &result, nil

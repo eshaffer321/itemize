@@ -6,7 +6,7 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Mone
 
 1. Fetches orders from retailers with item details
 2. Matches them to transactions in Monarch Money
-3. Categorizes items using OpenAI
+3. Categorizes items using an LLM (OpenAI or Anthropic Claude)
 4. Splits the transaction by category with proportional tax
 
 **Example**: A $150 Walmart transaction becomes:
@@ -20,7 +20,7 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Mone
 
 - Go 1.24+
 - Monarch Money account
-- OpenAI API key
+- An LLM API key — OpenAI or Anthropic (Claude)
 - Retailer account(s)
 
 ### Install
@@ -36,7 +36,11 @@ go build -o itemize ./cmd/itemize/
 Set environment variables:
 ```bash
 export MONARCH_TOKEN="your_monarch_token"
+
+# Pick one LLM backend:
 export OPENAI_API_KEY="your_openai_key"
+# or
+export ANTHROPIC_API_KEY="your_anthropic_key"
 ```
 
 Or create `config.yaml`:
@@ -48,9 +52,28 @@ openai:
   api_key: "${OPENAI_API_KEY}"
   model: "gpt-5.4-nano"
 
+anthropic:
+  api_key: "${ANTHROPIC_API_KEY}"
+  model: "claude-haiku-4-5-20251001"
+
+# Optional: force a backend when both keys are set.
+# Leave blank to auto-detect from whichever key is present.
+categorizer:
+  provider: ""  # "openai" | "anthropic" | ""
+
 storage:
   database_path: "monarch_sync.db"
 ```
+
+#### Choosing an LLM backend
+
+itemize picks the LLM backend based on which API key is configured:
+
+- Only `OPENAI_API_KEY` set → OpenAI is used.
+- Only `ANTHROPIC_API_KEY` (or `CLAUDE_API_KEY`) set → Claude is used.
+- Both set → defaults to OpenAI; set `CATEGORIZER_PROVIDER=anthropic` to force Claude.
+
+Override the model with `OPENAI_MODEL` or `ANTHROPIC_MODEL` per run.
 
 ## Usage
 
