@@ -23,6 +23,8 @@ type Config struct {
 	Providers     ProvidersConfig     `yaml:"providers"`
 	Monarch       MonarchConfig       `yaml:"monarch"`
 	OpenAI        OpenAIConfig        `yaml:"openai"`
+	Anthropic     AnthropicConfig     `yaml:"anthropic"`
+	Categorizer   CategorizerConfig   `yaml:"categorizer"`
 	Storage       StorageConfig       `yaml:"storage"`
 	Observability ObservabilityConfig `yaml:"observability"`
 }
@@ -41,6 +43,19 @@ type MonarchConfig struct {
 type OpenAIConfig struct {
 	APIKey string `yaml:"api_key"`
 	Model  string `yaml:"model"`
+}
+
+// AnthropicConfig holds Anthropic (Claude) API configuration
+type AnthropicConfig struct {
+	APIKey string `yaml:"api_key"`
+	Model  string `yaml:"model"`
+}
+
+// CategorizerConfig selects which LLM backend the categorizer uses.
+// Provider may be "openai", "anthropic", or "" (auto-detect from which
+// API key is set).
+type CategorizerConfig struct {
+	Provider string `yaml:"provider"`
 }
 
 // ProvidersConfig holds provider-specific configuration
@@ -125,6 +140,13 @@ func LoadFromEnv() *Config {
 			APIKey: os.Getenv("OPENAI_API_KEY"),
 			Model:  getEnv("OPENAI_MODEL", "gpt-5.4-nano"),
 		},
+		Anthropic: AnthropicConfig{
+			APIKey: firstNonEmpty(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("CLAUDE_API_KEY")),
+			Model:  getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+		},
+		Categorizer: CategorizerConfig{
+			Provider: os.Getenv("CATEGORIZER_PROVIDER"),
+		},
 		Providers: ProvidersConfig{
 			Walmart: WalmartConfig{
 				Enabled:      true,
@@ -164,6 +186,16 @@ func LoadOrEnv_WithPath(path string) *Config {
 		return cfg
 	}
 	return LoadFromEnv()
+}
+
+// firstNonEmpty returns the first non-empty string from its arguments.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // getEnv retrieves an environment variable with a fallback default

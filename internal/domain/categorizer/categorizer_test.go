@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// MockOpenAIClient for testing
-type MockOpenAIClient struct {
+// MockChatClient for testing — implements categorizer.ChatClient.
+type MockChatClient struct {
 	mock.Mock
 }
 
-func (m *MockOpenAIClient) CreateChatCompletion(ctx context.Context, request ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (m *MockChatClient) CreateChatCompletion(ctx context.Context, request ChatCompletionRequest) (*ChatCompletionResponse, error) {
 	args := m.Called(ctx, request)
 	if response := args.Get(0); response != nil {
 		return response.(*ChatCompletionResponse), args.Error(1)
@@ -40,7 +40,7 @@ func (m *MockCache) Set(key string, value string) {
 func TestCategorizer_CategorizeItems_Success(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "gpt-4o-mini")
@@ -119,7 +119,7 @@ func TestCategorizer_CategorizeItems_Success(t *testing.T) {
 func TestCategorizer_CategorizeItems_WithCache(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "")
@@ -160,7 +160,7 @@ func TestCategorizer_CategorizeItems_WithCache(t *testing.T) {
 func TestCategorizer_CategorizeItems_PartialCache(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "gpt-5.4-nano")
@@ -232,7 +232,7 @@ func TestCategorizer_CategorizeItems_PartialCache(t *testing.T) {
 func TestCategorizer_CategorizeItems_EmptyItems(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "")
@@ -252,7 +252,7 @@ func TestCategorizer_CategorizeItems_EmptyItems(t *testing.T) {
 func TestCategorizer_CategorizeItems_OpenAIError(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "")
@@ -332,7 +332,7 @@ func TestCategorizer_NormalizeItemName(t *testing.T) {
 func TestCategorizer_CategorizeItems_RetriesOnTransientError(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "")
@@ -388,7 +388,7 @@ func TestCategorizer_CategorizeItems_RetriesOnTransientError(t *testing.T) {
 func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
 	ctx := context.Background()
 
-	mockClient := new(MockOpenAIClient)
+	mockClient := new(MockChatClient)
 	mockCache := new(MockCache)
 
 	categorizer := NewCategorizer(mockClient, mockCache, "")
@@ -421,7 +421,7 @@ func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
 }
 
 func TestNewCategorizer_DefaultsModelWhenEmpty(t *testing.T) {
-	categorizer := NewCategorizer(new(MockOpenAIClient), new(MockCache), "")
+	categorizer := NewCategorizer(new(MockChatClient), new(MockCache), "")
 
 	assert.Equal(t, "gpt-5.4-nano", categorizer.Model)
 }

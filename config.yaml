@@ -38,6 +38,18 @@ openai:
   api_key: "${OPENAI_API_KEY}"
   model: "gpt-5.4-nano"
 
+# Anthropic (Claude) configuration — used when CATEGORIZER_PROVIDER=anthropic
+# or when ANTHROPIC_API_KEY is the only LLM key set.
+anthropic:
+  api_key: "${ANTHROPIC_API_KEY}"
+  model: "claude-haiku-4-5-20251001"
+
+# Categorizer backend selection.
+# Leave provider empty to auto-detect from which API key is set.
+# Set to "openai" or "anthropic" to force a specific backend.
+categorizer:
+  provider: "${CATEGORIZER_PROVIDER}"
+
 # Storage configuration
 storage:
   database_path: "monarch_sync.db"  # Consolidated database
