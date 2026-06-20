@@ -14,6 +14,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
+replace github.com/eshaffer321/costco-go => /Users/erickshaffer/code/costco-go
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/getsentry/sentry-go v0.36.0 // indirect
