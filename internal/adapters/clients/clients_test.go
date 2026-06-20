@@ -71,6 +71,21 @@ func TestNewChatClient_ExplicitAnthropic(t *testing.T) {
 	assert.Equal(t, "claude-test", model)
 }
 
+func TestNewChatClient_ExplicitAnthropic_DefaultsModelWhenMissing(t *testing.T) {
+	clearLLMEnv(t)
+	cfg := &config.Config{
+		Anthropic:   config.AnthropicConfig{APIKey: "anth-key"},
+		Categorizer: config.CategorizerConfig{Provider: "anthropic"},
+	}
+
+	client, model, err := newChatClient(cfg, discardLogger())
+
+	require.NoError(t, err)
+	_, ok := client.(*anthropicclient.Client)
+	assert.True(t, ok, "expected anthropic client")
+	assert.Equal(t, defaultAnthropicModel, model)
+}
+
 func TestNewChatClient_ExplicitAnthropic_MissingKey(t *testing.T) {
 	clearLLMEnv(t)
 	cfg := &config.Config{
@@ -121,6 +136,20 @@ func TestNewChatClient_AutoDetect_AnthropicOnly(t *testing.T) {
 	_, ok := client.(*anthropicclient.Client)
 	assert.True(t, ok)
 	assert.Equal(t, "claude-test", model)
+}
+
+func TestNewChatClient_AutoDetect_AnthropicOnly_DefaultsModelWhenMissing(t *testing.T) {
+	clearLLMEnv(t)
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "anth-key"},
+	}
+
+	client, model, err := newChatClient(cfg, discardLogger())
+
+	require.NoError(t, err)
+	_, ok := client.(*anthropicclient.Client)
+	assert.True(t, ok)
+	assert.Equal(t, defaultAnthropicModel, model)
 }
 
 func TestNewChatClient_AutoDetect_BothKeysPrefersOpenAI(t *testing.T) {
