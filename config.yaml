@@ -27,6 +27,7 @@ providers:
     max_orders: 0
     debug: false
     account_name: "${AMAZON_ACCOUNT_NAME}"
+    browser_data_dir: "${AMAZON_BROWSER_DATA_DIR}"
 
 # Monarch Money API configuration
 monarch:
