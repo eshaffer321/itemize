@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -35,16 +36,18 @@ func isValidProfile(profile string) bool {
 // Provider implements the OrderProvider interface for Amazon
 // It shells out to the amazon-order-scraper CLI (npm package)
 type Provider struct {
-	logger    *slog.Logger
-	rateLimit time.Duration
-	profile   string // Optional profile name for multi-account support
-	headless  bool   // Run browser in headless mode
+	logger         *slog.Logger
+	rateLimit      time.Duration
+	profile        string // Optional profile name for multi-account support
+	headless       bool   // Run browser in headless mode
+	browserDataDir string // Base directory for persistent Amazon browser profiles
 }
 
 // ProviderConfig holds configuration for the Amazon provider
 type ProviderConfig struct {
-	Profile  string // Profile name for multi-account support
-	Headless bool   // Run in headless mode (for automated/cron runs)
+	Profile        string // Profile name for multi-account support
+	Headless       bool   // Run in headless mode (for automated/cron runs)
+	BrowserDataDir string // Base directory for persistent browser profiles
 }
 
 // NewProvider creates a new Amazon provider
@@ -55,6 +58,7 @@ func NewProvider(logger *slog.Logger, cfg *ProviderConfig) *Provider {
 
 	profile := ""
 	headless := false
+	browserDataDir := ""
 	if cfg != nil {
 		// Validate profile name to prevent command injection
 		if cfg.Profile != "" {
@@ -66,13 +70,15 @@ func NewProvider(logger *slog.Logger, cfg *ProviderConfig) *Provider {
 			}
 		}
 		headless = cfg.Headless
+		browserDataDir = cfg.BrowserDataDir
 	}
 
 	return &Provider{
-		logger:    logger.With(slog.String("provider", "amazon")),
-		rateLimit: 1 * time.Second,
-		profile:   profile,
-		headless:  headless,
+		logger:         logger.With(slog.String("provider", "amazon")),
+		rateLimit:      1 * time.Second,
+		profile:        profile,
+		headless:       headless,
+		browserDataDir: browserDataDir,
 	}
 }
 
@@ -199,6 +205,9 @@ func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if p.browserDataDir != "" {
+		cmd.Env = append(os.Environ(), "BROWSER_DATA_DIR="+p.browserDataDir)
+	}
 
 	err := cmd.Run()
 	if err != nil {
@@ -207,7 +216,7 @@ func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error
 			exitCode := exitErr.ExitCode()
 			switch exitCode {
 			case 2:
-				return nil, fmt.Errorf("amazon login required: run 'amazon-scraper --login' to authenticate")
+				return nil, fmt.Errorf("amazon login required: %s", p.loginCommand())
 			default:
 				return nil, fmt.Errorf("CLI failed (exit %d): %s", exitCode, stderr.String())
 			}
@@ -216,6 +225,17 @@ func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error
 	}
 
 	return stdout.Bytes(), nil
+}
+
+func (p *Provider) loginCommand() string {
+	profileArg := ""
+	if p.profile != "" {
+		profileArg = " --profile " + p.profile
+	}
+	if p.browserDataDir != "" {
+		return fmt.Sprintf("run 'BROWSER_DATA_DIR=%q npx -y amazon-order-scraper --login%s' to authenticate", p.browserDataDir, profileArg)
+	}
+	return fmt.Sprintf("run 'amazon-scraper --login%s' to authenticate", profileArg)
 }
 
 // findCLI locates the amazon-order-scraper CLI
