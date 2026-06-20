@@ -412,8 +412,37 @@ See [internal/infrastructure/storage/sqlite.go](internal/infrastructure/storage/
 - Check internet connectivity
 
 ### Provider Authentication
-- **Walmart:** Cookies in `~/.walmart-api/cookies.json`
-- **Costco:** Credentials in Costco config (saved by costco-go)
+
+#### Walmart
+Cookies are stored in `~/.walmart-api/cookies.json`. Cookie-based auth is reliable.
+
+#### Costco
+**⚠️ Password-based authentication does NOT work with Costco's current OAuth2 setup.** Costco requires Authorization Code flow with PKCE, not the password grant that costco-go attempts.
+
+**Setup (token import from browser):**
+
+1. Log in to [costco.com](https://costco.com) in your browser
+2. Open DevTools (F12) → Network tab → filter by "Fetch/XHR"
+3. Search for "token" and find the request to `https://signin.costco.com/.../oauth2/v2.0/token`
+4. Click Response tab, copy the full JSON body
+5. Save to a temp file and import:
+   ```bash
+   cat token-response.json | /path/to/costco-go/costco-cli -cmd import-token
+   ```
+   Or manually create `~/.costco/tokens.json`:
+   ```json
+   {
+     "id_token": "...",
+     "refresh_token": "...",
+     "token_expiry": "2026-06-20T13:36:10Z",
+     "refresh_token_expires_at": "2026-09-18T13:34:30Z",
+     "updated_at": "2026-06-20T13:34:30Z"
+   }
+   ```
+
+**Token expiry:** Extract from JWT's `exp` claim. **Refresh expires in:** Add `refresh_token_expires_in` seconds (typically 90 days) to current time.
+
+**Why manual setup?** Costco's OAuth2 no longer supports the password grant flow costco-go was designed for. Token import from browser is the documented workaround and most reliable approach.
 
 ### Database Issues
 - Backup and delete `monarch_sync.db` to reset
