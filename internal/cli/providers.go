@@ -33,7 +33,6 @@ func NewCostcoProvider(cfg *config.Config, verbose bool) (providers.OrderProvide
 
 	costcoConfig := costcogo.Config{
 		Email:           savedConfig.Email,
-		Password:        "",
 		WarehouseNumber: savedConfig.WarehouseNumber,
 		Logger:          costcoLogger,
 	}
