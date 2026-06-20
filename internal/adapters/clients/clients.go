@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	providerOpenAI    = "openai"
-	providerAnthropic = "anthropic"
+	providerOpenAI        = "openai"
+	providerAnthropic     = "anthropic"
+	defaultAnthropicModel = "claude-haiku-4-5-20251001"
 )
 
 type Clients struct {
@@ -62,12 +63,12 @@ func newChatClient(cfg *config.Config, logger *slog.Logger) (categorizer.ChatCli
 		if openKey == "" {
 			return nil, "", errMissingKey(providerOpenAI)
 		}
-		return openaiclient.NewClient(openKey), cfg.OpenAI.Model, nil
+		return openaiclient.NewClient(openKey), modelOrDefault(cfg.OpenAI.Model, categorizer.DefaultModel), nil
 	case providerAnthropic:
 		if anthKey == "" {
 			return nil, "", errMissingKey(providerAnthropic)
 		}
-		return anthropicclient.NewClient(anthKey), cfg.Anthropic.Model, nil
+		return anthropicclient.NewClient(anthKey), modelOrDefault(cfg.Anthropic.Model, defaultAnthropicModel), nil
 	case "":
 		// auto-detect
 	default:
@@ -78,12 +79,12 @@ func newChatClient(cfg *config.Config, logger *slog.Logger) (categorizer.ChatCli
 	hasAnth := anthKey != ""
 	switch {
 	case hasOpen && !hasAnth:
-		return openaiclient.NewClient(openKey), cfg.OpenAI.Model, nil
+		return openaiclient.NewClient(openKey), modelOrDefault(cfg.OpenAI.Model, categorizer.DefaultModel), nil
 	case hasAnth && !hasOpen:
-		return anthropicclient.NewClient(anthKey), cfg.Anthropic.Model, nil
+		return anthropicclient.NewClient(anthKey), modelOrDefault(cfg.Anthropic.Model, defaultAnthropicModel), nil
 	case hasOpen && hasAnth:
 		logger.Warn("both OPENAI_API_KEY and ANTHROPIC_API_KEY are set; defaulting to openai. Set CATEGORIZER_PROVIDER=anthropic to pick Claude.")
-		return openaiclient.NewClient(openKey), cfg.OpenAI.Model, nil
+		return openaiclient.NewClient(openKey), modelOrDefault(cfg.OpenAI.Model, categorizer.DefaultModel), nil
 	default:
 		return nil, "", errNoLLMKeyConfigured()
 	}
@@ -102,4 +103,11 @@ func errMissingKey(provider string) error {
 
 func errNoLLMKeyConfigured() error {
 	return fmt.Errorf("no LLM API key configured — set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+}
+
+func modelOrDefault(model, fallback string) string {
+	if strings.TrimSpace(model) == "" {
+		return fallback
+	}
+	return model
 }
