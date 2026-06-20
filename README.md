@@ -88,7 +88,14 @@ Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).
 Requires [amazon-order-scraper](https://www.npmjs.com/package/amazon-order-scraper) CLI:
 ```bash
 npm install -g amazon-order-scraper
-amazon-scraper --login  # authenticate once
+BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login  # authenticate once
+```
+
+`itemize` uses the same persistent browser profile base by default. If you set
+`AMAZON_ACCOUNT_NAME`, pass the matching scraper profile during login:
+
+```bash
+BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login --profile "$AMAZON_ACCOUNT_NAME"
 ```
 
 ## Troubleshooting

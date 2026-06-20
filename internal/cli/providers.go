@@ -83,11 +83,35 @@ func NewAmazonProvider(cfg *config.Config, verbose bool) (providers.OrderProvide
 	}
 	amazonLogger := logging.NewLoggerWithSystem(loggingCfg, "amazon")
 
+	browserDataDir, err := resolveAmazonBrowserDataDir(cfg.Providers.Amazon.BrowserDataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	// Build provider config
 	providerCfg := &amazonprovider.ProviderConfig{
-		Profile:  cfg.Providers.Amazon.AccountName,
-		Headless: false, // Default to non-headless for interactive use
+		Profile:        cfg.Providers.Amazon.AccountName,
+		Headless:       false, // Default to non-headless for interactive use
+		BrowserDataDir: browserDataDir,
 	}
 
 	return amazonprovider.NewProvider(amazonLogger, providerCfg), nil
+}
+
+func resolveAmazonBrowserDataDir(configured string) (string, error) {
+	if configured != "" {
+		return configured, nil
+	}
+	if envDir := os.Getenv("AMAZON_BROWSER_DATA_DIR"); envDir != "" {
+		return envDir, nil
+	}
+	if envDir := os.Getenv("BROWSER_DATA_DIR"); envDir != "" {
+		return envDir, nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, ".itemize", "amazon"), nil
 }

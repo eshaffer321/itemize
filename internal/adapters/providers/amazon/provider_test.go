@@ -48,13 +48,15 @@ func TestProvider_MerchantSearchTerms(t *testing.T) {
 // TestProvider_WithConfig tests provider creation with config
 func TestProvider_WithConfig(t *testing.T) {
 	cfg := &ProviderConfig{
-		Profile:  "wife",
-		Headless: true,
+		Profile:        "wife",
+		Headless:       true,
+		BrowserDataDir: "/tmp/itemize-amazon",
 	}
 
 	provider := NewProvider(nil, cfg)
 	assert.Equal(t, "wife", provider.profile)
 	assert.True(t, provider.headless)
+	assert.Equal(t, "/tmp/itemize-amazon", provider.browserDataDir)
 }
 
 // TestProvider_BuildCLIArgs tests CLI argument building
