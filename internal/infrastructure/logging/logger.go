@@ -37,7 +37,7 @@ func NewLogger(cfg config.LoggingConfig) *slog.Logger {
 	var writer io.Writer = os.Stdout
 
 	if cfg.FilePath != "" {
-		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			// Fall back to stdout only, log warning to stderr
 			_, _ = os.Stderr.WriteString("Warning: could not open log file " + cfg.FilePath + ": " + err.Error() + "\n")
