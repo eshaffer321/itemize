@@ -32,7 +32,7 @@ func TestNewLoggerCreatesPrivateLogFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 }
 
-func TestIsTerminalAndFDFitsInt(t *testing.T) {
+func TestIsTerminal(t *testing.T) {
 	assert.False(t, isTerminal(bytes.NewBuffer(nil)))
 
 	file, err := os.CreateTemp(t.TempDir(), "not-a-terminal")
@@ -40,8 +40,6 @@ func TestIsTerminalAndFDFitsInt(t *testing.T) {
 	defer file.Close()
 
 	assert.False(t, isTerminal(file))
-	assert.True(t, fdFitsInt(0))
-	assert.False(t, fdFitsInt(^uintptr(0)))
 }
 
 func TestMavenHandlerFormattingBranches(t *testing.T) {
