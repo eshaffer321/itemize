@@ -10,7 +10,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
