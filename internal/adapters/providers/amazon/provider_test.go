@@ -1,11 +1,16 @@
 package amazon
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProvider_ImplementsInterface verifies the provider implements the interface
@@ -120,6 +125,144 @@ func TestValidateCLIArgs(t *testing.T) {
 	}))
 	assert.Error(t, validateCLIArgs([]string{"--stdout", ";rm"}))
 	assert.Error(t, validateCLIArgs([]string{"--stdout", "--eval"}))
+}
+
+func TestExecuteCLIUsesDirectScraperWithValidatedArgsAndBrowserDir(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, amazonScraperCommand, `#!/bin/sh
+printf 'args=%s\n' "$*"
+printf 'browser=%s\n' "$BROWSER_DATA_DIR"
+`)
+	t.Setenv("PATH", binDir)
+
+	provider := NewProvider(nil, &ProviderConfig{BrowserDataDir: "/tmp/amazon-browser"})
+	output, err := provider.executeCLI(context.Background(), []string{"--days", "14", "--stdout"})
+
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "args=--days 14 --stdout")
+	assert.Contains(t, string(output), "browser=/tmp/amazon-browser")
+}
+
+func TestExecuteCLIFallsBackToNpx(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, npxCommand, `#!/bin/sh
+printf 'args=%s\n' "$*"
+`)
+	t.Setenv("PATH", binDir)
+
+	provider := NewProvider(nil, nil)
+	output, err := provider.executeCLI(context.Background(), []string{"--stdout"})
+
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "args=amazon-order-scraper --stdout")
+}
+
+func TestExecuteCLIReturnsValidationErrorBeforeRunningCommand(t *testing.T) {
+	binDir := t.TempDir()
+	markerPath := filepath.Join(binDir, "ran")
+	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\ntouch "+markerPath+"\n")
+	t.Setenv("PATH", binDir)
+
+	provider := NewProvider(nil, nil)
+	output, err := provider.executeCLI(context.Background(), []string{"--stdout", "--eval"})
+
+	require.Error(t, err)
+	assert.Nil(t, output)
+	assert.Contains(t, err.Error(), "unsupported amazon CLI flag")
+	_, statErr := os.Stat(markerPath)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestExecuteCLILoginRequiredIncludesProfileAndBrowserDir(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\nexit 2\n")
+	t.Setenv("PATH", binDir)
+
+	provider := NewProvider(nil, &ProviderConfig{
+		Profile:        "wife",
+		BrowserDataDir: "/tmp/amazon-browser",
+	})
+	output, err := provider.executeCLI(context.Background(), []string{"--stdout"})
+
+	require.Error(t, err)
+	assert.Nil(t, output)
+	assert.Contains(t, err.Error(), "amazon login required")
+	assert.Contains(t, err.Error(), `BROWSER_DATA_DIR="/tmp/amazon-browser"`)
+	assert.Contains(t, err.Error(), "--profile wife")
+}
+
+func TestFindCLIReportsMissingExecutable(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	provider := NewProvider(nil, nil)
+	cli, err := provider.findCLI()
+
+	require.Error(t, err)
+	assert.Empty(t, cli.name)
+	assert.Contains(t, err.Error(), "not available")
+}
+
+func TestHealthCheckUsesAvailableCLI(t *testing.T) {
+	tests := []struct {
+		name           string
+		executableName string
+		wantArg        string
+	}{
+		{
+			name:           "direct scraper",
+			executableName: amazonScraperCommand,
+			wantArg:        "--help",
+		},
+		{
+			name:           "npx fallback",
+			executableName: npxCommand,
+			wantArg:        "amazon-order-scraper --help",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			argsPath := filepath.Join(binDir, "args.txt")
+			writeExecutable(t, binDir, tt.executableName, `#!/bin/sh
+printf '%s' "$*" > "`+argsPath+`"
+`)
+			t.Setenv("PATH", binDir)
+
+			provider := NewProvider(nil, nil)
+			require.NoError(t, provider.HealthCheck(context.Background()))
+
+			data, err := os.ReadFile(argsPath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantArg, string(data))
+		})
+	}
+}
+
+func TestHealthCheckReturnsCommandError(t *testing.T) {
+	binDir := t.TempDir()
+	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\nexit 1\n")
+	t.Setenv("PATH", binDir)
+
+	provider := NewProvider(nil, nil)
+	err := provider.HealthCheck(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CLI not available")
+}
+
+func TestLoginCommandDefaultsToDirectScraper(t *testing.T) {
+	provider := NewProvider(nil, &ProviderConfig{Profile: "wife"})
+
+	assert.Equal(t, "run 'amazon-scraper --login --profile wife' to authenticate", provider.loginCommand())
+}
+
+func writeExecutable(t *testing.T, dir, name, content string) {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0700))
 }
 
 // TestOrder_Interface verifies Order implements providers.Order

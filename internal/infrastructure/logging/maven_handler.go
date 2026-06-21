@@ -59,12 +59,16 @@ func NewMavenHandler(w io.Writer, opts *slog.HandlerOptions) *MavenHandler {
 func isTerminal(w io.Writer) bool {
 	if f, ok := w.(*os.File); ok {
 		fd := f.Fd()
-		if fd > uintptr(^uint(0)>>1) {
+		if !fdFitsInt(fd) {
 			return false
 		}
 		return term.IsTerminal(int(fd))
 	}
 	return false
+}
+
+func fdFitsInt(fd uintptr) bool {
+	return fd <= uintptr(^uint(0)>>1)
 }
 
 // Enabled reports whether the handler handles records at the given level.

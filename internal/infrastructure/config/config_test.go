@@ -130,3 +130,44 @@ func TestValidateConfigPathRejectsUnsafePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfigPathAcceptsRelativeYAMLWithinWorkingDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	require.NoError(t, os.Mkdir("config", 0700))
+	require.NoError(t, os.WriteFile(filepath.Join("config", "local.yml"), []byte("storage: {}\n"), 0600))
+
+	rootDir, rootPath, err := validateConfigPath(filepath.Join("config", "local.yml"))
+
+	require.NoError(t, err)
+	assert.Equal(t, ".", rootDir)
+	assert.Equal(t, filepath.Join("config", "local.yml"), rootPath)
+}
+
+func TestValidateConfigPathAcceptsAbsoluteYAML(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("storage: {}\n"), 0600))
+
+	rootDir, rootPath, err := validateConfigPath(configPath)
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Dir(configPath), rootDir)
+	assert.Equal(t, filepath.Base(configPath), rootPath)
+}
+
+func TestValidateConfigPathRejectsMissingFileAndDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, _, err := validateConfigPath(filepath.Join(tmpDir, "missing.yaml"))
+	require.Error(t, err)
+
+	_, _, err = validateConfigPath(tmpDir + string(filepath.Separator) + "config.yaml" + string(filepath.Separator))
+	require.Error(t, err)
+
+	dirPath := filepath.Join(tmpDir, "directory.yaml")
+	require.NoError(t, os.Mkdir(dirPath, 0700))
+
+	_, _, err = validateConfigPath(dirPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be a file")
+}
