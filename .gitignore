@@ -31,6 +31,13 @@ go.work
 .env.local
 .env.*.local
 
+# Local auth/session tokens
+token.json
+*token*.json
+*tokens*.json
+cookies.json
+*cookies*.json
+
 # IDE files
 .idea/
 *.swp
