@@ -122,7 +122,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() {
+		_ = root.Close()
+	}()
 
 	data, err := root.ReadFile(configPath)
 	if err != nil {
