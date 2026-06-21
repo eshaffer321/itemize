@@ -8,8 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"golang.org/x/term"
 )
 
 // ANSI color codes
@@ -58,7 +56,11 @@ func NewMavenHandler(w io.Writer, opts *slog.HandlerOptions) *MavenHandler {
 // isTerminal checks if the writer is a terminal (for color output)
 func isTerminal(w io.Writer) bool {
 	if f, ok := w.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
+		info, err := f.Stat()
+		if err != nil {
+			return false
+		}
+		return info.Mode()&os.ModeCharDevice != 0
 	}
 	return false
 }
