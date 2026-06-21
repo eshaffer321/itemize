@@ -58,7 +58,11 @@ func NewMavenHandler(w io.Writer, opts *slog.HandlerOptions) *MavenHandler {
 // isTerminal checks if the writer is a terminal (for color output)
 func isTerminal(w io.Writer) bool {
 	if f, ok := w.(*os.File); ok {
-		return term.IsTerminal(int(f.Fd()))
+		fd := f.Fd()
+		if fd > uintptr(^uint(0)>>1) {
+			return false
+		}
+		return term.IsTerminal(int(fd))
 	}
 	return false
 }

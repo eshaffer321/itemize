@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
@@ -24,6 +25,21 @@ import (
 
 // validProfilePattern matches alphanumeric, dash, and underscore characters only
 var validProfilePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// allowedCLIArgsPattern limits arguments to the scraper flags and scalar values
+// produced by buildCLIArgs.
+var allowedCLIArgsPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+const (
+	amazonScraperCommand = "amazon-scraper"
+	npxCommand           = "npx"
+	scraperPackageName   = "amazon-order-scraper"
+)
+
+type cliCommand struct {
+	name   string
+	useNpx bool
+}
 
 // isValidProfile checks if a profile name is safe to pass to the CLI
 func isValidProfile(profile string) bool {
@@ -188,18 +204,26 @@ func (p *Provider) buildCLIArgs(opts providers.FetchOptions) []string {
 // executeCLI executes the amazon-order-scraper CLI and returns the output
 func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error) {
 	// Try to find the CLI
-	cliPath, useNpx := p.findCLI()
+	cli, err := p.findCLI()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCLIArgs(args); err != nil {
+		return nil, err
+	}
 
 	var cmd *exec.Cmd
-	if useNpx {
+	// Keep executable names literal for static analysis; args are validated before assignment.
+	if cli.useNpx {
 		// Use npx to run the package
-		npxArgs := append([]string{"amazon-order-scraper"}, args...)
-		cmd = exec.CommandContext(ctx, cliPath, npxArgs...)
-		p.logger.Debug("executing CLI via npx", slog.String("args", fmt.Sprintf("%v", npxArgs)))
+		cmd = exec.CommandContext(ctx, "npx")
+		cmd.Args = append([]string{npxCommand, scraperPackageName}, args...)
+		p.logger.Debug("executing CLI via npx", slog.String("args", fmt.Sprintf("%v", cmd.Args[1:])))
 	} else {
 		// Direct execution
-		cmd = exec.CommandContext(ctx, cliPath, args...)
-		p.logger.Debug("executing CLI directly", slog.String("path", cliPath), slog.String("args", fmt.Sprintf("%v", args)))
+		cmd = exec.CommandContext(ctx, "amazon-scraper")
+		cmd.Args = append([]string{amazonScraperCommand}, args...)
+		p.logger.Debug("executing CLI directly", slog.String("command", cli.name), slog.String("args", fmt.Sprintf("%v", args)))
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -209,7 +233,7 @@ func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error
 		cmd.Env = append(os.Environ(), "BROWSER_DATA_DIR="+p.browserDataDir)
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		// Check exit code for specific errors
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -240,19 +264,35 @@ func (p *Provider) loginCommand() string {
 
 // findCLI locates the amazon-order-scraper CLI
 // Returns the path and whether to use npx
-func (p *Provider) findCLI() (string, bool) {
+func (p *Provider) findCLI() (cliCommand, error) {
 	// First, try to find globally installed CLI
-	if path, err := exec.LookPath("amazon-scraper"); err == nil {
-		return path, false
+	if _, err := exec.LookPath(amazonScraperCommand); err == nil {
+		return cliCommand{name: amazonScraperCommand}, nil
 	}
 
 	// Fall back to npx
-	if path, err := exec.LookPath("npx"); err == nil {
-		return path, true
+	if _, err := exec.LookPath(npxCommand); err == nil {
+		return cliCommand{name: npxCommand, useNpx: true}, nil
 	}
 
-	// Last resort: assume npx is available
-	return "npx", true
+	return cliCommand{}, fmt.Errorf("amazon-order-scraper CLI not available: install %q or %q", amazonScraperCommand, npxCommand)
+}
+
+func validateCLIArgs(args []string) error {
+	for _, arg := range args {
+		switch arg {
+		case "--since", "--until", "--days", "--profile", "--headless", "--stdout":
+			continue
+		}
+		if strings.HasPrefix(arg, "--") {
+			return fmt.Errorf("unsupported amazon CLI flag: %q", arg)
+		}
+		if !allowedCLIArgsPattern.MatchString(arg) {
+			return fmt.Errorf("unsafe amazon CLI argument: %q", arg)
+		}
+	}
+
+	return nil
 }
 
 // GetOrderDetails fetches details for a specific order
@@ -285,13 +325,16 @@ func (p *Provider) GetRateLimit() time.Duration {
 // HealthCheck verifies the provider can connect and authenticate
 func (p *Provider) HealthCheck(ctx context.Context) error {
 	// Try to find the CLI
-	cliPath, useNpx := p.findCLI()
+	cli, err := p.findCLI()
+	if err != nil {
+		return err
+	}
 
 	var cmd *exec.Cmd
-	if useNpx {
-		cmd = exec.CommandContext(ctx, cliPath, "amazon-order-scraper", "--help")
+	if cli.useNpx {
+		cmd = exec.CommandContext(ctx, npxCommand, scraperPackageName, "--help")
 	} else {
-		cmd = exec.CommandContext(ctx, cliPath, "--help")
+		cmd = exec.CommandContext(ctx, amazonScraperCommand, "--help")
 	}
 
 	if err := cmd.Run(); err != nil {

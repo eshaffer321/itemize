@@ -99,7 +99,7 @@ monarch:
   api_key: "${TEST_MONARCH_TOKEN}"
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
 	require.NoError(t, err)
 
 	// Set env vars
@@ -114,4 +114,19 @@ monarch:
 	require.NoError(t, err)
 	assert.Equal(t, "expanded.db", cfg.Storage.DatabasePath)
 	assert.Equal(t, "expanded-token", cfg.Monarch.APIKey)
+}
+
+func TestValidateConfigPathRejectsUnsafePaths(t *testing.T) {
+	tests := []string{
+		"",
+		"../config.yaml",
+		"config.json",
+	}
+
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			_, _, err := validateConfigPath(path)
+			require.Error(t, err)
+		})
+	}
 }

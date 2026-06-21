@@ -14,6 +14,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -111,7 +113,18 @@ type LoggingConfig struct {
 
 // Load reads and parses the config file
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	rootDir, configPath, err := validateConfigPath(path)
+	if err != nil {
+		return nil, err
+	}
+
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	data, err := root.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +138,39 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func validateConfigPath(path string) (string, string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", "", fmt.Errorf("config path cannot be empty")
+	}
+
+	cleanPath := filepath.Clean(path)
+	ext := strings.ToLower(filepath.Ext(cleanPath))
+	if ext != ".yaml" && ext != ".yml" {
+		return "", "", fmt.Errorf("config path must point to a YAML file")
+	}
+
+	rootDir := "."
+	rootPath := cleanPath
+	if !filepath.IsAbs(cleanPath) {
+		if strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) || cleanPath == ".." {
+			return "", "", fmt.Errorf("relative config path must stay within the working directory")
+		}
+	} else {
+		rootDir = filepath.Dir(cleanPath)
+		rootPath = filepath.Base(cleanPath)
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return "", "", err
+	}
+	if info.IsDir() {
+		return "", "", fmt.Errorf("config path must be a file")
+	}
+
+	return rootDir, rootPath, nil
 }
 
 // LoadFromEnv loads configuration from environment variables only

@@ -59,6 +59,11 @@ func TestProvider_WithConfig(t *testing.T) {
 	assert.Equal(t, "/tmp/itemize-amazon", provider.browserDataDir)
 }
 
+func TestNewProvider_RejectsUnsafeProfile(t *testing.T) {
+	provider := NewProvider(nil, &ProviderConfig{Profile: "wife;rm-rf"})
+	assert.Empty(t, provider.profile)
+}
+
 // TestProvider_BuildCLIArgs tests CLI argument building
 func TestProvider_BuildCLIArgs(t *testing.T) {
 	tests := []struct {
@@ -102,6 +107,19 @@ func TestProvider_BuildCLIArgs(t *testing.T) {
 			assert.Equal(t, tt.expected, args)
 		})
 	}
+}
+
+func TestValidateCLIArgs(t *testing.T) {
+	assert.NoError(t, validateCLIArgs([]string{
+		"--since", "2024-11-01",
+		"--until", "2024-11-30",
+		"--days", "14",
+		"--profile", "wife",
+		"--headless",
+		"--stdout",
+	}))
+	assert.Error(t, validateCLIArgs([]string{"--stdout", ";rm"}))
+	assert.Error(t, validateCLIArgs([]string{"--stdout", "--eval"}))
 }
 
 // TestOrder_Interface verifies Order implements providers.Order
