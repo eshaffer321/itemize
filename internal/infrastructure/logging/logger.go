@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 )
 
 // logFile holds the open log file handle for cleanup

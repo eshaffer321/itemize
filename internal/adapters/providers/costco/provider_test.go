@@ -6,7 +6,7 @@ import (
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,8 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/service"
+	"github.com/eshaffer321/itemize/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/application/service"
 )
 
 // SyncHandler handles sync-related HTTP requests.

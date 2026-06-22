@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
+	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 )
 
 // Client is the HTTP-backed OpenAI implementation of categorizer.ChatClient.

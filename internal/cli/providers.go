@@ -7,12 +7,12 @@ import (
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	amazonprovider "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/amazon"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/costco"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/walmart"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
+	"github.com/eshaffer321/itemize/internal/adapters/providers/costco"
+	"github.com/eshaffer321/itemize/internal/adapters/providers/walmart"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 )
 
 // Categorizer interface for dependency injection

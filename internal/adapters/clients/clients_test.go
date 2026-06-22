@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	anthropicclient "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients/anthropic"
-	openaiclient "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients/openai"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	anthropicclient "github.com/eshaffer321/itemize/internal/adapters/clients/anthropic"
+	openaiclient "github.com/eshaffer321/itemize/internal/adapters/clients/openai"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 )
 
 func discardLogger() *slog.Logger {

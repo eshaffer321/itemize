@@ -12,7 +12,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	// Import migrations package to register Go migrations
-	_ "github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage/migrations"
+	_ "github.com/eshaffer321/itemize/internal/infrastructure/storage/migrations"
 )
 
 //go:embed migrations/*.sql

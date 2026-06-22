@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/api/dto"
 )
 
 // HealthHandler handles health check requests.

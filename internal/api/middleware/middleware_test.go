@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/middleware"
+	"github.com/eshaffer321/itemize/internal/api/middleware"
 )
 
 func TestLogging(t *testing.T) {

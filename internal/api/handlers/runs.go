@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 )
 
 // RunsHandler handles sync run-related HTTP requests.

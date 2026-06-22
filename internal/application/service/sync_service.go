@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	appsync "github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/adapters/clients"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	appsync "github.com/eshaffer321/itemize/internal/application/sync"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 )
 
 // SyncStatus represents the current state of a sync job.

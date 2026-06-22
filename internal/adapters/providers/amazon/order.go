@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
 // ErrPaymentPending indicates an order has no bank charges yet because it hasn't shipped
