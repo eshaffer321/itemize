@@ -2,6 +2,8 @@ package cli
 
 import (
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
 )
@@ -25,6 +27,24 @@ func ParseSyncFlags() SyncFlags {
 	flag.BoolVar(&flags.Force, "force", false, "Force reprocess already processed orders")
 	flag.BoolVar(&flags.Verbose, "verbose", false, "Verbose output")
 	flag.StringVar(&flags.OrderID, "order-id", "", "Process only this specific order ID (limits blast radius)")
+
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: itemize <command> [flags]")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Sync Flags:")
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Environment Variables:")
+		fmt.Fprintln(os.Stderr, "  MONARCH_TOKEN              Monarch Money API token (required)")
+		fmt.Fprintln(os.Stderr, "  OPENAI_API_KEY             OpenAI API key")
+		fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY          Anthropic Claude API key")
+		fmt.Fprintln(os.Stderr, "  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Provider-Specific Environment Variables:")
+		fmt.Fprintln(os.Stderr, "  AMAZON_ACCOUNT_NAME        Amazon browser profile name (optional)")
+		fmt.Fprintln(os.Stderr, "                             Run 'amazon-scraper --login --profile <name>' first")
+	}
+
 	flag.Parse()
 	return flags
 }
