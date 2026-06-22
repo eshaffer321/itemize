@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/handlers"
+	"github.com/eshaffer321/itemize/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/api/handlers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

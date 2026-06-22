@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	walmartprovider "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers/walmart"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/matcher"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	walmartprovider "github.com/eshaffer321/itemize/internal/adapters/providers/walmart"
+	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/itemize/internal/domain/matcher"
 )
 
 // WalmartOrder extends providers.Order with Walmart-specific methods

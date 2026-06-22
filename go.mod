@@ -1,4 +1,4 @@
-module github.com/eshaffer321/monarchmoney-sync-backend
+module github.com/eshaffer321/itemize
 
 go 1.25.11
 

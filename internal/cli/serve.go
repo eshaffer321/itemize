@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/service"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/adapters/clients"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/api"
+	"github.com/eshaffer321/itemize/internal/application/service"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 )
 
 // ServeFlags holds the CLI flags for the serve command.

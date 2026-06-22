@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	anthropicclient "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients/anthropic"
-	openaiclient "github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/clients/openai"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	anthropicclient "github.com/eshaffer321/itemize/internal/adapters/clients/anthropic"
+	openaiclient "github.com/eshaffer321/itemize/internal/adapters/clients/openai"
+	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 )
 
 const (

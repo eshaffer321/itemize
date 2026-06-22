@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/domain/categorizer"
+	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 )
 
 // newTestClient returns a Client pointed at the given test server.

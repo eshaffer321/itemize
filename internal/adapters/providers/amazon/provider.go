@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
 // validProfilePattern matches alphanumeric, dash, and underscore characters only

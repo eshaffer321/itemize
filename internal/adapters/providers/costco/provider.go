@@ -9,7 +9,7 @@ import (
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
 // Provider implements the OrderProvider interface for Costco

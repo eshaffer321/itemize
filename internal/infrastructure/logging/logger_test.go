@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

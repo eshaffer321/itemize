@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
 // MultiMatchResult contains results from multi-transaction matching

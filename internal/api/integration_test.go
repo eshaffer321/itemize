@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/api"
+	"github.com/eshaffer321/itemize/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 )
 
 // =============================================================================

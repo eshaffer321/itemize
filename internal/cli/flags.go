@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/application/sync"
+	"github.com/eshaffer321/itemize/internal/application/sync"
 )
 
 // SyncFlags are common flags for all sync commands

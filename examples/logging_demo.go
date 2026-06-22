@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/config"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/logging"
+	"github.com/eshaffer321/itemize/internal/infrastructure/config"
+	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
 )
 
 func main() {

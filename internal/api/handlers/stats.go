@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/api/dto"
-	"github.com/eshaffer321/monarchmoney-sync-backend/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/api/dto"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 )
 
 // StatsHandler handles stats-related HTTP requests.
