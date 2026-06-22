@@ -3,7 +3,7 @@ module github.com/eshaffer321/monarchmoney-sync-backend
 go 1.25.11
 
 require (
-	github.com/eshaffer321/costco-go v0.3.10
+	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarchmoney-go v1.0.5
 	github.com/eshaffer321/walmart-client-go/v2 v2.0.1
 	github.com/go-chi/chi/v5 v5.2.5
@@ -12,8 +12,6 @@ require (
 	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-replace github.com/eshaffer321/costco-go => /Users/erickshaffer/code/costco-go
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
