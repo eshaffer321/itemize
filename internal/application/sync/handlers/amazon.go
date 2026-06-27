@@ -337,8 +337,10 @@ func (h *AmazonHandler) ProcessOrder(
 		}
 
 		if !dryRun {
+			reviewed := false
 			params := &monarch.UpdateTransactionParams{
-				Notes: &notes,
+				Notes:       &notes,
+				NeedsReview: &reviewed,
 			}
 			// Only set category if the LLM returned a valid Monarch category ID.
 			// An empty ID means the categorizer couldn't map to a known category —
@@ -369,6 +371,17 @@ func (h *AmazonHandler) ProcessOrder(
 		if !dryRun {
 			if err := h.monarch.UpdateSplits(ctx, consolidatedTxn.ID, splits); err != nil {
 				return nil, fmt.Errorf("update splits error: %w", err)
+			}
+			// Mark the parent transaction as reviewed so Monarch's rule engine
+			// doesn't re-categorize it after the split is applied.
+			reviewed := false
+			if err := h.monarch.UpdateTransaction(ctx, consolidatedTxn.ID, &monarch.UpdateTransactionParams{
+				NeedsReview: &reviewed,
+			}); err != nil {
+				h.logWarn("Failed to mark split transaction as reviewed",
+					"order_id", order.GetID(),
+					"transaction_id", consolidatedTxn.ID,
+					"error", err)
 			}
 			h.logDebug("Applied splits",
 				"order_id", order.GetID(),
