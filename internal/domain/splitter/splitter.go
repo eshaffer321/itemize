@@ -73,9 +73,14 @@ func (s *Splitter) CreateSplits(
 		s.lastOrderID = order.GetID()
 	}
 
-	// Group items by category to detect single vs multi-category
+	// Group items by category to detect single vs multi-category.
+	// Cap at len(items): if the LLM returned extra entries (hallucination), only
+	// the first N entries map to real items, and those are all that matter.
 	categoryGroups := make(map[string]bool)
-	for _, cat := range result.Categorizations {
+	for i, cat := range result.Categorizations {
+		if i >= len(items) {
+			break
+		}
 		categoryGroups[cat.CategoryID] = true
 	}
 

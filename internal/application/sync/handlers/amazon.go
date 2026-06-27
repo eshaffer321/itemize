@@ -338,18 +338,29 @@ func (h *AmazonHandler) ProcessOrder(
 
 		if !dryRun {
 			params := &monarch.UpdateTransactionParams{
-				CategoryID: &categoryID,
-				Notes:      &notes,
+				Notes: &notes,
+			}
+			// Only set category if the LLM returned a valid Monarch category ID.
+			// An empty ID means the categorizer couldn't map to a known category —
+			// we still write notes so the order is recorded, but skip the category
+			// update to avoid a Monarch API error.
+			if categoryID != "" {
+				params.CategoryID = &categoryID
+			} else {
+				h.logWarn("Skipping category update — no valid Monarch category ID returned by LLM",
+					"order_id", order.GetID(),
+					"transaction_id", consolidatedTxn.ID,
+					"category_name", result.CategoryName)
 			}
 			if err := h.monarch.UpdateTransaction(ctx, consolidatedTxn.ID, params); err != nil {
 				return nil, fmt.Errorf("update transaction error: %w", err)
 			}
-			h.logDebug("Updated transaction category",
+			h.logDebug("Updated transaction notes",
 				"order_id", order.GetID(),
 				"transaction_id", consolidatedTxn.ID,
 				"category_id", categoryID)
 		} else {
-			h.logDebug("[DRY RUN] Would update transaction category",
+			h.logDebug("[DRY RUN] Would update transaction",
 				"order_id", order.GetID(),
 				"category_id", categoryID)
 		}
