@@ -52,6 +52,9 @@ func (m *mockAmazonOrder) GetNonBankAmount() (float64, error) {
 func (m *mockAmazonOrder) IsMultiDelivery() (bool, error) {
 	return len(m.bankCharges) > 1, nil
 }
+func (m *mockAmazonOrder) GetItemsForCharge(_ float64) []providers.OrderItem {
+	return m.items
+}
 
 // mockItem implements providers.OrderItem
 type mockItem struct {

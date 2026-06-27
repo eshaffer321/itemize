@@ -3,6 +3,7 @@ package amazon
 import (
 	"errors"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
@@ -173,6 +174,58 @@ func (o *Order) GetNonBankAmount() (float64, error) {
 	}
 
 	return nonBankTotal, nil
+}
+
+// GetItemsForCharge returns the items belonging to the shipment that best
+// matches the given bank charge amount. When shipment data is available this
+// lets each Monarch transaction be split using only the items that were
+// actually in that box rather than pro-rating the entire order.
+//
+// Matching works by estimating each shipment's charge as:
+//
+//	shipmentSubtotal * (1 + taxRate)
+//
+// where taxRate = order.Tax / order.Subtotal. The shipment whose estimate is
+// closest to chargeAmount wins. Falls back to all order items when no
+// shipment data is present or when the order has only one shipment.
+func (o *Order) GetItemsForCharge(chargeAmount float64) []providers.OrderItem {
+	if len(o.parsedOrder.Shipments) <= 1 {
+		return o.items
+	}
+
+	taxRate := 0.0
+	if o.parsedOrder.Subtotal > 0 {
+		taxRate = o.parsedOrder.Tax / o.parsedOrder.Subtotal
+	}
+
+	bestIdx := -1
+	bestDiff := math.MaxFloat64
+	for i, shipment := range o.parsedOrder.Shipments {
+		var subtotal float64
+		for _, item := range shipment.Items {
+			subtotal += item.Price * float64(item.Quantity)
+		}
+		estimated := subtotal * (1 + taxRate)
+		diff := math.Abs(estimated - chargeAmount)
+		if diff < bestDiff {
+			bestDiff = diff
+			bestIdx = i
+		}
+	}
+
+	if bestIdx < 0 {
+		return o.items
+	}
+
+	shipment := o.parsedOrder.Shipments[bestIdx]
+	items := make([]providers.OrderItem, 0, len(shipment.Items))
+	for _, item := range shipment.Items {
+		items = append(items, &OrderItem{parsedItem: item})
+	}
+	if len(items) == 0 {
+		return o.items
+	}
+	return items
 }
 
 // IsMultiDelivery checks if order was split into multiple shipments/charges

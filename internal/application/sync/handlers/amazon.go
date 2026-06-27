@@ -25,6 +25,10 @@ type AmazonOrder interface {
 	GetFinalCharges() ([]float64, error)
 	GetNonBankAmount() (float64, error)
 	IsMultiDelivery() (bool, error)
+	// GetItemsForCharge returns only the items that belong to the shipment
+	// matching the given charge amount. Falls back to all items when shipment
+	// data is unavailable or the order has a single shipment.
+	GetItemsForCharge(chargeAmount float64) []providers.OrderItem
 }
 
 // TransactionConsolidator consolidates multiple transactions into one
@@ -267,8 +271,16 @@ func (h *AmazonHandler) ProcessOrder(
 	}
 
 	// Step 6: Pro-rata allocation
-	items := make([]allocator.Item, len(order.GetItems()))
-	for i, item := range order.GetItems() {
+	// For multi-delivery orders, use only the items from the shipment that
+	// corresponds to this charge so each Monarch transaction is split correctly.
+	// For single-charge orders GetItemsForCharge returns all items.
+	chargeAmount := validation.BankChargesSum
+	if len(bankCharges) == 1 {
+		chargeAmount = bankCharges[0]
+	}
+	orderItems := order.GetItemsForCharge(chargeAmount)
+	items := make([]allocator.Item, len(orderItems))
+	for i, item := range orderItems {
 		items[i] = allocator.Item{
 			Name:      item.GetName(),
 			ListPrice: item.GetPrice(),
@@ -291,10 +303,11 @@ func (h *AmazonHandler) ProcessOrder(
 		"multiplier", allocResult.Multiplier,
 		"total_allocated", allocResult.TotalAllocated)
 
-	// Step 7: Create an allocated order for the splitter
+	// Step 7: Create an allocated order for the splitter using the per-shipment items
 	allocatedOrder := &allocatedAmazonOrder{
 		Order:       order,
 		allocations: allocResult.Allocations,
+		baseItems:   orderItems,
 	}
 
 	// Step 8: Categorize and create splits
@@ -378,6 +391,7 @@ func (b *bankChargeOrder) GetTotal() float64 {
 type allocatedAmazonOrder struct {
 	providers.Order
 	allocations []allocator.Allocation
+	baseItems   []providers.OrderItem // the per-shipment items used for allocation
 }
 
 // GetItems returns items with allocated prices

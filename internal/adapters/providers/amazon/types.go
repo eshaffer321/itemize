@@ -7,6 +7,13 @@ type CLIOutput struct {
 	Orders []CLIOrder `json:"orders"`
 }
 
+// CLIShipment represents a shipment group from the CLI output
+type CLIShipment struct {
+	Status string         `json:"status"` // "Delivered", "Arriving", "Shipped"
+	Date   string         `json:"date"`   // ISO 8601: "2025-12-15"
+	Items  []CLIOrderItem `json:"items"`
+}
+
 // CLIOrder represents an order from the CLI output
 type CLIOrder struct {
 	OrderID      string           `json:"orderId"`
@@ -16,6 +23,7 @@ type CLIOrder struct {
 	Tax          string           `json:"tax"`          // "$6.58"
 	Shipping     string           `json:"shipping"`     // "$0.00"
 	Items        []CLIOrderItem   `json:"items"`
+	Shipments    []CLIShipment    `json:"shipments"`
 	Transactions []CLITransaction `json:"transactions"`
 }
 
@@ -35,6 +43,13 @@ type CLITransaction struct {
 	Description string `json:"description"` // "Prime Visa ****1211..."
 }
 
+// ParsedShipment is the internal representation of a shipment group
+type ParsedShipment struct {
+	Status string
+	Date   time.Time
+	Items  []*ParsedOrderItem
+}
+
 // ParsedOrder is the internal representation after parsing CLI output
 type ParsedOrder struct {
 	ID           string
@@ -44,6 +59,7 @@ type ParsedOrder struct {
 	Tax          float64
 	Shipping     float64
 	Items        []*ParsedOrderItem
+	Shipments    []*ParsedShipment
 	Transactions []*ParsedTransaction
 }
 
