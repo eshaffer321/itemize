@@ -80,6 +80,15 @@ func ConvertCLIOrder(cliOrder CLIOrder) (*ParsedOrder, error) {
 		order.Items = append(order.Items, item)
 	}
 
+	// Parse shipments
+	for i, cliShipment := range cliOrder.Shipments {
+		shipment, err := convertCLIShipment(cliShipment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse shipment %d: %w", i, err)
+		}
+		order.Shipments = append(order.Shipments, shipment)
+	}
+
 	// Parse transactions - fail on any transaction parse error
 	for i, cliTx := range cliOrder.Transactions {
 		tx, err := convertCLITransaction(cliTx)
@@ -90,6 +99,31 @@ func ConvertCLIOrder(cliOrder CLIOrder) (*ParsedOrder, error) {
 	}
 
 	return order, nil
+}
+
+// convertCLIShipment converts a CLIShipment to a ParsedShipment
+func convertCLIShipment(cliShipment CLIShipment) (*ParsedShipment, error) {
+	shipment := &ParsedShipment{
+		Status: cliShipment.Status,
+	}
+
+	if cliShipment.Date != "" {
+		date, err := parseDate(cliShipment.Date)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse shipment date %q: %w", cliShipment.Date, err)
+		}
+		shipment.Date = date
+	}
+
+	for i, cliItem := range cliShipment.Items {
+		item, err := convertCLIItem(cliItem)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse shipment item %d (%q): %w", i, cliItem.Name, err)
+		}
+		shipment.Items = append(shipment.Items, item)
+	}
+
+	return shipment, nil
 }
 
 // convertCLIItem converts a CLIOrderItem to a ParsedOrderItem

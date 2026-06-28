@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -228,7 +229,7 @@ func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stderr = io.MultiWriter(&stderr, os.Stderr) // stream logs to terminal in real-time
 	if p.browserDataDir != "" {
 		cmd.Env = append(os.Environ(), "BROWSER_DATA_DIR="+p.browserDataDir)
 	}

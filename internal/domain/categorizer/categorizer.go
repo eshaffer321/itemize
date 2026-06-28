@@ -145,13 +145,41 @@ func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categor
 		return nil, fmt.Errorf("LLM categorization failed: %w", err)
 	}
 
-	// Process LLM results
-	for _, cat := range llmResult.Categorizations {
-		// Cache the result
-		normalizedName := c.normalizeItemName(cat.ItemName)
-		c.cache.Set(normalizedName, cat.CategoryID)
+	// Build a lookup so we can validate what the LLM returned
+	categoryByID := make(map[string]Category, len(categories))
+	categoryByName := make(map[string]Category, len(categories))
+	for _, c := range categories {
+		categoryByID[c.ID] = c
+		categoryByName[strings.ToLower(c.Name)] = c
+	}
 
-		// Add to results
+	// Truncate extra entries — LLMs occasionally hallucinate more categorizations
+	// than items sent. Extra entries corrupt category-group detection downstream.
+	llmCategorizations := llmResult.Categorizations
+	if len(llmCategorizations) > len(uncachedItems) {
+		llmCategorizations = llmCategorizations[:len(uncachedItems)]
+	}
+
+	// Process LLM results
+	for _, cat := range llmCategorizations {
+		// If the LLM returned an ID that isn't in the Monarch category list,
+		// try to recover via name match before falling back to empty.
+		if _, ok := categoryByID[cat.CategoryID]; !ok {
+			if matched, ok := categoryByName[strings.ToLower(cat.CategoryName)]; ok {
+				cat.CategoryID = matched.ID
+				cat.CategoryName = matched.Name
+			} else {
+				// No valid match — zero out the ID so callers know to skip category update
+				cat.CategoryID = ""
+			}
+		}
+
+		// Only cache valid IDs so future lookups don't reuse a bad value
+		if cat.CategoryID != "" {
+			normalizedName := c.normalizeItemName(cat.ItemName)
+			c.cache.Set(normalizedName, cat.CategoryID)
+		}
+
 		result.Categorizations = append(result.Categorizations, cat)
 	}
 
@@ -262,31 +290,32 @@ func (c *Categorizer) buildPrompt(items []Item, categories []Category) string {
 		categoriesList.WriteString(fmt.Sprintf("- %s (ID: %s)\n", cat.Name, cat.ID))
 	}
 
-	prompt := fmt.Sprintf(`Please categorize the following Walmart items into the most appropriate categories.
+	prompt := fmt.Sprintf(`Please categorize the following items into the most appropriate categories.
 
 Items to categorize:
 %s
 
-Available categories:
+Available categories (use ONLY these exact IDs):
 %s
 
 IMPORTANT Instructions:
-1. Match each item to the MOST appropriate category
-2. Distinguish between different types of items:
+1. Match each item to the MOST appropriate category from the list above
+2. You MUST use the exact category_id values shown in the list — do NOT invent IDs or use words like "Uncategorized"
+3. If no category is a good fit, pick the closest one available
+4. Distinguish between different types of items:
    - "Groceries" should be used ONLY for food items (milk, bread, meat, produce, snacks, beverages)
-   - "Home & Garden" should be used for cleaning supplies, paper products (paper towels, toilet paper), laundry detergent, trash bags, and home maintenance items
-   - "Personal Care" should be used for toiletries like shampoo, deodorant, toothpaste, soap, cosmetics
+   - "Home & Garden" for cleaning supplies, paper products, laundry, trash bags, home maintenance
+   - "Personal Care" for toiletries: shampoo, deodorant, toothpaste, soap, cosmetics
    - "Health & Wellness" for vitamins, medicine, first aid
-3. Do NOT put non-food items in Groceries even if purchased at a grocery store
-4. Consider the item name carefully - "paper towels" is Home & Garden, not Groceries
-5. Provide a confidence score (0.0 to 1.0) for each categorization
+5. Do NOT put non-food items in Groceries
+6. Provide a confidence score (0.0 to 1.0) for each categorization
 
 Return the result as a JSON object with this structure:
 {
   "categorizations": [
     {
       "item_name": "exact item name",
-      "category_id": "category ID",
+      "category_id": "exact ID from the list above",
       "category_name": "category name",
       "confidence": 0.95
     }

@@ -25,6 +25,10 @@ type AmazonOrder interface {
 	GetFinalCharges() ([]float64, error)
 	GetNonBankAmount() (float64, error)
 	IsMultiDelivery() (bool, error)
+	// GetItemsForCharge returns only the items that belong to the shipment
+	// matching the given charge amount. Falls back to all items when shipment
+	// data is unavailable or the order has a single shipment.
+	GetItemsForCharge(chargeAmount float64) []providers.OrderItem
 }
 
 // TransactionConsolidator consolidates multiple transactions into one
@@ -174,110 +178,149 @@ func (h *AmazonHandler) ProcessOrder(
 
 	// Step 3: Validate charges
 	validation := validator.ValidateCharges(bankCharges, order.GetTotal(), nonBankAmount)
-	if !validation.Valid {
-		h.logWarn("Charge validation failed",
-			"order_id", order.GetID(),
-			"reason", validation.Reason,
-			"bank_sum", validation.BankChargesSum,
-			"expected", validation.ExpectedSum,
-			"difference", validation.Difference)
-		result.Skipped = true
-		result.SkipReason = validation.Reason
-		return result, nil
-	}
-
-	h.logDebug("Charge validation passed",
-		"order_id", order.GetID(),
-		"bank_sum", validation.BankChargesSum,
-		"expected", validation.ExpectedSum)
 
 	// Step 4: Match to Monarch transactions
 	var matchedTxns []*monarch.Transaction
 	var consolidatedTxn *monarch.Transaction
+	monarchDiscovered := false // true when we matched via subset search rather than scraper charges
 
-	if len(bankCharges) > 1 {
-		// Multi-delivery order - find multiple matches
-		multiResult, err := h.matcher.FindMultipleMatches(order, monarchTxns, usedTxnIDs, bankCharges)
-		if err != nil {
-			return nil, fmt.Errorf("multi-match error: %w", err)
-		}
+	if !validation.Valid {
+		// Scraper charges are incomplete (common for multi-shipment orders where later
+		// charges post after the scraper visited the order details page). Try to find the
+		// matching Monarch transactions by searching for a subset that sums to the order total.
+		h.logDebug("Scraper charges incomplete, attempting Monarch-side discovery",
+			"order_id", order.GetID(),
+			"scraper_sum", validation.BankChargesSum,
+			"expected", validation.ExpectedSum)
 
-		if !multiResult.AllFound {
-			result.Skipped = true
-			result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
-				len(bankCharges), len(multiResult.Matches))
-			h.logWarn("Not all transactions found",
+		discovered, discoverErr := h.matcher.FindSubsetByTotal(order, monarchTxns, usedTxnIDs)
+		if discoverErr != nil {
+			h.logWarn("Charge validation failed and Monarch discovery found no match",
 				"order_id", order.GetID(),
-				"expected", len(bankCharges),
-				"found", len(multiResult.Matches))
+				"reason", validation.Reason,
+				"bank_sum", validation.BankChargesSum,
+				"expected", validation.ExpectedSum,
+				"difference", validation.Difference)
+			result.Skipped = true
+			result.SkipReason = validation.Reason
 			return result, nil
 		}
 
-		// Extract matched transactions
-		for _, match := range multiResult.Matches {
-			matchedTxns = append(matchedTxns, match.Transaction)
-			usedTxnIDs[match.Transaction.ID] = true
+		matchedTxns = discovered
+		monarchDiscovered = true
+		for _, t := range matchedTxns {
+			usedTxnIDs[t.ID] = true
 		}
-
-		h.logInfo("Matched all transactions for multi-delivery order",
+		h.logInfo("Monarch-side discovery found matching transactions",
 			"order_id", order.GetID(),
-			"transaction_count", len(matchedTxns))
-
-		// Step 5: Consolidate transactions
-		consolidationResult, err := h.consolidator.ConsolidateTransactions(ctx, matchedTxns, order, dryRun)
-		if err != nil {
-			return nil, fmt.Errorf("consolidation error: %w", err)
-		}
-		consolidatedTxn = consolidationResult.ConsolidatedTransaction
-
-		h.logInfo("Consolidated transactions",
-			"order_id", order.GetID(),
-			"consolidated_id", consolidatedTxn.ID,
-			"original_count", len(matchedTxns))
+			"count", len(matchedTxns))
 	} else {
-		// Single charge - find one match
-		// Use a wrapper order that returns the bank charge amount for matching
-		// This handles gift card orders where order total differs from bank charge
-		matchOrder := &bankChargeOrder{
-			Order:      order,
-			bankCharge: bankCharges[0],
-		}
-
-		matchResult, err := h.matcher.FindMatch(matchOrder, monarchTxns, usedTxnIDs)
-		if err != nil {
-			return nil, fmt.Errorf("match error: %w", err)
-		}
-
-		if matchResult == nil {
-			result.Skipped = true
-			result.SkipReason = "no matching transaction found"
-			h.logWarn("No matching transaction found",
-				"order_id", order.GetID(),
-				"expected_amount", bankCharges[0])
-			return result, nil
-		}
-
-		consolidatedTxn = matchResult.Transaction
-		usedTxnIDs[consolidatedTxn.ID] = true
-
-		h.logDebug("Matched single transaction",
+		h.logDebug("Charge validation passed",
 			"order_id", order.GetID(),
-			"transaction_id", consolidatedTxn.ID,
-			"amount", math.Abs(consolidatedTxn.Amount))
+			"bank_sum", validation.BankChargesSum,
+			"expected", validation.ExpectedSum)
+
+		if len(bankCharges) > 1 {
+			// Multi-delivery order - find multiple matches
+			multiResult, err := h.matcher.FindMultipleMatches(order, monarchTxns, usedTxnIDs, bankCharges)
+			if err != nil {
+				return nil, fmt.Errorf("multi-match error: %w", err)
+			}
+
+			if !multiResult.AllFound {
+				result.Skipped = true
+				result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
+					len(bankCharges), len(multiResult.Matches))
+				h.logWarn("Not all transactions found",
+					"order_id", order.GetID(),
+					"expected", len(bankCharges),
+					"found", len(multiResult.Matches))
+				return result, nil
+			}
+
+			for _, match := range multiResult.Matches {
+				matchedTxns = append(matchedTxns, match.Transaction)
+				usedTxnIDs[match.Transaction.ID] = true
+			}
+			h.logInfo("Matched all transactions for multi-delivery order",
+				"order_id", order.GetID(),
+				"transaction_count", len(matchedTxns))
+		} else {
+			// Single charge - find one match
+			// Use a wrapper order that returns the bank charge amount for matching
+			// This handles gift card orders where order total differs from bank charge
+			matchOrder := &bankChargeOrder{
+				Order:      order,
+				bankCharge: bankCharges[0],
+			}
+
+			matchResult, err := h.matcher.FindMatch(matchOrder, monarchTxns, usedTxnIDs)
+			if err != nil {
+				return nil, fmt.Errorf("match error: %w", err)
+			}
+
+			if matchResult == nil {
+				result.Skipped = true
+				result.SkipReason = "no matching transaction found"
+				h.logWarn("No matching transaction found",
+					"order_id", order.GetID(),
+					"expected_amount", bankCharges[0])
+				return result, nil
+			}
+
+			consolidatedTxn = matchResult.Transaction
+			usedTxnIDs[consolidatedTxn.ID] = true
+
+			h.logDebug("Matched single transaction",
+				"order_id", order.GetID(),
+				"transaction_id", consolidatedTxn.ID,
+				"amount", math.Abs(consolidatedTxn.Amount))
+		}
+	}
+
+	// Step 5: Consolidate multi-transaction matches
+	if consolidatedTxn == nil {
+		if len(matchedTxns) > 1 {
+			consolidationResult, err := h.consolidator.ConsolidateTransactions(ctx, matchedTxns, order, dryRun)
+			if err != nil {
+				return nil, fmt.Errorf("consolidation error: %w", err)
+			}
+			consolidatedTxn = consolidationResult.ConsolidatedTransaction
+			h.logInfo("Consolidated transactions",
+				"order_id", order.GetID(),
+				"consolidated_id", consolidatedTxn.ID,
+				"original_count", len(matchedTxns))
+		} else if len(matchedTxns) == 1 {
+			consolidatedTxn = matchedTxns[0]
+		}
 	}
 
 	// Step 6: Pro-rata allocation
-	items := make([]allocator.Item, len(order.GetItems()))
-	for i, item := range order.GetItems() {
+	// For Monarch-discovered charges, use the order total and all items since we
+	// don't have per-shipment mapping. For scraper-validated charges, use the
+	// per-shipment breakdown when available.
+	var chargeAmount float64
+	var allocationTotal float64
+	if monarchDiscovered {
+		chargeAmount = order.GetTotal()
+		for _, t := range matchedTxns {
+			allocationTotal += math.Abs(t.Amount)
+		}
+	} else {
+		chargeAmount = validation.BankChargesSum
+		if len(bankCharges) == 1 {
+			chargeAmount = bankCharges[0]
+		}
+		allocationTotal = validation.BankChargesSum
+	}
+	orderItems := order.GetItemsForCharge(chargeAmount)
+	items := make([]allocator.Item, len(orderItems))
+	for i, item := range orderItems {
 		items[i] = allocator.Item{
 			Name:      item.GetName(),
 			ListPrice: item.GetPrice(),
 		}
 	}
-
-	// Use the sum of bank charges as the order total for allocation
-	// This is the actual amount charged to the bank
-	allocationTotal := validation.BankChargesSum
 
 	allocResult, err := allocator.Allocate(items, allocationTotal)
 	if err != nil {
@@ -289,12 +332,14 @@ func (h *AmazonHandler) ProcessOrder(
 	h.logDebug("Allocated costs",
 		"order_id", order.GetID(),
 		"multiplier", allocResult.Multiplier,
-		"total_allocated", allocResult.TotalAllocated)
+		"total_allocated", allocResult.TotalAllocated,
+		"monarch_discovered", monarchDiscovered)
 
-	// Step 7: Create an allocated order for the splitter
+	// Step 7: Create an allocated order for the splitter using the per-shipment items
 	allocatedOrder := &allocatedAmazonOrder{
 		Order:       order,
 		allocations: allocResult.Allocations,
+		baseItems:   orderItems,
 	}
 
 	// Step 8: Categorize and create splits
@@ -324,19 +369,32 @@ func (h *AmazonHandler) ProcessOrder(
 		}
 
 		if !dryRun {
+			reviewed := false
 			params := &monarch.UpdateTransactionParams{
-				CategoryID: &categoryID,
-				Notes:      &notes,
+				Notes:       &notes,
+				NeedsReview: &reviewed,
+			}
+			// Only set category if the LLM returned a valid Monarch category ID.
+			// An empty ID means the categorizer couldn't map to a known category —
+			// we still write notes so the order is recorded, but skip the category
+			// update to avoid a Monarch API error.
+			if categoryID != "" {
+				params.CategoryID = &categoryID
+			} else {
+				h.logWarn("Skipping category update — no valid Monarch category ID returned by LLM",
+					"order_id", order.GetID(),
+					"transaction_id", consolidatedTxn.ID,
+					"category_name", result.CategoryName)
 			}
 			if err := h.monarch.UpdateTransaction(ctx, consolidatedTxn.ID, params); err != nil {
 				return nil, fmt.Errorf("update transaction error: %w", err)
 			}
-			h.logDebug("Updated transaction category",
+			h.logDebug("Updated transaction notes",
 				"order_id", order.GetID(),
 				"transaction_id", consolidatedTxn.ID,
 				"category_id", categoryID)
 		} else {
-			h.logDebug("[DRY RUN] Would update transaction category",
+			h.logDebug("[DRY RUN] Would update transaction",
 				"order_id", order.GetID(),
 				"category_id", categoryID)
 		}
@@ -345,6 +403,17 @@ func (h *AmazonHandler) ProcessOrder(
 		if !dryRun {
 			if err := h.monarch.UpdateSplits(ctx, consolidatedTxn.ID, splits); err != nil {
 				return nil, fmt.Errorf("update splits error: %w", err)
+			}
+			// Mark the parent transaction as reviewed so Monarch's rule engine
+			// doesn't re-categorize it after the split is applied.
+			reviewed := false
+			if err := h.monarch.UpdateTransaction(ctx, consolidatedTxn.ID, &monarch.UpdateTransactionParams{
+				NeedsReview: &reviewed,
+			}); err != nil {
+				h.logWarn("Failed to mark split transaction as reviewed",
+					"order_id", order.GetID(),
+					"transaction_id", consolidatedTxn.ID,
+					"error", err)
 			}
 			h.logDebug("Applied splits",
 				"order_id", order.GetID(),
@@ -378,6 +447,7 @@ func (b *bankChargeOrder) GetTotal() float64 {
 type allocatedAmazonOrder struct {
 	providers.Order
 	allocations []allocator.Allocation
+	baseItems   []providers.OrderItem // the per-shipment items used for allocation
 }
 
 // GetItems returns items with allocated prices
