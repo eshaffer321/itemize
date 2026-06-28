@@ -204,7 +204,8 @@ func TestAmazonHandler_ProcessOrder_ValidOrder(t *testing.T) {
 }
 
 func TestAmazonHandler_ProcessOrder_InvalidCharges(t *testing.T) {
-	// Order with missing bank charge
+	// Order with missing bank charge and no Monarch transactions to discover from.
+	// The handler should attempt Monarch-side discovery, find nothing, and skip.
 	order := &mockAmazonOrder{
 		id:            "test-missing-charge",
 		date:          time.Now(),
@@ -214,12 +215,13 @@ func TestAmazonHandler_ProcessOrder_InvalidCharges(t *testing.T) {
 		nonBankAmount: 0,
 	}
 
-	handler := NewAmazonHandler(nil, nil, nil, nil, nil)
+	matcherCfg := matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}
+	handler := NewAmazonHandler(matcher.NewMatcher(matcherCfg), nil, nil, nil, nil)
 
 	result, err := handler.ProcessOrder(
 		context.Background(),
 		order,
-		nil,
+		nil, // no Monarch transactions — discovery will find nothing
 		make(map[string]bool),
 		nil, nil,
 		false,
