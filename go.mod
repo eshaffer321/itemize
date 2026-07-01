@@ -6,6 +6,7 @@ require (
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarchmoney-go v1.0.5
 	github.com/eshaffer321/walmart-client-go/v2 v2.0.1
+	github.com/getsentry/sentry-go v0.36.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/pressly/goose/v3 v3.27.1
@@ -15,7 +16,6 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/getsentry/sentry-go v0.36.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

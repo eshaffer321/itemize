@@ -134,6 +134,30 @@ BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login --profile "$AMAZ
 **OpenAI errors**
 - Check `OPENAI_API_KEY` is set and has credits
 
+## Telemetry
+
+itemize collects anonymous usage data to help understand how the tool is being used and what errors occur in the wild. No personal information or credentials are ever sent.
+
+**What is collected:**
+- Which provider was run (`walmart`, `costco`, `amazon`)
+- Sync flags used (`dry-run`, `lookback_days`, `force`, etc. — flag names only, no values that could contain secrets)
+- Outcome counts (processed, skipped, errors)
+- Error type and message when a sync fails
+- OS and Go version (added automatically by the Sentry SDK)
+
+**What is never collected:**
+- API tokens or keys (`MONARCH_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
+- Costco email or password
+- Amazon account name or browser profile paths
+- Order IDs, transaction IDs, or any financial data
+
+**Opt out:**
+```bash
+export ITEMIZE_NO_TELEMETRY=1
+# or the standard
+export DO_NOT_TRACK=1
+```
+
 ## Development
 
 ```bash
