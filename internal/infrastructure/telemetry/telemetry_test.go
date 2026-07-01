@@ -116,6 +116,21 @@ func TestScrubEvent_RedactsTokenLikeExceptionValues(t *testing.T) {
 	assert.Equal(t, "order not found", result.Exception[1].Value, "short exception value should be preserved")
 }
 
+func TestScrubEvent_RedactsCookieStyleExceptionValues(t *testing.T) {
+	event := &sentry.Event{
+		Exception: []sentry.Exception{
+			{Type: "AuthError", Value: "walmart request failed, Cookie: auth_token=eyJhbGciOiJIUzI1NiJ9.abc; path=/"},
+			{Type: "ParseError", Value: "unexpected end of JSON input"},
+		},
+	}
+
+	result := scrubEvent(event, nil)
+
+	assert.Contains(t, result.Exception[0].Value, "auth_token=[redacted]", "cookie value should be redacted while keeping the cookie name")
+	assert.NotContains(t, result.Exception[0].Value, "eyJhbGciOiJIUzI1NiJ9", "raw cookie value must not survive scrubbing")
+	assert.Equal(t, "unexpected end of JSON input", result.Exception[1].Value, "exception values without cookies should be untouched")
+}
+
 func TestScrubEvent_WipesBreadcrumbData(t *testing.T) {
 	event := &sentry.Event{
 		Breadcrumbs: []*sentry.Breadcrumb{

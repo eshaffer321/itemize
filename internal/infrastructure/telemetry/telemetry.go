@@ -22,6 +22,11 @@ var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9_\-]{20,}$`)
 // (e.g. error messages that include a credential in the middle).
 var tokenSubstring = regexp.MustCompile(`[A-Za-z0-9_\-]{20,}`)
 
+// cookiePattern matches cookie/header-style "name=value" pairs (e.g. a raw
+// Cookie or Set-Cookie header accidentally included in an error message).
+// It redacts the value while keeping the cookie name for context.
+var cookiePattern = regexp.MustCompile(`(?i)\b([\w\-]*(?:session|auth|token|cookie)[\w\-]*)=[^;\s]+`)
+
 // IsEnabled reports whether telemetry is active for this run.
 func IsEnabled() bool {
 	if os.Getenv("ITEMIZE_NO_TELEMETRY") != "" {
@@ -114,9 +119,11 @@ func scrubEvent(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 	}
 
 	// Layer 4: scrub exception values — an error message could contain a token
-	// embedded in a longer string (e.g. "request failed: invalid token abc123xyz...").
+	// embedded in a longer string (e.g. "request failed: invalid token abc123xyz...")
+	// or a raw cookie/session header (e.g. "auth_token=eyJhbGciOi...; path=/").
 	for i := range event.Exception {
-		event.Exception[i].Value = tokenSubstring.ReplaceAllString(event.Exception[i].Value, "[redacted]")
+		v := cookiePattern.ReplaceAllString(event.Exception[i].Value, "$1=[redacted]")
+		event.Exception[i].Value = tokenSubstring.ReplaceAllString(v, "[redacted]")
 	}
 
 	// Layer 5: wipe breadcrumb data — breadcrumbs can carry arbitrary key/value
