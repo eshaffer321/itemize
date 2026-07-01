@@ -101,6 +101,40 @@ func TestIsEnabled_RespectsOptOutEnvVars(t *testing.T) {
 	})
 }
 
+func TestScrubEvent_RedactsTokenLikeExceptionValues(t *testing.T) {
+	event := &sentry.Event{
+		Exception: []sentry.Exception{
+			{Type: "AuthError", Value: "request failed: token abc123def456ghi789jkl"},
+			{Type: "NotFoundError", Value: "order not found"},
+		},
+	}
+
+	result := scrubEvent(event, nil)
+
+	assert.Equal(t, "request failed: token [redacted]", result.Exception[0].Value, "token substring in exception value should be redacted while preserving context")
+	assert.Equal(t, "NotFoundError", result.Exception[1].Type, "exception type should be preserved")
+	assert.Equal(t, "order not found", result.Exception[1].Value, "short exception value should be preserved")
+}
+
+func TestScrubEvent_WipesBreadcrumbData(t *testing.T) {
+	event := &sentry.Event{
+		Breadcrumbs: []*sentry.Breadcrumb{
+			{
+				Message: "fetching orders",
+				Data: map[string]interface{}{
+					"api_key": "sk-secret123abc456def789ghi",
+					"count":   5,
+				},
+			},
+		},
+	}
+
+	result := scrubEvent(event, nil)
+
+	assert.Nil(t, result.Breadcrumbs[0].Data, "breadcrumb data should be wiped")
+	assert.Equal(t, "fetching orders", result.Breadcrumbs[0].Message, "breadcrumb message should be preserved")
+}
+
 func TestIsEnabled_FalseWhenDSNIsPlaceholder(t *testing.T) {
 	// The real dsn const in this package is set; this test verifies the logic
 	// by calling the unexported check directly via the exported function.
