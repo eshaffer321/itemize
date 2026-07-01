@@ -13,6 +13,7 @@ import (
 	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/itemize/internal/infrastructure/telemetry"
 )
 
 func main() {
@@ -29,10 +30,14 @@ func main() {
 		cfg := config.LoadOrEnv()
 		flags := cli.ParseServeFlags()
 		if err := cli.RunServe(cfg, flags); err != nil {
+			telemetry.CaptureError(err, "serve", "serve")
 			log.Fatalf("Server error: %v", err)
 		}
 		return
 	}
+
+	flush := telemetry.Init()
+	defer flush()
 
 	// Provider sync commands
 	providerName := command
@@ -48,11 +53,13 @@ func main() {
 	// Initialize shared dependencies
 	serviceClients, err := clients.NewClients(cfg)
 	if err != nil {
+		telemetry.CaptureError(err, providerName, "init")
 		log.Fatalf("Failed to initialize clients: %v", err)
 	}
 
 	store, err := storage.NewStorage(cfg.Storage.DatabasePath)
 	if err != nil {
+		telemetry.CaptureError(err, providerName, "init")
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 	defer func() { _ = store.Close() }()
@@ -75,6 +82,7 @@ func main() {
 	}
 
 	if err != nil {
+		telemetry.CaptureError(err, providerName, "provider_create")
 		log.Fatalf("Failed to create provider: %v", err)
 	}
 
@@ -98,11 +106,13 @@ func main() {
 	result, err := orchestrator.Run(ctx, opts)
 
 	if err != nil {
+		telemetry.CaptureError(err, providerName, "sync")
 		log.Fatalf("Sync failed: %v", err)
 	}
 
 	// Print results
 	cli.PrintSyncSummary(result, store, flags.DryRun)
+	telemetry.CaptureSync(providerName, flags, result)
 }
 
 func printUsage() {
@@ -131,6 +141,7 @@ func printUsage() {
 	fmt.Println("  OPENAI_API_KEY             OpenAI API key")
 	fmt.Println("  ANTHROPIC_API_KEY          Anthropic Claude API key")
 	fmt.Println("  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")
+	fmt.Println("  ITEMIZE_NO_TELEMETRY       Set to 1 to disable anonymous usage telemetry")
 	fmt.Println()
 	fmt.Println("Provider-Specific Environment Variables:")
 	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon browser profile name (optional)")

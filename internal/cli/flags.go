@@ -39,6 +39,7 @@ func ParseSyncFlags() SyncFlags {
 		fmt.Fprintln(os.Stderr, "  OPENAI_API_KEY             OpenAI API key")
 		fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY          Anthropic Claude API key")
 		fmt.Fprintln(os.Stderr, "  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")
+		fmt.Fprintln(os.Stderr, "  ITEMIZE_NO_TELEMETRY       Set to 1 to disable anonymous usage telemetry")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Provider-Specific Environment Variables:")
 		fmt.Fprintln(os.Stderr, "  AMAZON_ACCOUNT_NAME        Amazon browser profile name (optional)")
