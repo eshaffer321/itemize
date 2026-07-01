@@ -127,7 +127,7 @@ func printUsage() {
 	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  MONARCH_TOKEN              Monarch Money API token (required)")
+	fmt.Println("  MONARCH_TOKEN              Monarch API token (required)")
 	fmt.Println("  OPENAI_API_KEY             OpenAI API key")
 	fmt.Println("  ANTHROPIC_API_KEY          Anthropic Claude API key")
 	fmt.Println("  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")

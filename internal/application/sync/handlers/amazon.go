@@ -48,7 +48,7 @@ type CategorySplitter interface {
 	GetSingleCategoryInfo(ctx context.Context, order providers.Order, categories []categorizer.Category) (string, string, error)
 }
 
-// MonarchClient provides access to Monarch Money API
+// MonarchClient provides access to Monarch API
 type MonarchClient interface {
 	UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error
 	UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error

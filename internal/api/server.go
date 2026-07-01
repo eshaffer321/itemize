@@ -121,7 +121,7 @@ func (s *Server) setupRoutes() {
 			r.Delete("/sync/{jobId}", syncHandler.CancelSync)
 		}
 
-		// Transactions (Monarch Money)
+		// Transactions (Monarch)
 		if s.monarchClient != nil {
 			transactionsHandler := handlers.NewTransactionsHandler(s.monarchClient)
 			r.Get("/transactions", transactionsHandler.List)

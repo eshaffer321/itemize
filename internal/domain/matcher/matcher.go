@@ -1,5 +1,5 @@
 // Package matcher provides transaction matching logic for syncing
-// provider orders with Monarch Money transactions.
+// provider orders with Monarch transactions.
 //
 // The matcher uses strict matching criteria:
 //   - Amount must match within 1 cent (configurable)

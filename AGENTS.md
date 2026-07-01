@@ -2,7 +2,7 @@
 
 **Last Updated:** June 2026
 
-CLI + API server that syncs Walmart, Costco, and Amazon purchases into Monarch Money:
+CLI + API server that syncs Walmart, Costco, and Amazon purchases into Monarch:
 matches each order to its Monarch transaction, categorizes items with OpenAI, and splits
 the transaction by category. Local single-user tool — not a SaaS, extension, or real-time service.
 

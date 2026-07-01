@@ -16,7 +16,7 @@ type Item struct {
 	Quantity int     `json:"quantity,omitempty"`
 }
 
-// Category represents a Monarch Money category
+// Category represents a Monarch category
 type Category struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`

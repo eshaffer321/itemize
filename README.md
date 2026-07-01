@@ -1,11 +1,11 @@
 # Itemize
 
-CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Money. Automatically splits transactions by category using AI.
+CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch. Automatically splits transactions by category using AI.
 
 ## What it does
 
 1. Fetches orders from retailers with item details
-2. Matches them to transactions in Monarch Money
+2. Matches them to transactions in Monarch
 3. Categorizes items using an LLM (OpenAI or Anthropic Claude)
 4. Splits the transaction by category with proportional tax
 
@@ -19,7 +19,7 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch Mone
 ### Prerequisites
 
 - Go 1.24+
-- Monarch Money account
+- Monarch account
 - An LLM API key — OpenAI or Anthropic (Claude)
 - Retailer account(s)
 
@@ -124,7 +124,7 @@ BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login --profile "$AMAZ
 ## Troubleshooting
 
 **"No matching transaction found"**
-- Transaction hasn't posted to Monarch yet (wait 1-3 days)
+- Transaction hasn't posted to Monarch yet (wait 1–3 days)
 - Amount differs by more than $0.01
 - Date differs by more than 5 days
 
