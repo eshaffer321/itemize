@@ -13,7 +13,7 @@ import (
 
 // dsn is the Sentry project DSN. It is intentionally public — Sentry DSNs are
 // client-side keys rate-limited at the project level.
-const dsn = "SENTRY_DSN_PLACEHOLDER"
+const dsn = "https://dd8d38ecea079b123faf44cbf4d9d3bf@o4509941888122880.ingest.us.sentry.io/4511661709197312"
 
 // tokenPattern matches strings that look like API keys/tokens and should never
 // appear in events. Anything 20+ chars of alphanumeric/dash/underscore is suspect.
