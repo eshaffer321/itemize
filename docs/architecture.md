@@ -5,7 +5,7 @@
 
 ## Overview
 
-The Monarch Money Sync Backend follows a **layered architecture** pattern with clear separation of concerns. This structure emerged from refactoring a flat directory layout that made it difficult to understand where components belonged.
+The Monarch Sync Backend follows a **layered architecture** pattern with clear separation of concerns. This structure emerged from refactoring a flat directory layout that made it difficult to understand where components belonged.
 
 ## Directory Structure
 

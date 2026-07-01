@@ -37,7 +37,7 @@ Each component has a **system prefix** to identify the source:
 - `[sync]` - Orchestrator and application logic
 - `[costco]` - Costco provider and costco-go client
 - `[walmart]` - Walmart provider and walmart-client
-- `[monarch]` - Monarch Money API client
+- `[monarch]` - Monarch API client
 - `[storage]` - Database operations
 - `[categorizer]` - AI categorization logic
 

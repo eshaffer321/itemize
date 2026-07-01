@@ -1,4 +1,4 @@
-# Monarch Money Sync Backend Configuration
+# Monarch Sync Backend Configuration
 
 # Provider configurations
 providers:
@@ -29,7 +29,7 @@ providers:
     account_name: "${AMAZON_ACCOUNT_NAME}"
     browser_data_dir: "${AMAZON_BROWSER_DATA_DIR}"
 
-# Monarch Money API configuration
+# Monarch API configuration
 monarch:
   api_key: "${MONARCH_TOKEN}"
 

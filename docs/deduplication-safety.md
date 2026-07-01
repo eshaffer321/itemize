@@ -1,7 +1,7 @@
 # Deduplication & Database Safety
 
 ## Overview
-This document explains how the sync system prevents duplicate processing and protects your Monarch Money budget from corruption.
+This document explains how the sync system prevents duplicate processing and protects your Monarch budget from corruption.
 
 ## Two-Layer Protection System
 

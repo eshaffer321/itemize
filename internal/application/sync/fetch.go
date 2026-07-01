@@ -39,7 +39,7 @@ func (o *Orchestrator) fetchOrders(ctx context.Context, opts Options) ([]provide
 	return orders, nil
 }
 
-// fetchMonarchTransactions fetches and filters transactions from Monarch Money
+// fetchMonarchTransactions fetches and filters transactions from Monarch
 func (o *Orchestrator) fetchMonarchTransactions(ctx context.Context, opts Options) ([]*monarch.Transaction, error) {
 	o.logger.Debug("Fetching Monarch transactions")
 

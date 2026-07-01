@@ -172,7 +172,7 @@ When fixing a bug:
 ## Next Testing Priorities
 
 1. Add service layer tests
-2. Add Monarch Money SDK integration tests (mocked)
+2. Add Monarch SDK integration tests (mocked)
 3. Add configuration tests
 4. Add main.go integration tests
 5. Add performance benchmarks

@@ -36,7 +36,7 @@ type StorageConfig struct {
 	DatabasePath string `yaml:"database_path"`
 }
 
-// MonarchConfig holds Monarch Money API configuration
+// MonarchConfig holds Monarch API configuration
 type MonarchConfig struct {
 	APIKey string `yaml:"api_key"`
 }

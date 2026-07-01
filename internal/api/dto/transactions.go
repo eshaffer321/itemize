@@ -1,6 +1,6 @@
 package dto
 
-// TransactionResponse represents a Monarch Money transaction in API responses.
+// TransactionResponse represents a Monarch transaction in API responses.
 type TransactionResponse struct {
 	ID              string                      `json:"id"`
 	Date            string                      `json:"date"`

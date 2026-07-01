@@ -35,7 +35,7 @@ func ParseSyncFlags() SyncFlags {
 		flag.PrintDefaults()
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Environment Variables:")
-		fmt.Fprintln(os.Stderr, "  MONARCH_TOKEN              Monarch Money API token (required)")
+		fmt.Fprintln(os.Stderr, "  MONARCH_TOKEN              Monarch API token (required)")
 		fmt.Fprintln(os.Stderr, "  OPENAI_API_KEY             OpenAI API key")
 		fmt.Fprintln(os.Stderr, "  ANTHROPIC_API_KEY          Anthropic Claude API key")
 		fmt.Fprintln(os.Stderr, "  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")

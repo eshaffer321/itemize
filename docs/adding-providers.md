@@ -1,6 +1,6 @@
 # Adding New Providers
 
-This guide explains how to add support for new stores (like Costco, Target, Amazon) to the Monarch Money Sync Backend.
+This guide explains how to add support for new stores (like Costco, Target, Amazon) to the Monarch Sync Backend.
 
 ## Overview
 

@@ -228,7 +228,7 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 
 	// TODO: Handle refund transactions (negative charges)
 	// Currently we skip negative charges in the ledger, which means refund
-	// transactions in Monarch Money won't be categorized. Future enhancement:
+	// transactions in Monarch won't be categorized. Future enhancement:
 	// 1. Match the refund transaction (positive amount in Monarch)
 	// 2. Determine which item(s) were refunded from the ledger
 	// 3. Categorize the refund with the same category as the refunded item
