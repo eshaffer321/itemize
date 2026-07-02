@@ -5,7 +5,7 @@ go 1.25.11
 require (
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
-	github.com/eshaffer321/walmart-client-go/v2 v2.0.1
+	github.com/eshaffer321/walmart-client-go/v2 v2.0.2
 	github.com/getsentry/sentry-go v0.36.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/pressly/goose/v3 v3.27.1
