@@ -1,7 +1,7 @@
 package matcher
 
 import (
-	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // Config holds matcher configuration

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/itemize/internal/domain/allocator"
