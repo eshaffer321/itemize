@@ -14,6 +14,7 @@ import (
 	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 	"github.com/eshaffer321/itemize/internal/infrastructure/telemetry"
+	"github.com/eshaffer321/itemize/internal/version"
 )
 
 func main() {
@@ -23,6 +24,14 @@ func main() {
 	}
 
 	command := os.Args[1]
+
+	// Handle version reporting separately, both as a subcommand
+	// (`itemize version`) and as a flag (`itemize -version`/`--version`),
+	// so a stale local binary is obvious without a git log spelunk.
+	if command == "version" || command == "-version" || command == "--version" {
+		fmt.Println(version.String())
+		return
+	}
 
 	// Handle serve command separately
 	if command == "serve" {
@@ -123,6 +132,7 @@ func printUsage() {
 	fmt.Println("  amazon      Sync Amazon orders")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
+	fmt.Println("  version     Print version, commit, and build date (also: -version, --version)")
 	fmt.Println()
 	fmt.Println("Serve Flags:")
 	fmt.Println("  -port int        Port to listen on (default 8080)")

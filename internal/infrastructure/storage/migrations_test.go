@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -266,7 +265,7 @@ func TestMigrations_LegacyMigrationUpgrade(t *testing.T) {
 func setupLegacyDB(t *testing.T, dbPath string) {
 	// Connect with explicit settings to avoid WAL mode issues
 	connStr := fmt.Sprintf("%s?_journal_mode=DELETE&_locking_mode=NORMAL&cache=shared", dbPath)
-	db, err := sql.Open("sqlite3", connStr)
+	db, err := sql.Open("sqlite", connStr)
 	require.NoError(t, err)
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)

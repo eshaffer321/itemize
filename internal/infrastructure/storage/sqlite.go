@@ -8,8 +8,8 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/pressly/goose/v3"
+	_ "modernc.org/sqlite"
 
 	// Import migrations package to register Go migrations
 	_ "github.com/eshaffer321/itemize/internal/infrastructure/storage/migrations"
@@ -29,7 +29,7 @@ var _ Repository = (*Storage)(nil)
 
 // NewStorage creates a new storage instance with SQLite database
 func NewStorage(dbPath string) (*Storage, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -728,7 +728,7 @@ func (s *Storage) SearchItems(query string, limit int) ([]ItemSearchResult, erro
 		SELECT
 			p.order_id,
 			p.provider,
-			date(p.order_date) as order_date,
+			COALESCE(date(p.order_date), '') as order_date,
 			json_extract(item.value, '$.name') as item_name,
 			json_extract(item.value, '$.total_price') as item_price,
 			json_extract(item.value, '$.category') as category
