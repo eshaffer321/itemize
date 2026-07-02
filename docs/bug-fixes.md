@@ -12,6 +12,30 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-02: Dependabot PR tests failed because Codecov upload required a token
+
+**Description:**
+Dependabot PRs showed the `Test` CI job as failed even when the Go test command passed. The failure came from the Codecov upload step, which ran with `fail_ci_if_error: true` but did not receive `CODECOV_TOKEN` on Dependabot pull requests, causing Codecov to return `Token required because branch is protected`.
+
+**Test Case:**
+```go
+// internal/ci/workflow_test.go: TestCodecovUploadSkippedForDependabotPRs
+// Expected: the Codecov upload step is guarded so Dependabot pull requests skip it.
+// Actual before fix: the step only checked matrix.go-version and ran on Dependabot PRs.
+```
+
+**Root Cause:**
+The workflow treated coverage upload as part of the `Test` job for every pull request. Dependabot PRs do not have the normal repository secret available for Codecov token-authenticated uploads, so an auxiliary reporting step made the test job look red despite passing tests.
+
+**Fix Applied:**
+Updated `.github/workflows/ci.yml` so the Codecov upload step still runs on pushes and normal PRs, but skips pull requests opened by `dependabot[bot]`.
+
+**Verification:**
+- `TestCodecovUploadSkippedForDependabotPRs` failed before the workflow change and passes after.
+- `go test ./...` passes.
+
+---
+
 ### 2026-07-01: Release binaries would panic on startup — cgo sqlite driver incompatible with cross-compiled builds
 
 **Description:**
