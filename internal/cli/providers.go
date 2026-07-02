@@ -74,8 +74,10 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 }
 
 // NewAmazonProvider creates a new Amazon provider with a system-scoped logger
-// Uses the amazon-order-scraper CLI (npm package) for fetching orders
-func NewAmazonProvider(cfg *config.Config, verbose bool) (providers.OrderProvider, error) {
+// Uses the amazon-order-scraper CLI (npm package) for fetching orders.
+// account, if non-empty, overrides cfg.Providers.Amazon.AccountName (and thus
+// AMAZON_ACCOUNT_NAME) — it's the value of the -account flag.
+func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (providers.OrderProvider, error) {
 	// Create an amazon-scoped logger with verbose flag
 	loggingCfg := cfg.Observability.Logging
 	if verbose {
@@ -88,14 +90,45 @@ func NewAmazonProvider(cfg *config.Config, verbose bool) (providers.OrderProvide
 		return nil, err
 	}
 
+	profile := cfg.Providers.Amazon.AccountName
+	if account != "" {
+		profile = account
+	}
+
 	// Build provider config
 	providerCfg := &amazonprovider.ProviderConfig{
-		Profile:        cfg.Providers.Amazon.AccountName,
+		Profile:        profile,
 		Headless:       false, // Default to non-headless for interactive use
 		BrowserDataDir: browserDataDir,
 	}
 
 	return amazonprovider.NewProvider(amazonLogger, providerCfg), nil
+}
+
+// ListAmazonAccounts returns the names of saved Amazon browser profiles found
+// under the resolved browser data directory (each profile is a subdirectory
+// created the first time `amazon-scraper --login --profile <name>` runs).
+func ListAmazonAccounts(cfg *config.Config) ([]string, error) {
+	browserDataDir, err := resolveAmazonBrowserDataDir(cfg.Providers.Amazon.BrowserDataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(browserDataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read browser data directory: %w", err)
+	}
+
+	var accounts []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			accounts = append(accounts, entry.Name())
+		}
+	}
+	return accounts, nil
 }
 
 func resolveAmazonBrowserDataDir(configured string) (string, error) {

@@ -16,6 +16,8 @@ type SyncFlags struct {
 	Force        bool
 	Verbose      bool
 	OrderID      string
+	Account      string
+	ListAccounts bool
 }
 
 // ParseSyncFlags parses common sync flags from command line
@@ -27,6 +29,8 @@ func ParseSyncFlags() SyncFlags {
 	flag.BoolVar(&flags.Force, "force", false, "Force reprocess already processed orders")
 	flag.BoolVar(&flags.Verbose, "verbose", false, "Verbose output")
 	flag.StringVar(&flags.OrderID, "order-id", "", "Process only this specific order ID (limits blast radius)")
+	flag.StringVar(&flags.Account, "account", "", "Amazon account/profile name (overrides AMAZON_ACCOUNT_NAME; run -list-accounts to see saved profiles)")
+	flag.BoolVar(&flags.ListAccounts, "list-accounts", false, "List saved Amazon account profiles and exit")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: itemize <command> [flags]")

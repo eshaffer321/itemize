@@ -66,7 +66,7 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 				return NewCostcoProvider(c, verbose)
 			},
 			"amazon": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
-				return NewAmazonProvider(c, verbose)
+				return NewAmazonProvider(c, verbose, "")
 			},
 		}
 

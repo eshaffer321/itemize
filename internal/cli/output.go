@@ -17,9 +17,13 @@ func PrintHeader(providerName string, dryRun bool) {
 	fmt.Printf("itemize: %s (%s mode)\n", providerName, mode)
 }
 
-// PrintConfiguration prints sync configuration
-func PrintConfiguration(providerName string, lookbackDays, maxOrders int, force bool) {
+// PrintConfiguration prints sync configuration. account is the resolved
+// Amazon profile name; pass "" for providers without multi-account support.
+func PrintConfiguration(providerName string, lookbackDays, maxOrders int, force bool, account string) {
 	fmt.Printf("Provider: %s | Lookback: %d days", providerName, lookbackDays)
+	if account != "" {
+		fmt.Printf(" | Account: %s", account)
+	}
 	if maxOrders > 0 {
 		fmt.Printf(" | Max orders: %d", maxOrders)
 	}

@@ -136,6 +136,20 @@ BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login  # authenticate 
 BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login --profile "$AMAZON_ACCOUNT_NAME"
 ```
 
+#### Multiple Amazon accounts
+
+If you sync more than one Amazon account, use `-account` to pick a profile per run instead of
+setting `AMAZON_ACCOUNT_NAME` (useful for one-off manual runs where you don't want to remember
+an env var, or for cron jobs where the account name should be visible right in the crontab line):
+
+```bash
+./itemize amazon -list-accounts        # see which profiles you've logged into
+./itemize amazon -account amazon-wife  # sync a specific account
+```
+
+`AMAZON_ACCOUNT_NAME` still works and is used as the default when `-account` is omitted — cron
+jobs relying on the env var need no changes.
+
 ## Troubleshooting
 
 **"No matching transaction found"**
