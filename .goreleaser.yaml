@@ -1,0 +1,70 @@
+# GoReleaser config for itemize.
+# Docs: https://goreleaser.com/customization/
+version: 2
+
+project_name: itemize
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: itemize
+    main: ./cmd/itemize
+    binary: itemize
+    # Reproducible builds: strip local paths and pin the file mtime to the
+    # commit timestamp rather than build time. See
+    # https://goreleaser.com/customization/builds/#reproducible-builds
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/eshaffer321/itemize/internal/version.Version={{ .Version }}
+      - -X github.com/eshaffer321/itemize/internal/version.Commit={{ .Commit }}
+      - -X github.com/eshaffer321/itemize/internal/version.Date={{ .Date }}
+    env:
+      # Safe because storage uses the pure-Go modernc.org/sqlite driver, not
+      # cgo-based mattn/go-sqlite3. This lets a single Linux build host
+      # cross-compile all darwin/linux targets below without a C toolchain.
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      # Windows is intentionally excluded: the Amazon provider drives a
+      # persistent local browser profile via amazon-order-scraper (an
+      # npm/Node CLI with its own platform-specific browser automation
+      # story), and this tool has only ever been built/tested on
+      # macOS/Linux. Add a windows target here if that changes.
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: itemize
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^docs:"
+
+release:
+  # GitHub Releases output. Auth/publishing is handled by the calling CI
+  # workflow (GITHUB_TOKEN), not configured here.
+  github:
+    owner: eshaffer321
+    name: itemize

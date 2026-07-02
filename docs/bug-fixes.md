@@ -12,6 +12,34 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-01: Release binaries would panic on startup — cgo sqlite driver incompatible with cross-compiled builds
+
+**Description:**
+While building a GoReleaser release pipeline, discovered that setting `CGO_ENABLED=0` (required to cross-compile darwin/linux × amd64/arm64 binaries from a single build host) causes `mattn/go-sqlite3` to compile a no-op stub instead of failing the build. The resulting binary builds successfully but panics the instant it tries to open the database:
+```
+Failed to initialize storage: failed to enable foreign keys: Binary was compiled with 'CGO_ENABLED=0', go-sqlite3 requires cgo to work. This is a stub
+```
+Every release binary built this way would have been completely non-functional.
+
+**Test Case:**
+```bash
+CGO_ENABLED=0 go build -o itemize-nocgo ./cmd/itemize/   # builds without error
+./itemize-nocgo walmart -dry-run -days 1                  # panics on storage init
+```
+
+**Root Cause:**
+`mattn/go-sqlite3` wraps the SQLite C library via cgo. When cgo is disabled it falls back to a stub implementation (guarded by Go build tags) that compiles but is non-functional at runtime. Since Go's `go build` doesn't fail on this, the bug is silent until the binary actually runs.
+
+**Fix Applied:**
+Replaced `github.com/mattn/go-sqlite3` with `modernc.org/sqlite`, a pure-Go SQLite implementation that requires no cgo. Changed the `database/sql` driver name from `"sqlite3"` to `"sqlite"` in `internal/infrastructure/storage/sqlite.go` and `migrations_test.go` (the goose dialect string stays `"sqlite3"` — that's the SQL-syntax dialect, unrelated to the driver name). This also surfaced a second, pre-existing bug: `modernc.org/sqlite` is stricter than `mattn/go-sqlite3` about scanning SQL `NULL` into a non-nullable Go `string` field — `SearchItems`'s `date(p.order_date)` could return `NULL` and was previously silently coerced to `""` by the old driver. Fixed by wrapping with `COALESCE(date(p.order_date), '')` in the query.
+
+**Verification:**
+- `CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/itemize/` now cross-compiles cleanly.
+- `go test ./... -race` passes, including the previously-failing `TestStorage_SearchItems` subtests.
+- Manually reproduced the original panic against the old driver before the fix, confirmed it's gone after.
+
+---
+
 ### 2026-05-31: Amazon charge validation incorrectly rejects orders with non-reducing non-bank entries
 
 **Description:**

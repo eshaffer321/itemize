@@ -26,6 +26,21 @@ CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch. Aut
 ### Install
 
 ```bash
+go install github.com/eshaffer321/itemize/cmd/itemize@latest
+```
+
+Prebuilt binaries for macOS (amd64/arm64) and Linux (amd64/arm64) are also published on the
+[GitHub Releases page](https://github.com/eshaffer321/itemize/releases) whenever a version tag
+(`vX.Y.Z`) is pushed. Download the archive for your platform and extract the `itemize` binary.
+
+Run `itemize -version` (or `itemize version`) at any time to confirm exactly which build you're
+running — useful for checking whether a locally built binary is stale.
+
+#### Build from source
+
+For contributors, or to build against an unreleased commit:
+
+```bash
 git clone https://github.com/eshaffer321/itemize
 cd itemize
 go build -o itemize ./cmd/itemize/
