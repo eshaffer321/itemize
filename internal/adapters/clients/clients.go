@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	anthropicclient "github.com/eshaffer321/itemize/internal/adapters/clients/anthropic"
 	openaiclient "github.com/eshaffer321/itemize/internal/adapters/clients/openai"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"

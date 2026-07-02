@@ -20,7 +20,7 @@ package matcher
 import (
 	"math"
 
-	"github.com/eshaffer321/monarchmoney-go/pkg/monarch"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
