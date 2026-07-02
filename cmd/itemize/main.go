@@ -59,6 +59,29 @@ func main() {
 	// Load config
 	cfg := config.LoadOrEnv()
 
+	if flags.ListAccounts {
+		if providerName != "amazon" {
+			fmt.Printf("-list-accounts is only supported for the amazon provider\n")
+			os.Exit(1)
+		}
+		accounts, err := cli.ListAmazonAccounts(cfg)
+		if err != nil {
+			log.Fatalf("Failed to list Amazon accounts: %v", err)
+		}
+		if len(accounts) == 0 {
+			fmt.Println("No saved Amazon accounts found.")
+			fmt.Println("Run 'amazon-scraper --login --profile <name>' to create one.")
+			return
+		}
+		fmt.Println("Saved Amazon accounts:")
+		for _, account := range accounts {
+			fmt.Printf("  %s\n", account)
+		}
+		fmt.Println()
+		fmt.Println("Use with: itemize amazon -account <name>")
+		return
+	}
+
 	// Initialize shared dependencies
 	serviceClients, err := clients.NewClients(cfg)
 	if err != nil {
@@ -83,7 +106,7 @@ func main() {
 	case "walmart":
 		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
 	case "amazon":
-		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose)
+		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose, flags.Account)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -101,8 +124,19 @@ func main() {
 	// Print database info
 	fmt.Printf("Database: %s\n", cfg.Storage.DatabasePath)
 
-	// Print configuration
-	cli.PrintConfiguration(provider.DisplayName(), flags.LookbackDays, flags.MaxOrders, flags.Force)
+	// Print configuration (shows the resolved Amazon account, if any, so it's
+	// obvious which profile is in use without digging through env vars)
+	resolvedAccount := ""
+	if providerName == "amazon" {
+		resolvedAccount = flags.Account
+		if resolvedAccount == "" {
+			resolvedAccount = cfg.Providers.Amazon.AccountName
+		}
+		if resolvedAccount == "" {
+			resolvedAccount = "default"
+		}
+	}
+	cli.PrintConfiguration(provider.DisplayName(), flags.LookbackDays, flags.MaxOrders, flags.Force, resolvedAccount)
 
 	// Create orchestrator with sync-scoped logger and run
 	opts := flags.ToSyncOptions()
@@ -145,6 +179,8 @@ func printUsage() {
 	fmt.Println("  -force           Force reprocess already processed orders")
 	fmt.Println("  -verbose         Verbose output")
 	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
+	fmt.Println("  -account string  Amazon account/profile name (amazon only)")
+	fmt.Println("  -list-accounts   List saved Amazon account profiles and exit (amazon only)")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  MONARCH_TOKEN              Monarch API token (required)")
