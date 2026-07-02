@@ -7,7 +7,7 @@ require (
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.0.2
 	github.com/getsentry/sentry-go v0.36.0
-	github.com/go-chi/chi/v5 v5.2.5
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/pressly/goose/v3 v3.27.2
 	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
