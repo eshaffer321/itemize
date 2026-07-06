@@ -73,11 +73,11 @@ While swapping Amazon from the npm scraper to `amazon-go`, a dry-run over 365 da
 The provider fetch path trusted `FetchOrders` directly. The Go client can return no orders when a cookie jar is stale unless auth is checked first, which hides the stale-session problem from the CLI.
 
 **Fix Applied:**
-The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant `amazon-go import-browser-profile` command. The local `amazon-go` checkout also has a parser/auth detection fix for the `Amazon Sign-In` title variant; itemize should consume that once it is released.
+The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant `amazon-go import-browser-profile` command. Itemize now consumes `amazon-go v0.3.0`, which includes the parser/auth detection fix for the `Amazon Sign-In` title variant.
 
 **Verification:**
 - `TestProvider_FetchOrdersReturnsHealthCheckError` passes.
-- With the local patched `amazon-go`, `./itemize amazon -dry-run -days 365 -max 1 -account erick -verbose` now fails with an expired-cookie auth message instead of reporting zero orders.
+- With `amazon-go v0.3.0`, `./itemize amazon -dry-run -days 365 -max 1 -account erick -verbose` now fails with an expired-cookie auth message instead of reporting zero orders.
 - `go test ./...` and `go test ./... -race` pass.
 
 ---
