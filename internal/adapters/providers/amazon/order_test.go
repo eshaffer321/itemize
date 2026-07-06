@@ -348,3 +348,25 @@ func TestOrder_GetTransactionDates(t *testing.T) {
 	assert.Contains(t, dates, date1)
 	assert.Contains(t, dates, date2)
 }
+
+func TestOrder_GetItemsForChargeUsesLineTotalsForShipmentMatching(t *testing.T) {
+	order := NewOrder(&ParsedOrder{
+		Subtotal: 100,
+		Tax:      6,
+		Items: []*ParsedOrderItem{
+			{Name: "Pair", Price: 80, Quantity: 2},
+			{Name: "Single", Price: 20, Quantity: 1},
+		},
+		Shipments: []*ParsedShipment{
+			{Items: []*ParsedOrderItem{{Name: "Pair", Price: 80, Quantity: 2}}},
+			{Items: []*ParsedOrderItem{{Name: "Single", Price: 20, Quantity: 1}}},
+		},
+	}, nil)
+
+	items := order.GetItemsForCharge(84.80)
+
+	assert.Len(t, items, 1)
+	assert.Equal(t, "Pair", items[0].GetName())
+	assert.Equal(t, 80.0, items[0].GetPrice())
+	assert.Equal(t, 2.0, items[0].GetQuantity())
+}

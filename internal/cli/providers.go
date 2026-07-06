@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	costcogo "github.com/eshaffer321/costco-go/pkg/costco"
@@ -73,8 +75,7 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 	return walmart.NewProvider(walmartClient, walmartLogger), nil
 }
 
-// NewAmazonProvider creates a new Amazon provider with a system-scoped logger
-// Uses the amazon-order-scraper CLI (npm package) for fetching orders.
+// NewAmazonProvider creates a new Amazon provider with a system-scoped logger.
 // account, if non-empty, overrides cfg.Providers.Amazon.AccountName (and thus
 // AMAZON_ACCOUNT_NAME) — it's the value of the -account flag.
 func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (providers.OrderProvider, error) {
@@ -85,11 +86,6 @@ func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (provid
 	}
 	amazonLogger := logging.NewLoggerWithSystem(loggingCfg, "amazon")
 
-	browserDataDir, err := resolveAmazonBrowserDataDir(cfg.Providers.Amazon.BrowserDataDir)
-	if err != nil {
-		return nil, err
-	}
-
 	profile := cfg.Providers.Amazon.AccountName
 	if account != "" {
 		profile = account
@@ -97,54 +93,50 @@ func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (provid
 
 	// Build provider config
 	providerCfg := &amazonprovider.ProviderConfig{
-		Profile:        profile,
-		Headless:       false, // Default to non-headless for interactive use
-		BrowserDataDir: browserDataDir,
+		Profile:    profile,
+		CookieFile: cfg.Providers.Amazon.CookieFile,
 	}
 
 	return amazonprovider.NewProvider(amazonLogger, providerCfg), nil
 }
 
-// ListAmazonAccounts returns the names of saved Amazon browser profiles found
-// under the resolved browser data directory (each profile is a subdirectory
-// created the first time `amazon-scraper --login --profile <name>` runs).
+// ListAmazonAccounts returns the names of saved amazon-go cookie accounts found
+// under ~/.amazon-go (files named cookies-<account>.json).
 func ListAmazonAccounts(cfg *config.Config) ([]string, error) {
-	browserDataDir, err := resolveAmazonBrowserDataDir(cfg.Providers.Amazon.BrowserDataDir)
+	cookieDir, err := resolveAmazonCookieDir()
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(browserDataDir)
+	entries, err := os.ReadDir(cookieDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to read browser data directory: %w", err)
+		return nil, fmt.Errorf("failed to read Amazon cookie directory: %w", err)
 	}
 
 	var accounts []string
 	for _, entry := range entries {
 		if entry.IsDir() {
-			accounts = append(accounts, entry.Name())
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "cookies-") && strings.HasSuffix(name, ".json") {
+			account := strings.TrimSuffix(strings.TrimPrefix(name, "cookies-"), ".json")
+			if account != "" {
+				accounts = append(accounts, account)
+			}
 		}
 	}
+	sort.Strings(accounts)
 	return accounts, nil
 }
 
-func resolveAmazonBrowserDataDir(configured string) (string, error) {
-	if configured != "" {
-		return configured, nil
-	}
-	if envDir := os.Getenv("AMAZON_BROWSER_DATA_DIR"); envDir != "" {
-		return envDir, nil
-	}
-	if envDir := os.Getenv("BROWSER_DATA_DIR"); envDir != "" {
-		return envDir, nil
-	}
-
+func resolveAmazonCookieDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".itemize", "amazon"), nil
+	return filepath.Join(homeDir, ".amazon-go"), nil
 }

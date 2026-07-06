@@ -70,7 +70,7 @@ func main() {
 		}
 		if len(accounts) == 0 {
 			fmt.Println("No saved Amazon accounts found.")
-			fmt.Println("Run 'amazon-scraper --login --profile <name>' to create one.")
+			fmt.Println("Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' to create one.")
 			return
 		}
 		fmt.Println("Saved Amazon accounts:")
@@ -179,8 +179,8 @@ func printUsage() {
 	fmt.Println("  -force           Force reprocess already processed orders")
 	fmt.Println("  -verbose         Verbose output")
 	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
-	fmt.Println("  -account string  Amazon account/profile name (amazon only)")
-	fmt.Println("  -list-accounts   List saved Amazon account profiles and exit (amazon only)")
+	fmt.Println("  -account string  Amazon cookie account name (amazon only)")
+	fmt.Println("  -list-accounts   List saved Amazon cookie accounts and exit (amazon only)")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  MONARCH_TOKEN              Monarch API token (required)")
@@ -190,6 +190,7 @@ func printUsage() {
 	fmt.Println("  ITEMIZE_NO_TELEMETRY       Set to 1 to disable anonymous usage telemetry")
 	fmt.Println()
 	fmt.Println("Provider-Specific Environment Variables:")
-	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon browser profile name (optional)")
-	fmt.Println("                             Run 'amazon-scraper --login --profile <name>' first")
+	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
+	fmt.Println("                             Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' first")
+	fmt.Println("  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
 }

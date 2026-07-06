@@ -36,6 +36,52 @@ Updated `.github/workflows/ci.yml` so the Codecov upload step still runs on push
 
 ---
 
+### 2026-07-05: Amazon shipment matching double-counted quantities
+
+**Description:**
+During review of the Amazon Go provider swap, `GetItemsForCharge` treated `ParsedOrderItem.Price` as a unit price when estimating shipment subtotals. The Amazon adapter stores `Price` as the line total, so quantity greater than 1 could cause shipment matching to choose the wrong shipment for a bank charge once shipment data is present.
+
+**Test Case:**
+```go
+// internal/adapters/providers/amazon/order_test.go: TestGetItemsForChargeUsesLineTotalsForShipmentMatching
+// A shipment with Price=80 and Quantity=2 should estimate from $80, not $160.
+// Expected: a charge near $84.80 matches the repeated-item shipment.
+```
+
+**Fix Applied:**
+Shipment matching now sums item line totals directly instead of multiplying by quantity again.
+
+**Verification:**
+- `go test ./internal/adapters/providers/amazon -run TestGetItemsForChargeUsesLineTotalsForShipmentMatching -count=1` passes.
+- `go test ./...`, `go test ./... -race`, and an Amazon dry-run pass.
+
+---
+
+### 2026-07-01: Amazon Go provider could silently treat expired cookies as zero orders
+
+**Description:**
+While swapping Amazon from the npm scraper to `amazon-go`, a dry-run over 365 days returned `Processed=0 Skipped=0 Errors=0` even though Monarch had Amazon transactions in the same window. The underlying Amazon page was an `Amazon Sign-In` response, so itemize should fail clearly instead of reporting an apparently successful empty sync.
+
+**Test Case:**
+```go
+// internal/adapters/providers/amazon/provider_test.go: TestProvider_FetchOrdersReturnsHealthCheckError
+// HealthCheck() returns an auth error before fetching orders.
+// Expected: FetchOrders returns the auth error and login command.
+```
+
+**Root Cause:**
+The provider fetch path trusted `FetchOrders` directly. The Go client can return no orders when a cookie jar is stale unless auth is checked first, which hides the stale-session problem from the CLI.
+
+**Fix Applied:**
+The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant `amazon-go import-browser-profile` command. The local `amazon-go` checkout also has a parser/auth detection fix for the `Amazon Sign-In` title variant; itemize should consume that once it is released.
+
+**Verification:**
+- `TestProvider_FetchOrdersReturnsHealthCheckError` passes.
+- With the local patched `amazon-go`, `./itemize amazon -dry-run -days 365 -max 1 -account erick -verbose` now fails with an expired-cookie auth message instead of reporting zero orders.
+- `go test ./...` and `go test ./... -race` pass.
+
+---
+
 ### 2026-07-01: Release binaries would panic on startup — cgo sqlite driver incompatible with cross-compiled builds
 
 **Description:**

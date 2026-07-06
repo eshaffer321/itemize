@@ -2,30 +2,27 @@ package amazon
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
+	"errors"
 	"testing"
 	"time"
 
+	amazongo "github.com/eshaffer321/amazon-go"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestProvider_ImplementsInterface verifies the provider implements the interface
+// TestProvider_ImplementsInterface verifies the provider implements the interface.
 func TestProvider_ImplementsInterface(t *testing.T) {
 	var _ providers.OrderProvider = (*Provider)(nil)
 }
 
-// TestProvider_Name tests the provider identification methods
 func TestProvider_Name(t *testing.T) {
 	provider := NewProvider(nil, nil)
 	assert.Equal(t, "amazon", provider.Name())
 	assert.Equal(t, "Amazon", provider.DisplayName())
 }
 
-// TestProvider_SupportsFeatures tests capability flags
 func TestProvider_SupportsFeatures(t *testing.T) {
 	provider := NewProvider(nil, nil)
 	assert.False(t, provider.SupportsDeliveryTips(), "Amazon doesn't support delivery tips")
@@ -33,13 +30,11 @@ func TestProvider_SupportsFeatures(t *testing.T) {
 	assert.True(t, provider.SupportsBulkFetch(), "Amazon supports bulk fetch")
 }
 
-// TestProvider_GetRateLimit tests rate limit configuration
 func TestProvider_GetRateLimit(t *testing.T) {
 	provider := NewProvider(nil, nil)
-	assert.Equal(t, 1*time.Second, provider.GetRateLimit())
+	assert.Equal(t, time.Second, provider.GetRateLimit())
 }
 
-// TestProvider_MerchantSearchTerms tests merchant search terms
 func TestProvider_MerchantSearchTerms(t *testing.T) {
 	provider := NewProvider(nil, nil)
 	terms := provider.MerchantSearchTerms()
@@ -50,18 +45,14 @@ func TestProvider_MerchantSearchTerms(t *testing.T) {
 	assert.Contains(t, terms, "Whole Foods")
 }
 
-// TestProvider_WithConfig tests provider creation with config
 func TestProvider_WithConfig(t *testing.T) {
-	cfg := &ProviderConfig{
-		Profile:        "wife",
-		Headless:       true,
-		BrowserDataDir: "/tmp/itemize-amazon",
-	}
+	provider := NewProvider(nil, &ProviderConfig{
+		Profile:    "wife",
+		CookieFile: "/tmp/amazon-cookies.json",
+	})
 
-	provider := NewProvider(nil, cfg)
 	assert.Equal(t, "wife", provider.profile)
-	assert.True(t, provider.headless)
-	assert.Equal(t, "/tmp/itemize-amazon", provider.browserDataDir)
+	assert.Equal(t, "/tmp/amazon-cookies.json", provider.cookieFile)
 }
 
 func TestNewProvider_RejectsUnsafeProfile(t *testing.T) {
@@ -69,352 +60,201 @@ func TestNewProvider_RejectsUnsafeProfile(t *testing.T) {
 	assert.Empty(t, provider.profile)
 }
 
-// TestProvider_BuildCLIArgs tests CLI argument building
-func TestProvider_BuildCLIArgs(t *testing.T) {
-	tests := []struct {
-		name     string
-		provider *Provider
-		opts     providers.FetchOptions
-		expected []string
-	}{
-		{
-			name:     "default - no dates",
-			provider: NewProvider(nil, nil),
-			opts:     providers.FetchOptions{},
-			expected: []string{"--days", "14", "--stdout"},
-		},
-		{
-			name:     "with date range",
-			provider: NewProvider(nil, nil),
-			opts: providers.FetchOptions{
-				StartDate: time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
-				EndDate:   time.Date(2024, 11, 30, 0, 0, 0, 0, time.UTC),
+func TestProvider_FetchOrdersUsesAmazonGoClientAndTransactions(t *testing.T) {
+	orderDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	txDate := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+	client := &fakeAmazonClient{
+		orders: []*amazongo.Order{
+			{
+				ID:           "114-9733092-9360267",
+				Date:         orderDate,
+				Total:        44.91,
+				Subtotal:     42.37,
+				Tax:          2.54,
+				ShippingFees: 0,
+				Items: []*amazongo.OrderItem{
+					{Name: "Cable", Price: 14.99, Quantity: 1, UnitPrice: 14.99},
+					{Name: "Adapter", UnitPrice: 13.69, Quantity: 2},
+				},
 			},
-			expected: []string{"--since", "2024-11-01", "--until", "2024-11-30", "--stdout"},
 		},
-		{
-			name:     "with profile",
-			provider: NewProvider(nil, &ProviderConfig{Profile: "wife"}),
-			opts:     providers.FetchOptions{},
-			expected: []string{"--days", "14", "--profile", "wife", "--stdout"},
-		},
-		{
-			name:     "with headless",
-			provider: NewProvider(nil, &ProviderConfig{Headless: true}),
-			opts:     providers.FetchOptions{},
-			expected: []string{"--days", "14", "--headless", "--stdout"},
+		transactionsByOrderID: map[string][]*amazongo.Transaction{
+			"114-9733092-9360267": {
+				{
+					OrderID:       "114-9733092-9360267",
+					Date:          txDate,
+					Amount:        44.91,
+					PaymentMethod: "Prime Visa ****1211",
+					LastFour:      "1211",
+					Status:        "Completed",
+				},
+			},
 		},
 	}
+	provider := NewProviderWithClient(nil, nil, client)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			args := tt.provider.buildCLIArgs(tt.opts)
-			assert.Equal(t, tt.expected, args)
-		})
-	}
-}
-
-func TestValidateCLIArgs(t *testing.T) {
-	assert.NoError(t, validateCLIArgs([]string{
-		"--since", "2024-11-01",
-		"--until", "2024-11-30",
-		"--days", "14",
-		"--profile", "wife",
-		"--headless",
-		"--stdout",
-	}))
-	assert.Error(t, validateCLIArgs([]string{"--stdout", ";rm"}))
-	assert.Error(t, validateCLIArgs([]string{"--stdout", "--eval"}))
-}
-
-func TestExecuteCLIUsesDirectScraperWithValidatedArgsAndBrowserDir(t *testing.T) {
-	binDir := t.TempDir()
-	writeExecutable(t, binDir, amazonScraperCommand, `#!/bin/sh
-printf 'args=%s\n' "$*"
-printf 'browser=%s\n' "$BROWSER_DATA_DIR"
-`)
-	t.Setenv("PATH", binDir)
-
-	provider := NewProvider(nil, &ProviderConfig{BrowserDataDir: "/tmp/amazon-browser"})
-	output, err := provider.executeCLI(context.Background(), []string{"--days", "14", "--stdout"})
-
-	require.NoError(t, err)
-	assert.Contains(t, string(output), "args=--days 14 --stdout")
-	assert.Contains(t, string(output), "browser=/tmp/amazon-browser")
-}
-
-func TestExecuteCLIFallsBackToNpx(t *testing.T) {
-	binDir := t.TempDir()
-	writeExecutable(t, binDir, npxCommand, `#!/bin/sh
-printf 'args=%s\n' "$*"
-`)
-	t.Setenv("PATH", binDir)
-
-	provider := NewProvider(nil, nil)
-	output, err := provider.executeCLI(context.Background(), []string{"--stdout"})
-
-	require.NoError(t, err)
-	assert.Contains(t, string(output), "args=amazon-order-scraper --stdout")
-}
-
-func TestExecuteCLIReturnsValidationErrorBeforeRunningCommand(t *testing.T) {
-	binDir := t.TempDir()
-	markerPath := filepath.Join(binDir, "ran")
-	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\ntouch "+markerPath+"\n")
-	t.Setenv("PATH", binDir)
-
-	provider := NewProvider(nil, nil)
-	output, err := provider.executeCLI(context.Background(), []string{"--stdout", "--eval"})
-
-	require.Error(t, err)
-	assert.Nil(t, output)
-	assert.Contains(t, err.Error(), "unsupported amazon CLI flag")
-	_, statErr := os.Stat(markerPath)
-	assert.True(t, os.IsNotExist(statErr))
-}
-
-func TestExecuteCLILoginRequiredIncludesProfileAndBrowserDir(t *testing.T) {
-	binDir := t.TempDir()
-	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\nexit 2\n")
-	t.Setenv("PATH", binDir)
-
-	provider := NewProvider(nil, &ProviderConfig{
-		Profile:        "wife",
-		BrowserDataDir: "/tmp/amazon-browser",
+	orders, err := provider.FetchOrders(context.Background(), providers.FetchOptions{
+		StartDate:      orderDate.AddDate(0, 0, -1),
+		EndDate:        orderDate.AddDate(0, 0, 1),
+		MaxOrders:      10,
+		IncludeDetails: true,
 	})
-	output, err := provider.executeCLI(context.Background(), []string{"--stdout"})
+
+	require.NoError(t, err)
+	require.Len(t, orders, 1)
+	assert.Equal(t, amazongo.FetchOptions{
+		StartDate:      orderDate.AddDate(0, 0, -1),
+		EndDate:        orderDate.AddDate(0, 0, 1),
+		MaxOrders:      10,
+		IncludeDetails: true,
+	}, client.fetchOptions)
+
+	amazonOrder, ok := orders[0].(*Order)
+	require.True(t, ok)
+	assert.Equal(t, "114-9733092-9360267", amazonOrder.GetID())
+	assert.Equal(t, orderDate, amazonOrder.GetDate())
+	assert.Equal(t, 44.91, amazonOrder.GetTotal())
+	assert.Equal(t, 42.37, amazonOrder.GetSubtotal())
+	assert.Equal(t, 2.54, amazonOrder.GetTax())
+
+	items := amazonOrder.GetItems()
+	require.Len(t, items, 2)
+	assert.Equal(t, "Cable", items[0].GetName())
+	assert.Equal(t, 14.99, items[0].GetPrice())
+	assert.Equal(t, "Adapter", items[1].GetName())
+	assert.Equal(t, 27.38, items[1].GetPrice())
+
+	charges, err := amazonOrder.GetFinalCharges()
+	require.NoError(t, err)
+	assert.Equal(t, []float64{44.91}, charges)
+	assert.Equal(t, []time.Time{txDate}, amazonOrder.GetTransactionDates())
+}
+
+func TestProvider_FetchOrdersKeepsOrderWhenTransactionsFail(t *testing.T) {
+	client := &fakeAmazonClient{
+		orders: []*amazongo.Order{
+			{ID: "114-0000000-0000000", Date: time.Now(), Total: 50},
+		},
+		fetchTransactionsErr: errors.New("transactions unavailable"),
+	}
+	provider := NewProviderWithClient(nil, nil, client)
+
+	orders, err := provider.FetchOrders(context.Background(), providers.FetchOptions{IncludeDetails: true})
+
+	require.NoError(t, err)
+	require.Len(t, orders, 1)
+	amazonOrder := orders[0].(*Order)
+	charges, err := amazonOrder.GetFinalCharges()
+	assert.Nil(t, charges)
+	assert.ErrorIs(t, err, ErrPaymentPending)
+}
+
+func TestProvider_FetchOrdersReturnsHealthCheckError(t *testing.T) {
+	client := &fakeAmazonClient{healthErr: errors.New("missing essential cookies")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
+	orders, err := provider.FetchOrders(context.Background(), providers.FetchOptions{IncludeDetails: true})
 
 	require.Error(t, err)
-	assert.Nil(t, output)
-	assert.Contains(t, err.Error(), "amazon login required")
-	assert.Contains(t, err.Error(), `BROWSER_DATA_DIR="/tmp/amazon-browser"`)
-	assert.Contains(t, err.Error(), "--profile wife")
+	assert.Nil(t, orders)
+	assert.Contains(t, err.Error(), "amazon auth check failed")
+	assert.Contains(t, err.Error(), "amazon-go import-browser-profile -profile-dir <profile-dir> -account wife")
+	assert.True(t, client.healthChecked)
 }
 
-func TestFindCLIReportsMissingExecutable(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-
-	provider := NewProvider(nil, nil)
-	cli, err := provider.findCLI()
-
-	require.Error(t, err)
-	assert.Empty(t, cli.name)
-	assert.Contains(t, err.Error(), "not available")
-}
-
-func TestHealthCheckUsesAvailableCLI(t *testing.T) {
-	tests := []struct {
-		name           string
-		executableName string
-		wantArg        string
-	}{
-		{
-			name:           "direct scraper",
-			executableName: amazonScraperCommand,
-			wantArg:        "--help",
+func TestProvider_GetOrderDetailsFetchesOrderWithTransactions(t *testing.T) {
+	client := &fakeAmazonClient{
+		detailOrder: &amazongo.Order{
+			ID:       "114-9733092-9360267",
+			Date:     time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+			Total:    12.34,
+			Subtotal: 11.11,
+			Tax:      1.23,
+			Items:    []*amazongo.OrderItem{{Name: "Notebook", Price: 11.11, Quantity: 1}},
 		},
-		{
-			name:           "npx fallback",
-			executableName: npxCommand,
-			wantArg:        "amazon-order-scraper --help",
+		detailTransactions: []*amazongo.Transaction{
+			{Amount: 12.34, LastFour: "1211", Status: "Completed"},
 		},
 	}
+	provider := NewProviderWithClient(nil, nil, client)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			binDir := t.TempDir()
-			argsPath := filepath.Join(binDir, "args.txt")
-			writeExecutable(t, binDir, tt.executableName, `#!/bin/sh
-printf '%s' "$*" > "`+argsPath+`"
-`)
-			t.Setenv("PATH", binDir)
+	order, err := provider.GetOrderDetails(context.Background(), "114-9733092-9360267")
 
-			provider := NewProvider(nil, nil)
-			require.NoError(t, provider.HealthCheck(context.Background()))
-
-			data, err := os.ReadFile(argsPath)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantArg, string(data))
-		})
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "114-9733092-9360267", client.detailOrderID)
+	assert.Equal(t, "114-9733092-9360267", order.GetID())
+	charges, err := order.(*Order).GetFinalCharges()
+	require.NoError(t, err)
+	assert.Equal(t, []float64{12.34}, charges)
 }
 
-func TestHealthCheckReturnsCommandError(t *testing.T) {
-	binDir := t.TempDir()
-	writeExecutable(t, binDir, amazonScraperCommand, "#!/bin/sh\nexit 1\n")
-	t.Setenv("PATH", binDir)
+func TestProvider_HealthCheckUsesAmazonGoClient(t *testing.T) {
+	client := &fakeAmazonClient{}
+	provider := NewProviderWithClient(nil, nil, client)
 
-	provider := NewProvider(nil, nil)
+	require.NoError(t, provider.HealthCheck(context.Background()))
+	assert.True(t, client.healthChecked)
+}
+
+func TestProvider_HealthCheckWrapsAuthErrorWithLoginCommand(t *testing.T) {
+	client := &fakeAmazonClient{healthErr: errors.New("missing essential cookies")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
 	err := provider.HealthCheck(context.Background())
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "CLI not available")
+	assert.Contains(t, err.Error(), "amazon auth check failed")
+	assert.Contains(t, err.Error(), "amazon-go import-browser-profile -profile-dir <profile-dir> -account wife")
 }
 
-func TestLoginCommandDefaultsToDirectScraper(t *testing.T) {
-	provider := NewProvider(nil, &ProviderConfig{Profile: "wife"})
+func TestConvertGoTransactionMapsRefundAndPendingStatuses(t *testing.T) {
+	refund := convertGoTransaction(&amazongo.Transaction{Amount: 10, Status: "Refunded"})
+	pending := convertGoTransaction(&amazongo.Transaction{Amount: 10, Status: "Pending"})
+	charge := convertGoTransaction(&amazongo.Transaction{Amount: 10, Status: "Completed"})
 
-	assert.Equal(t, "run 'amazon-scraper --login --profile wife' to authenticate", provider.loginCommand())
+	assert.Equal(t, "refund", refund.Type)
+	assert.Equal(t, "pending", pending.Type)
+	assert.Equal(t, "charge", charge.Type)
 }
 
-func writeExecutable(t *testing.T, dir, name, content string) {
-	t.Helper()
+func TestLoginCommandUsesExplicitCookieFile(t *testing.T) {
+	provider := NewProvider(nil, &ProviderConfig{CookieFile: "/tmp/amazon-cookies.json"})
 
-	path := filepath.Join(dir, name)
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0700))
+	assert.Contains(t, provider.loginCommand(), `-cookie-file "/tmp/amazon-cookies.json"`)
 }
 
-// TestOrder_Interface verifies Order implements providers.Order
-func TestOrder_Interface(t *testing.T) {
-	var _ providers.Order = (*Order)(nil)
+type fakeAmazonClient struct {
+	orders                []*amazongo.Order
+	transactionsByOrderID map[string][]*amazongo.Transaction
+	fetchOrdersErr        error
+	fetchTransactionsErr  error
+	fetchOptions          amazongo.FetchOptions
+	detailOrderID         string
+	detailOrder           *amazongo.Order
+	detailTransactions    []*amazongo.Transaction
+	fetchOrderWithTxErr   error
+	healthChecked         bool
+	healthErr             error
 }
 
-// TestOrderItem_Interface verifies OrderItem implements providers.OrderItem
-func TestOrderItem_Interface(t *testing.T) {
-	var _ providers.OrderItem = (*OrderItem)(nil)
+func (f *fakeAmazonClient) FetchOrders(_ context.Context, opts amazongo.FetchOptions) ([]*amazongo.Order, error) {
+	f.fetchOptions = opts
+	return f.orders, f.fetchOrdersErr
 }
 
-// TestOrder_Methods tests Order adapter methods
-func TestOrder_Methods(t *testing.T) {
-	testDate := time.Date(2024, 11, 21, 0, 0, 0, 0, time.UTC)
-	parsedOrder := &ParsedOrder{
-		ID:       "114-9733092-9360267",
-		Date:     testDate,
-		Total:    44.91,
-		Subtotal: 42.37,
-		Tax:      2.54,
-		Shipping: 0,
-		Items: []*ParsedOrderItem{
-			{
-				Name:     "Test Item 1",
-				Price:    14.99,
-				Quantity: 1,
-			},
-			{
-				Name:     "Test Item 2",
-				Price:    27.38,
-				Quantity: 2,
-			},
-		},
+func (f *fakeAmazonClient) FetchOrderWithTransactions(_ context.Context, orderID string) (*amazongo.Order, []*amazongo.Transaction, error) {
+	f.detailOrderID = orderID
+	return f.detailOrder, f.detailTransactions, f.fetchOrderWithTxErr
+}
+
+func (f *fakeAmazonClient) FetchTransactions(_ context.Context, orderID string) ([]*amazongo.Transaction, error) {
+	if f.fetchTransactionsErr != nil {
+		return nil, f.fetchTransactionsErr
 	}
-
-	order := NewOrder(parsedOrder, nil)
-
-	assert.Equal(t, "114-9733092-9360267", order.GetID())
-	assert.Equal(t, testDate, order.GetDate())
-	assert.Equal(t, 44.91, order.GetTotal())
-	assert.Equal(t, 42.37, order.GetSubtotal())
-	assert.Equal(t, 2.54, order.GetTax())
-	assert.Equal(t, 0.0, order.GetTip())
-	assert.Equal(t, 0.0, order.GetFees())
-	assert.Equal(t, "Amazon", order.GetProviderName())
-	assert.Len(t, order.GetItems(), 2)
-	assert.Equal(t, parsedOrder, order.GetRawData())
+	return f.transactionsByOrderID[orderID], nil
 }
 
-// TestOrderItem_Methods tests OrderItem adapter methods
-func TestOrderItem_Methods(t *testing.T) {
-	parsedItem := &ParsedOrderItem{
-		Name:     "Test Product",
-		Price:    29.99,
-		Quantity: 2,
-	}
-
-	item := &OrderItem{parsedItem: parsedItem}
-
-	assert.Equal(t, "Test Product", item.GetName())
-	assert.Equal(t, 29.99, item.GetPrice())
-	assert.Equal(t, 2.0, item.GetQuantity())
-	assert.Equal(t, 14.995, item.GetUnitPrice()) // 29.99 / 2
-	assert.Equal(t, "", item.GetSKU())           // Not available from CLI
-	assert.Equal(t, "Test Product", item.GetDescription())
-	assert.Equal(t, "", item.GetCategory()) // Not available from CLI
-}
-
-// TestNewOrder_EmptyItems tests handling of orders with no items
-func TestNewOrder_EmptyItems(t *testing.T) {
-	parsedOrder := &ParsedOrder{
-		ID:    "114-0000000-0000000",
-		Total: 0,
-		Items: nil,
-	}
-
-	order := NewOrder(parsedOrder, nil)
-	assert.Len(t, order.GetItems(), 0)
-}
-
-// TestNewProvider_NilLogger tests provider creation with nil logger
-func TestNewProvider_NilLogger(t *testing.T) {
-	provider := NewProvider(nil, nil)
-	assert.NotNil(t, provider)
-	assert.NotNil(t, provider.logger)
-}
-
-// TestOrder_GetFinalCharges_NoTransactions tests GetFinalCharges returns ErrPaymentPending without transactions
-func TestOrder_GetFinalCharges_NoTransactions(t *testing.T) {
-	parsedOrder := &ParsedOrder{
-		ID:           "114-0000000-0000000",
-		Total:        50.00,
-		Transactions: nil,
-	}
-
-	order := NewOrder(parsedOrder, nil)
-	charges, err := order.GetFinalCharges()
-
-	assert.Error(t, err)
-	assert.Nil(t, charges)
-	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders without transactions")
-}
-
-// TestOrder_IsMultiDelivery_NoTransactions tests IsMultiDelivery returns ErrPaymentPending without transactions
-func TestOrder_IsMultiDelivery_NoTransactions(t *testing.T) {
-	parsedOrder := &ParsedOrder{
-		ID:           "114-0000000-0000000",
-		Total:        50.00,
-		Transactions: nil,
-	}
-
-	order := NewOrder(parsedOrder, nil)
-	isMulti, err := order.IsMultiDelivery()
-
-	assert.Error(t, err)
-	assert.False(t, isMulti)
-	assert.ErrorIs(t, err, ErrPaymentPending, "Should return ErrPaymentPending for orders without transactions")
-}
-
-// TestCalculateLookbackDays tests lookback days calculation
-func TestCalculateLookbackDays(t *testing.T) {
-	tests := []struct {
-		name      string
-		startDate time.Time
-		endDate   time.Time
-		expected  int
-	}{
-		{
-			name:      "zero dates",
-			startDate: time.Time{},
-			endDate:   time.Time{},
-			expected:  14,
-		},
-		{
-			name:      "7 days apart",
-			startDate: time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
-			endDate:   time.Date(2024, 11, 8, 0, 0, 0, 0, time.UTC),
-			expected:  7,
-		},
-		{
-			name:      "same day",
-			startDate: time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
-			endDate:   time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
-			expected:  1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CalculateLookbackDays(tt.startDate, tt.endDate)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
+func (f *fakeAmazonClient) HealthCheck() error {
+	f.healthChecked = true
+	return f.healthErr
 }

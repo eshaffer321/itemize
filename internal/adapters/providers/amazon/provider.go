@@ -1,48 +1,30 @@
-// Package amazon provides an OrderProvider implementation that fetches Amazon orders
-// by shelling out to the amazon-order-scraper CLI (npm package).
-//
-// The CLI must be installed globally or available via npx:
-//
-//	npm install -g amazon-order-scraper
-//
-// Authentication is managed by the CLI - run `amazon-scraper --login` to authenticate.
+// Package amazon provides an OrderProvider implementation backed by the
+// github.com/eshaffer321/amazon-go client library.
 package amazon
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
-	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	amazongo "github.com/eshaffer321/amazon-go"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 )
 
-// validProfilePattern matches alphanumeric, dash, and underscore characters only
+// validProfilePattern matches alphanumeric, dash, and underscore characters only.
 var validProfilePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-// allowedCLIArgsPattern limits arguments to the scraper flags and scalar values
-// produced by buildCLIArgs.
-var allowedCLIArgsPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
-const (
-	amazonScraperCommand = "amazon-scraper"
-	npxCommand           = "npx"
-	scraperPackageName   = "amazon-order-scraper"
-)
-
-type cliCommand struct {
-	name   string
-	useNpx bool
+type amazonClient interface {
+	FetchOrders(ctx context.Context, opts amazongo.FetchOptions) ([]*amazongo.Order, error)
+	FetchOrderWithTransactions(ctx context.Context, orderID string) (*amazongo.Order, []*amazongo.Transaction, error)
+	FetchTransactions(ctx context.Context, orderID string) ([]*amazongo.Transaction, error)
+	HealthCheck() error
 }
 
-// isValidProfile checks if a profile name is safe to pass to the CLI
+// isValidProfile checks if an account name is safe to use as an Amazon cookie account.
 func isValidProfile(profile string) bool {
 	if profile == "" {
 		return true
@@ -50,67 +32,67 @@ func isValidProfile(profile string) bool {
 	return validProfilePattern.MatchString(profile)
 }
 
-// Provider implements the OrderProvider interface for Amazon
-// It shells out to the amazon-order-scraper CLI (npm package)
+// Provider implements the OrderProvider interface for Amazon.
 type Provider struct {
-	logger         *slog.Logger
-	rateLimit      time.Duration
-	profile        string // Optional profile name for multi-account support
-	headless       bool   // Run browser in headless mode
-	browserDataDir string // Base directory for persistent Amazon browser profiles
+	logger     *slog.Logger
+	rateLimit  time.Duration
+	profile    string
+	cookieFile string
+	client     amazonClient
 }
 
-// ProviderConfig holds configuration for the Amazon provider
+// ProviderConfig holds configuration for the Amazon provider.
 type ProviderConfig struct {
-	Profile        string // Profile name for multi-account support
-	Headless       bool   // Run in headless mode (for automated/cron runs)
-	BrowserDataDir string // Base directory for persistent browser profiles
+	Profile    string // Profile/account name for multi-account support
+	CookieFile string // Optional explicit amazon-go cookie file
 }
 
-// NewProvider creates a new Amazon provider
+// NewProvider creates a new Amazon provider.
 func NewProvider(logger *slog.Logger, cfg *ProviderConfig) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	profile := ""
-	headless := false
-	browserDataDir := ""
+	cookieFile := ""
 	if cfg != nil {
-		// Validate profile name to prevent command injection
 		if cfg.Profile != "" {
 			if isValidProfile(cfg.Profile) {
 				profile = cfg.Profile
 			} else {
-				logger.Warn("invalid profile name ignored (must be alphanumeric, dash, or underscore)",
+				logger.Warn("invalid Amazon account name ignored (must be alphanumeric, dash, or underscore)",
 					slog.String("profile", cfg.Profile))
 			}
 		}
-		headless = cfg.Headless
-		browserDataDir = cfg.BrowserDataDir
+		cookieFile = cfg.CookieFile
 	}
 
 	return &Provider{
-		logger:         logger.With(slog.String("provider", "amazon")),
-		rateLimit:      1 * time.Second,
-		profile:        profile,
-		headless:       headless,
-		browserDataDir: browserDataDir,
+		logger:     logger.With(slog.String("provider", "amazon")),
+		rateLimit:  time.Second,
+		profile:    profile,
+		cookieFile: cookieFile,
 	}
 }
 
-// Name returns the provider identifier
+// NewProviderWithClient creates a provider with an injected client for tests.
+func NewProviderWithClient(logger *slog.Logger, cfg *ProviderConfig, client amazonClient) *Provider {
+	provider := NewProvider(logger, cfg)
+	provider.client = client
+	return provider
+}
+
+// Name returns the provider identifier.
 func (p *Provider) Name() string {
 	return "amazon"
 }
 
-// DisplayName returns the human-readable provider name
+// DisplayName returns the human-readable provider name.
 func (p *Provider) DisplayName() string {
 	return "Amazon"
 }
 
-// FetchOrders fetches orders from Amazon within the specified date range
-// by shelling out to the amazon-order-scraper CLI
+// FetchOrders fetches orders from Amazon within the specified date range.
 func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions) ([]providers.Order, error) {
 	p.logger.Info("fetching orders",
 		slog.Time("start_date", opts.StartDate),
@@ -118,49 +100,39 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 		slog.Int("max_orders", opts.MaxOrders),
 	)
 
-	// Build CLI arguments
-	args := p.buildCLIArgs(opts)
-
-	// Find and execute CLI
-	output, err := p.executeCLI(ctx, args)
+	client, err := p.getClient()
 	if err != nil {
 		return nil, err
 	}
+	if err := client.HealthCheck(); err != nil {
+		return nil, fmt.Errorf("amazon auth check failed: %w. %s", err, p.loginCommand())
+	}
 
-	// Parse CLI output
-	cliOutput, err := ParseCLIOutputBytes(output)
+	amazonOrders, err := client.FetchOrders(ctx, amazongo.FetchOptions{
+		StartDate:      opts.StartDate,
+		EndDate:        opts.EndDate,
+		MaxOrders:      opts.MaxOrders,
+		IncludeDetails: opts.IncludeDetails,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse CLI output: %w", err)
+		return nil, fmt.Errorf("failed to fetch Amazon orders: %w", err)
 	}
 
-	p.logger.Info("fetched orders from CLI", slog.Int("count", len(cliOutput.Orders)))
+	orders := make([]providers.Order, 0, len(amazonOrders))
+	for _, amazonOrder := range amazonOrders {
+		if amazonOrder == nil {
+			continue
+		}
 
-	// Convert to provider interface
-	orders := make([]providers.Order, 0, len(cliOutput.Orders))
-	for _, cliOrder := range cliOutput.Orders {
-		parsedOrder, err := ConvertCLIOrder(cliOrder)
+		transactions, err := client.FetchTransactions(ctx, amazonOrder.ID)
 		if err != nil {
-			p.logger.Warn("failed to parse order, skipping",
-				slog.String("order_id", cliOrder.OrderID),
-				slog.String("error", err.Error()),
-			)
-			continue
+			p.logger.Warn("failed to fetch Amazon transactions",
+				slog.String("order_id", amazonOrder.ID),
+				slog.String("error", err.Error()))
 		}
 
-		// Filter by date range if specified
-		if !opts.StartDate.IsZero() && parsedOrder.Date.Before(opts.StartDate) {
-			continue
-		}
-		if !opts.EndDate.IsZero() && parsedOrder.Date.After(opts.EndDate) {
-			continue
-		}
-
+		parsedOrder := convertGoOrder(amazonOrder, transactions)
 		orders = append(orders, NewOrder(parsedOrder, p.logger))
-	}
-
-	// Apply max orders limit if specified
-	if opts.MaxOrders > 0 && len(orders) > opts.MaxOrders {
-		orders = orders[:opts.MaxOrders]
 	}
 
 	p.logger.Info("processed orders", slog.Int("count", len(orders)))
@@ -168,184 +140,63 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	return orders, nil
 }
 
-// buildCLIArgs builds the command line arguments for amazon-order-scraper
-func (p *Provider) buildCLIArgs(opts providers.FetchOptions) []string {
-	var args []string
-
-	// Date range options
-	if !opts.StartDate.IsZero() {
-		args = append(args, "--since", opts.StartDate.Format("2006-01-02"))
-	}
-	if !opts.EndDate.IsZero() {
-		args = append(args, "--until", opts.EndDate.Format("2006-01-02"))
-	}
-
-	// If no date range specified, calculate from lookback days
-	// Default to last 14 days if nothing specified
-	if opts.StartDate.IsZero() && opts.EndDate.IsZero() {
-		args = append(args, "--days", "14")
-	}
-
-	// Profile for multi-account support
-	if p.profile != "" {
-		args = append(args, "--profile", p.profile)
-	}
-
-	// Headless mode for automated runs
-	if p.headless {
-		args = append(args, "--headless")
-	}
-
-	// Always output to stdout for parsing
-	args = append(args, "--stdout")
-
-	return args
-}
-
-// executeCLI executes the amazon-order-scraper CLI and returns the output
-func (p *Provider) executeCLI(ctx context.Context, args []string) ([]byte, error) {
-	// Try to find the CLI
-	cli, err := p.findCLI()
-	if err != nil {
-		return nil, err
-	}
-	if err := validateCLIArgs(args); err != nil {
-		return nil, err
-	}
-
-	var cmd *exec.Cmd
-	// Keep executable names literal for static analysis; args are validated before assignment.
-	if cli.useNpx {
-		// Use npx to run the package
-		cmd = exec.CommandContext(ctx, "npx")
-		cmd.Args = append([]string{npxCommand, scraperPackageName}, args...)
-		p.logger.Debug("executing CLI via npx", slog.String("args", fmt.Sprintf("%v", cmd.Args[1:])))
-	} else {
-		// Direct execution
-		cmd = exec.CommandContext(ctx, "amazon-scraper")
-		cmd.Args = append([]string{amazonScraperCommand}, args...)
-		p.logger.Debug("executing CLI directly", slog.String("command", cli.name), slog.String("args", fmt.Sprintf("%v", args)))
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = io.MultiWriter(&stderr, os.Stderr) // stream logs to terminal in real-time
-	if p.browserDataDir != "" {
-		cmd.Env = append(os.Environ(), "BROWSER_DATA_DIR="+p.browserDataDir)
-	}
-
-	err = cmd.Run()
-	if err != nil {
-		// Check exit code for specific errors
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode := exitErr.ExitCode()
-			switch exitCode {
-			case 2:
-				return nil, fmt.Errorf("amazon login required: %s", p.loginCommand())
-			default:
-				return nil, fmt.Errorf("CLI failed (exit %d): %s", exitCode, stderr.String())
-			}
-		}
-		return nil, fmt.Errorf("failed to execute CLI: %w", err)
-	}
-
-	return stdout.Bytes(), nil
-}
-
-func (p *Provider) loginCommand() string {
-	profileArg := ""
-	if p.profile != "" {
-		profileArg = " --profile " + p.profile
-	}
-	if p.browserDataDir != "" {
-		return fmt.Sprintf("run 'BROWSER_DATA_DIR=%q npx -y amazon-order-scraper --login%s' to authenticate", p.browserDataDir, profileArg)
-	}
-	return fmt.Sprintf("run 'amazon-scraper --login%s' to authenticate", profileArg)
-}
-
-// findCLI locates the amazon-order-scraper CLI
-// Returns the path and whether to use npx
-func (p *Provider) findCLI() (cliCommand, error) {
-	// First, try to find globally installed CLI
-	if _, err := exec.LookPath(amazonScraperCommand); err == nil {
-		return cliCommand{name: amazonScraperCommand}, nil
-	}
-
-	// Fall back to npx
-	if _, err := exec.LookPath(npxCommand); err == nil {
-		return cliCommand{name: npxCommand, useNpx: true}, nil
-	}
-
-	return cliCommand{}, fmt.Errorf("amazon-order-scraper CLI not available: install %q or %q", amazonScraperCommand, npxCommand)
-}
-
-func validateCLIArgs(args []string) error {
-	for _, arg := range args {
-		switch arg {
-		case "--since", "--until", "--days", "--profile", "--headless", "--stdout":
-			continue
-		}
-		if strings.HasPrefix(arg, "--") {
-			return fmt.Errorf("unsupported amazon CLI flag: %q", arg)
-		}
-		if !allowedCLIArgsPattern.MatchString(arg) {
-			return fmt.Errorf("unsafe amazon CLI argument: %q", arg)
-		}
-	}
-
-	return nil
-}
-
-// GetOrderDetails fetches details for a specific order
-// Note: The CLI doesn't support fetching a single order by ID,
-// so this is not implemented
+// GetOrderDetails fetches details for a specific order.
 func (p *Provider) GetOrderDetails(ctx context.Context, orderID string) (providers.Order, error) {
-	return nil, fmt.Errorf("GetOrderDetails not supported for Amazon CLI provider")
+	client, err := p.getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	amazonOrder, transactions, err := client.FetchOrderWithTransactions(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Amazon order %q: %w", orderID, err)
+	}
+	if amazonOrder == nil {
+		return nil, fmt.Errorf("amazon order %q not found", orderID)
+	}
+
+	return NewOrder(convertGoOrder(amazonOrder, transactions), p.logger), nil
 }
 
-// SupportsDeliveryTips returns whether Amazon supports delivery tips
+// SupportsDeliveryTips returns whether Amazon supports delivery tips.
 func (p *Provider) SupportsDeliveryTips() bool {
-	return false // Amazon doesn't have delivery tips like grocery services
+	return false
 }
 
-// SupportsRefunds returns whether Amazon supports refund tracking
+// SupportsRefunds returns whether Amazon supports refund tracking.
 func (p *Provider) SupportsRefunds() bool {
-	return true // Amazon has refund transactions
+	return true
 }
 
-// SupportsBulkFetch returns whether Amazon supports bulk order fetching
+// SupportsBulkFetch returns whether Amazon supports bulk order fetching.
 func (p *Provider) SupportsBulkFetch() bool {
-	return true // CLI fetches all orders at once
+	return true
 }
 
-// GetRateLimit returns the rate limit for API requests
+// GetRateLimit returns the rate limit for API requests.
 func (p *Provider) GetRateLimit() time.Duration {
 	return p.rateLimit
 }
 
-// HealthCheck verifies the provider can connect and authenticate
+// HealthCheck verifies the provider can connect and authenticate.
 func (p *Provider) HealthCheck(ctx context.Context) error {
-	// Try to find the CLI
-	cli, err := p.findCLI()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	client, err := p.getClient()
 	if err != nil {
 		return err
 	}
-
-	var cmd *exec.Cmd
-	if cli.useNpx {
-		cmd = exec.CommandContext(ctx, npxCommand, scraperPackageName, "--help")
-	} else {
-		cmd = exec.CommandContext(ctx, amazonScraperCommand, "--help")
+	if err := client.HealthCheck(); err != nil {
+		return fmt.Errorf("amazon auth check failed: %w. %s", err, p.loginCommand())
 	}
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("amazon-order-scraper CLI not available: %w", err)
-	}
-
 	return nil
 }
 
-// MerchantSearchTerms returns the merchant names to search for in Monarch
+// MerchantSearchTerms returns the merchant names to search for in Monarch.
 func (p *Provider) MerchantSearchTerms() []string {
 	return []string{
 		"Amazon",
@@ -359,19 +210,101 @@ func (p *Provider) MerchantSearchTerms() []string {
 	}
 }
 
-// CalculateLookbackDays calculates the number of days to look back
-func CalculateLookbackDays(startDate, endDate time.Time) int {
-	if startDate.IsZero() || endDate.IsZero() {
-		return 14 // Default
+func (p *Provider) getClient() (amazonClient, error) {
+	if p.client != nil {
+		return p.client, nil
 	}
-	days := int(endDate.Sub(startDate).Hours() / 24)
-	if days < 1 {
-		return 1
+
+	opts := []amazongo.Option{
+		amazongo.WithLogger(p.logger),
+		amazongo.WithRateLimit(p.rateLimit),
 	}
-	return days
+	if p.profile != "" {
+		opts = append(opts, amazongo.WithAccount(p.profile))
+	}
+	if p.cookieFile != "" {
+		opts = append(opts, amazongo.WithCookieFile(p.cookieFile))
+	}
+
+	client, err := amazongo.NewClient(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Amazon client: %w", err)
+	}
+	p.client = client
+	return client, nil
 }
 
-// FormatDaysArg formats the days argument for the CLI
-func FormatDaysArg(days int) string {
-	return strconv.Itoa(days)
+func (p *Provider) loginCommand() string {
+	accountArg := ""
+	if p.profile != "" {
+		accountArg = " -account " + p.profile
+	}
+	if p.cookieFile != "" {
+		return fmt.Sprintf("run 'amazon-go import-browser-profile -profile-dir <profile-dir> -cookie-file %q' to authenticate", p.cookieFile)
+	}
+	return fmt.Sprintf("run 'amazon-go import-browser-profile -profile-dir <profile-dir>%s' to authenticate", accountArg)
+}
+
+func convertGoOrder(order *amazongo.Order, transactions []*amazongo.Transaction) *ParsedOrder {
+	parsed := &ParsedOrder{
+		ID:       order.ID,
+		Date:     order.Date,
+		Total:    order.Total,
+		Subtotal: order.Subtotal,
+		Tax:      order.Tax,
+		Shipping: order.ShippingFees,
+		Items:    make([]*ParsedOrderItem, 0, len(order.Items)),
+	}
+
+	for _, item := range order.Items {
+		if item == nil {
+			continue
+		}
+		price := item.Price
+		if price == 0 && item.UnitPrice != 0 && item.Quantity != 0 {
+			price = item.UnitPrice * item.Quantity
+		}
+		quantity := int(item.Quantity)
+		if quantity == 0 {
+			quantity = 1
+		}
+		parsed.Items = append(parsed.Items, &ParsedOrderItem{
+			Name:     item.Name,
+			Price:    price,
+			Quantity: quantity,
+		})
+	}
+
+	for _, tx := range transactions {
+		if tx == nil {
+			continue
+		}
+		parsed.Transactions = append(parsed.Transactions, convertGoTransaction(tx))
+	}
+
+	return parsed
+}
+
+func convertGoTransaction(tx *amazongo.Transaction) *ParsedTransaction {
+	txType := "charge"
+	status := strings.ToLower(tx.Status)
+	if strings.Contains(status, "refund") || strings.Contains(status, "refunded") {
+		txType = "refund"
+	}
+	if strings.Contains(status, "pending") {
+		txType = "pending"
+	}
+
+	description := tx.PaymentMethod
+	if description == "" {
+		description = tx.CardType
+	}
+
+	return &ParsedTransaction{
+		Date:        tx.Date,
+		Amount:      tx.Amount,
+		Type:        txType,
+		Last4:       tx.LastFour,
+		Description: description,
+	}
 }
