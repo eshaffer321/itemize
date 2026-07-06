@@ -98,12 +98,14 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	var bankCharges []float64
 	var hasNonBankPayments bool
 	for _, tx := range o.parsedOrder.Transactions {
-		// Skip refunds
-		if tx.Type == "refund" {
+		// Skip refunds and pending entries; final charges are the only entries
+		// that can be matched to posted Monarch transactions.
+		if tx.Type != "charge" {
 			if o.logger != nil {
-				o.logger.Warn("Skipping refund transaction (not yet supported)",
+				o.logger.Warn("Skipping non-final transaction",
 					"order_id", o.GetID(),
-					"refund_amount", tx.Amount)
+					"transaction_type", tx.Type,
+					"amount", tx.Amount)
 			}
 			continue
 		}
@@ -156,8 +158,8 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 func (o *Order) GetNonBankAmount() (float64, error) {
 	var nonBankTotal float64
 	for _, tx := range o.parsedOrder.Transactions {
-		// Skip refunds and non-positive amounts
-		if tx.Type == "refund" || tx.Amount <= 0 {
+		// Skip refunds, pending entries, and non-positive amounts
+		if tx.Type != "charge" || tx.Amount <= 0 {
 			continue
 		}
 
@@ -203,7 +205,7 @@ func (o *Order) GetItemsForCharge(chargeAmount float64) []providers.OrderItem {
 	for i, shipment := range o.parsedOrder.Shipments {
 		var subtotal float64
 		for _, item := range shipment.Items {
-			subtotal += item.Price * float64(item.Quantity)
+			subtotal += item.Price
 		}
 		estimated := subtotal * (1 + taxRate)
 		diff := math.Abs(estimated - chargeAmount)

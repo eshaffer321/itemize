@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // subsetDateTolerance is wider than the normal match window because multi-shipment
@@ -13,9 +13,9 @@ import (
 const subsetDateTolerance = 10
 
 // FindSubsetByTotal finds a subset of Monarch transactions whose absolute amounts
-// sum to the order total. Used as a fallback when the Amazon scraper cannot
+// sum to the order total. Used as a fallback when the Amazon provider cannot
 // discover all bank charges from the order's transaction page (e.g. when
-// subsequent shipment charges post after the scraper visited the order page).
+// subsequent shipment charges post after the provider visited the order page).
 //
 // Only negative (purchase) transactions are considered; refunds/credits are
 // excluded. Returns the matched transactions or an error if no valid subset

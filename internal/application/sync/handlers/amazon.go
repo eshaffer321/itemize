@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/itemize/internal/domain/allocator"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
 	"github.com/eshaffer321/itemize/internal/domain/validator"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // AmazonOrder extends providers.Order with Amazon-specific methods
@@ -182,15 +182,15 @@ func (h *AmazonHandler) ProcessOrder(
 	// Step 4: Match to Monarch transactions
 	var matchedTxns []*monarch.Transaction
 	var consolidatedTxn *monarch.Transaction
-	monarchDiscovered := false // true when we matched via subset search rather than scraper charges
+	monarchDiscovered := false // true when we matched via subset search rather than provider charges
 
 	if !validation.Valid {
-		// Scraper charges are incomplete (common for multi-shipment orders where later
-		// charges post after the scraper visited the order details page). Try to find the
+		// Provider charges are incomplete (common for multi-shipment orders where later
+		// charges post after the provider visited the order details page). Try to find the
 		// matching Monarch transactions by searching for a subset that sums to the order total.
-		h.logDebug("Scraper charges incomplete, attempting Monarch-side discovery",
+		h.logDebug("Provider charges incomplete, attempting Monarch-side discovery",
 			"order_id", order.GetID(),
-			"scraper_sum", validation.BankChargesSum,
+			"provider_charge_sum", validation.BankChargesSum,
 			"expected", validation.ExpectedSum)
 
 		discovered, discoverErr := h.matcher.FindSubsetByTotal(order, monarchTxns, usedTxnIDs)
@@ -297,7 +297,7 @@ func (h *AmazonHandler) ProcessOrder(
 
 	// Step 6: Pro-rata allocation
 	// For Monarch-discovered charges, use the order total and all items since we
-	// don't have per-shipment mapping. For scraper-validated charges, use the
+	// don't have per-shipment mapping. For provider-validated charges, use the
 	// per-shipment breakdown when available.
 	var chargeAmount float64
 	var allocationTotal float64

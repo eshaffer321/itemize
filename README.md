@@ -123,27 +123,31 @@ Requires cookies in `~/.walmart-api/cookies.json`. See [walmart-client-go](https
 Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).
 
 ### Amazon
-Requires [amazon-order-scraper](https://www.npmjs.com/package/amazon-order-scraper) CLI:
+Uses [amazon-go](https://github.com/eshaffer321/amazon-go) directly. Authenticate once by
+saving Amazon cookies from a browser profile that is already logged into Amazon:
+
 ```bash
-npm install -g amazon-order-scraper
-BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login  # authenticate once
+amazon-go import-browser-profile \
+  -profile-dir "$HOME/.itemize/amazon/amazon-erick" \
+  -account erick
 ```
 
-`itemize` uses the same persistent browser profile base by default. If you set
-`AMAZON_ACCOUNT_NAME`, pass the matching scraper profile during login:
+If you set `AMAZON_ACCOUNT_NAME`, save cookies for the matching amazon-go account:
 
 ```bash
-BROWSER_DATA_DIR="$HOME/.itemize/amazon" amazon-scraper --login --profile "$AMAZON_ACCOUNT_NAME"
+amazon-go import-browser-profile \
+  -profile-dir "$HOME/.itemize/amazon/$AMAZON_ACCOUNT_NAME" \
+  -account "$AMAZON_ACCOUNT_NAME"
 ```
 
 #### Multiple Amazon accounts
 
-If you sync more than one Amazon account, use `-account` to pick a profile per run instead of
+If you sync more than one Amazon account, use `-account` to pick a cookie account per run instead of
 setting `AMAZON_ACCOUNT_NAME` (useful for one-off manual runs where you don't want to remember
 an env var, or for cron jobs where the account name should be visible right in the crontab line):
 
 ```bash
-./itemize amazon -list-accounts        # see which profiles you've logged into
+./itemize amazon -list-accounts        # see saved amazon-go cookie accounts
 ./itemize amazon -account amazon-wife  # sync a specific account
 ```
 
@@ -177,7 +181,7 @@ itemize collects anonymous usage data to help understand how the tool is being u
 **What is never collected:**
 - API tokens or keys (`MONARCH_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
 - Costco email or password
-- Amazon account name or browser profile paths
+- Amazon account names or cookie file paths
 - Order IDs, transaction IDs, or any financial data
 
 **Opt out:**

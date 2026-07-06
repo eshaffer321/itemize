@@ -29,8 +29,8 @@ func ParseSyncFlags() SyncFlags {
 	flag.BoolVar(&flags.Force, "force", false, "Force reprocess already processed orders")
 	flag.BoolVar(&flags.Verbose, "verbose", false, "Verbose output")
 	flag.StringVar(&flags.OrderID, "order-id", "", "Process only this specific order ID (limits blast radius)")
-	flag.StringVar(&flags.Account, "account", "", "Amazon account/profile name (overrides AMAZON_ACCOUNT_NAME; run -list-accounts to see saved profiles)")
-	flag.BoolVar(&flags.ListAccounts, "list-accounts", false, "List saved Amazon account profiles and exit")
+	flag.StringVar(&flags.Account, "account", "", "Amazon cookie account name (overrides AMAZON_ACCOUNT_NAME; run -list-accounts to see saved accounts)")
+	flag.BoolVar(&flags.ListAccounts, "list-accounts", false, "List saved Amazon cookie accounts and exit")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: itemize <command> [flags]")
@@ -46,8 +46,9 @@ func ParseSyncFlags() SyncFlags {
 		fmt.Fprintln(os.Stderr, "  ITEMIZE_NO_TELEMETRY       Set to 1 to disable anonymous usage telemetry")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Provider-Specific Environment Variables:")
-		fmt.Fprintln(os.Stderr, "  AMAZON_ACCOUNT_NAME        Amazon browser profile name (optional)")
-		fmt.Fprintln(os.Stderr, "                             Run 'amazon-scraper --login --profile <name>' first")
+		fmt.Fprintln(os.Stderr, "  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
+		fmt.Fprintln(os.Stderr, "                             Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' first")
+		fmt.Fprintln(os.Stderr, "  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
 	}
 
 	flag.Parse()

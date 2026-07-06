@@ -18,7 +18,7 @@ func PrintHeader(providerName string, dryRun bool) {
 }
 
 // PrintConfiguration prints sync configuration. account is the resolved
-// Amazon profile name; pass "" for providers without multi-account support.
+// Amazon cookie account name; pass "" for providers without multi-account support.
 func PrintConfiguration(providerName string, lookbackDays, maxOrders int, force bool, account string) {
 	fmt.Printf("Provider: %s | Lookback: %d days", providerName, lookbackDays)
 	if account != "" {

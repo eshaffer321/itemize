@@ -90,13 +90,13 @@ type CostcoConfig struct {
 
 // AmazonConfig holds Amazon-specific settings
 type AmazonConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	RateLimit      string `yaml:"rate_limit"`
-	LookbackDays   int    `yaml:"lookback_days"`
-	MaxOrders      int    `yaml:"max_orders"`
-	Debug          bool   `yaml:"debug"`
-	AccountName    string `yaml:"account_name"`     // For multi-account support (optional)
-	BrowserDataDir string `yaml:"browser_data_dir"` // Base directory for Amazon scraper browser profiles
+	Enabled      bool   `yaml:"enabled"`
+	RateLimit    string `yaml:"rate_limit"`
+	LookbackDays int    `yaml:"lookback_days"`
+	MaxOrders    int    `yaml:"max_orders"`
+	Debug        bool   `yaml:"debug"`
+	AccountName  string `yaml:"account_name"` // For multi-account support (optional)
+	CookieFile   string `yaml:"cookie_file"`  // Optional amazon-go cookie file
 }
 
 // ObservabilityConfig holds observability settings
@@ -207,11 +207,11 @@ func LoadFromEnv() *Config {
 				MaxOrders:    getEnvInt("COSTCO_MAX_ORDERS", 0),
 			},
 			Amazon: AmazonConfig{
-				Enabled:        true,
-				LookbackDays:   getEnvInt("AMAZON_LOOKBACK_DAYS", 14),
-				MaxOrders:      getEnvInt("AMAZON_MAX_ORDERS", 0),
-				AccountName:    getEnv("AMAZON_ACCOUNT_NAME", ""),
-				BrowserDataDir: getEnv("AMAZON_BROWSER_DATA_DIR", getEnv("BROWSER_DATA_DIR", "")),
+				Enabled:      true,
+				LookbackDays: getEnvInt("AMAZON_LOOKBACK_DAYS", 14),
+				MaxOrders:    getEnvInt("AMAZON_MAX_ORDERS", 0),
+				AccountName:  getEnv("AMAZON_ACCOUNT_NAME", ""),
+				CookieFile:   getEnv("AMAZON_COOKIE_FILE", ""),
 			},
 		},
 		Observability: ObservabilityConfig{
