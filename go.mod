@@ -3,7 +3,7 @@ module github.com/eshaffer321/itemize
 go 1.25.11
 
 require (
-	github.com/eshaffer321/amazon-go v0.2.1-0.20260706021402-8f1f6cba1917
+	github.com/eshaffer321/amazon-go v0.3.0
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.0.2
