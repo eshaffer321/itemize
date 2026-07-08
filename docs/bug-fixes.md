@@ -12,6 +12,36 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-08: Costco split success could be overwritten by later no-match failure
+
+**Description:**
+A Costco receipt could mutate Monarch successfully, then later appear in SQLite as `failed: no matching transaction found`. After Monarch splits a parent transaction, the original one-row `$total` transaction may no longer be visible to the simple exact matcher, and a retry could replace the local success summary with a failed row. That destroyed the audit trail needed to prove what happened.
+
+**Test Case:**
+```go
+// internal/infrastructure/storage/storage_test.go: TestStorage_SaveRecord_DoesNotDowngradeSuccessWithFailure
+// Expected: a later failed retry cannot overwrite an existing non-dry-run success summary.
+
+// internal/infrastructure/storage/storage_test.go: TestStorage_SaveRecord_AppendsAttemptHistory
+// Expected: both the original success and later failure remain queryable in processing_attempts.
+
+// internal/application/sync/handlers/simple_test.go: TestSimpleHandler_ProcessOrder_ReconcilesAlreadySplitTransactions
+// Expected: if same-day Costco rows sum to the receipt total and notes match receipt items,
+// itemize records the order as already processed instead of reporting no match.
+```
+
+**Root Cause:**
+`processing_records` was a single mutable row per order and `SaveRecord` used `INSERT OR REPLACE`. Normal handler mutations (`UpdateTransaction` and `UpdateSplits`) were not logged in `api_calls`, and failure records did not store the same raw order/debug payload as success records. The system could therefore reach a split/updated state in Monarch while retaining only a later failed local summary.
+
+**Fix Applied:**
+Added append-only `processing_attempts`, `order_transactions`, match diagnostics, and mutation metadata. `SaveRecord` now appends every attempt and refuses to downgrade an existing real success to failed/pending. Failure and pending records now include raw order audit data. The Monarch adapter logs all transaction updates/split updates, and the simple handler can reconcile already-split Costco-style rows before emitting a no-match failure.
+
+**Verification:**
+- `go test ./internal/infrastructure/storage ./internal/application/sync/handlers ./internal/application/sync -run 'TestStorage_SaveRecord_DoesNotDowngradeSuccessWithFailure|TestStorage_SaveRecord_AppendsAttemptHistory|TestStorage_OrderTransactions_MultipleRowsPerOrder|TestSimpleHandler_ProcessOrder_ReconcilesAlreadySplitTransactions|TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction' -count=1` passes.
+- `go test ./...` passes.
+
+---
+
 ### 2026-07-02: Dependabot PR tests failed because Codecov upload required a token
 
 **Description:**

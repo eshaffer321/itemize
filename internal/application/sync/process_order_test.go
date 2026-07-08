@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
 	"github.com/eshaffer321/itemize/internal/domain/splitter"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -153,6 +154,33 @@ func createTestOrchestrator(t *testing.T) *Orchestrator {
 		simpleHandler: simpleHandler,
 		logger:        logger,
 	}
+}
+
+func TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction(t *testing.T) {
+	store := storage.NewMockRepository()
+	adapter := &monarchAdapter{
+		storage: store,
+		runID:   42,
+	}
+
+	ctx := withAuditContext(context.Background(), "ORDER-AUDIT", false)
+	adapter.logAPICall(ctx, "txn-123", "Transactions.UpdateSplits",
+		map[string]any{"split_count": 2},
+		map[string]any{"ok": true},
+		nil,
+		150*time.Millisecond,
+	)
+
+	calls, err := store.GetAPICallsByOrderID("ORDER-AUDIT")
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, int64(42), calls[0].RunID)
+	assert.Equal(t, "ORDER-AUDIT", calls[0].OrderID)
+	assert.Equal(t, "txn-123", calls[0].TransactionID)
+	assert.Equal(t, "Transactions.UpdateSplits", calls[0].Method)
+	assert.Equal(t, int64(150), calls[0].DurationMs)
+	assert.False(t, calls[0].DryRun)
+	assert.Contains(t, calls[0].RequestJSON, "split_count")
 }
 
 // =============================================================================

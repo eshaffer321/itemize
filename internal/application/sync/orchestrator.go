@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // handleResult processes the result from a provider handler and records success/error
@@ -15,7 +15,7 @@ import (
 func (o *Orchestrator) handleResult(order providers.Order, result *handlers.ProcessResult, err error, opts Options) (bool, bool, error) {
 	if err != nil {
 		o.logger.Error("Handler error", "order_id", order.GetID(), "error", err)
-		o.recordError(order, err.Error())
+		o.recordError(order, err.Error(), nil)
 		return false, false, err
 	}
 	if result.Skipped {
@@ -31,7 +31,7 @@ func (o *Orchestrator) handleResult(order providers.Order, result *handlers.Proc
 			return false, true, nil
 		}
 		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
-		o.recordError(order, result.SkipReason)
+		o.recordError(order, result.SkipReason, result)
 		return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
 	}
 	if result.Processed {
@@ -52,6 +52,8 @@ func (o *Orchestrator) processOrder(
 	monarchCategories []*monarch.TransactionCategory,
 	opts Options,
 ) (bool, bool, error) {
+	ctx = withAuditContext(ctx, order.GetID(), opts.DryRun)
+
 	o.logger.Debug("Processing order",
 		"order_id", order.GetID(),
 		"order_date", order.GetDate().Format("2006-01-02"),
@@ -135,6 +137,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		if o.consolidator != nil {
 			o.consolidator.SetRunID(o.runID)
+		}
+		if o.monarchAdapter != nil {
+			o.monarchAdapter.runID = o.runID
 		}
 		// Set up ledger storage for Walmart handler
 		if o.walmartHandler != nil {

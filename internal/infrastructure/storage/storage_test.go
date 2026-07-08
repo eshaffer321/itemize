@@ -122,20 +122,20 @@ func TestStorage_SaveAndGetRecord_WithItems(t *testing.T) {
 
 	// Create a record with items
 	record := &ProcessingRecord{
-		OrderID:         "ORDER-123",
-		Provider:        "walmart",
-		TransactionID:   "txn-456",
-		OrderDate:       time.Now().Truncate(time.Second),
-		ProcessedAt:     time.Now().Truncate(time.Second),
-		OrderTotal:      150.00,
-		OrderSubtotal:   140.00,
-		OrderTax:        10.00,
+		OrderID:           "ORDER-123",
+		Provider:          "walmart",
+		TransactionID:     "txn-456",
+		OrderDate:         time.Now().Truncate(time.Second),
+		ProcessedAt:       time.Now().Truncate(time.Second),
+		OrderTotal:        150.00,
+		OrderSubtotal:     140.00,
+		OrderTax:          10.00,
 		TransactionAmount: -150.00,
-		SplitCount:      2,
-		Status:          "success",
-		ItemCount:       3,
-		MatchConfidence: 0.95,
-		DryRun:          false,
+		SplitCount:        2,
+		Status:            "success",
+		ItemCount:         3,
+		MatchConfidence:   0.95,
+		DryRun:            false,
 		Items: []OrderItem{
 			{Name: "Milk", Quantity: 2, UnitPrice: 3.99, TotalPrice: 7.98, Category: "Groceries"},
 			{Name: "Bread", Quantity: 1, UnitPrice: 2.50, TotalPrice: 2.50, Category: "Groceries"},
@@ -269,6 +269,118 @@ func TestStorage_SaveRecord_UpdateExisting(t *testing.T) {
 	assert.Equal(t, "success", retrieved.Status)
 	require.Len(t, retrieved.Items, 1)
 	assert.Equal(t, "Updated Item", retrieved.Items[0].Name)
+}
+
+func TestStorage_SaveRecord_DoesNotDowngradeSuccessWithFailure(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	success := &ProcessingRecord{
+		OrderID:           "ORDER-SAFE",
+		Provider:          "costco",
+		TransactionID:     "txn-success",
+		OrderDate:         time.Now().Truncate(time.Second),
+		ProcessedAt:       time.Now().Truncate(time.Second),
+		OrderTotal:        307.79,
+		TransactionAmount: -307.79,
+		SplitCount:        4,
+		Status:            "success",
+		RawOrderJSON:      `{"receipt":"full"}`,
+		Splits: []SplitDetail{
+			{CategoryID: "groceries", Amount: -127.64, Notes: "Groceries:\n- CANTALOUPE $6.99"},
+		},
+	}
+	require.NoError(t, store.SaveRecord(success))
+
+	failedRetry := &ProcessingRecord{
+		OrderID:      "ORDER-SAFE",
+		Provider:     "costco",
+		OrderDate:    success.OrderDate,
+		ProcessedAt:  success.ProcessedAt.Add(time.Minute),
+		OrderTotal:   307.79,
+		Status:       "failed",
+		ErrorMessage: "no matching transaction found",
+		Items:        []OrderItem{{Name: "CANTALOUPE", TotalPrice: 6.99}},
+	}
+	require.NoError(t, store.SaveRecord(failedRetry))
+
+	retrieved, err := store.GetRecord("ORDER-SAFE")
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	assert.Equal(t, "success", retrieved.Status)
+	assert.Equal(t, "txn-success", retrieved.TransactionID)
+	assert.Equal(t, -307.79, retrieved.TransactionAmount)
+	assert.Equal(t, 4, retrieved.SplitCount)
+	assert.Equal(t, `{"receipt":"full"}`, retrieved.RawOrderJSON)
+	require.Len(t, retrieved.Splits, 1)
+}
+
+func TestStorage_SaveRecord_AppendsAttemptHistory(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{
+		OrderID:     "ORDER-HISTORY",
+		Provider:    "costco",
+		ProcessedAt: time.Now().Add(-time.Minute),
+		Status:      "success",
+		Splits:      []SplitDetail{{CategoryID: "groceries", Amount: -10.00}},
+	}))
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{
+		OrderID:              "ORDER-HISTORY",
+		Provider:             "costco",
+		ProcessedAt:          time.Now(),
+		Status:               "failed",
+		ErrorMessage:         "no matching transaction found",
+		MatchDiagnosticsJSON: `{"closest":[{"id":"txn-1"}]}`,
+	}))
+
+	attempts, err := store.GetAttemptsByOrderID("ORDER-HISTORY")
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	assert.Equal(t, "success", attempts[0].Status)
+	assert.Equal(t, "failed", attempts[1].Status)
+	assert.Equal(t, `{"closest":[{"id":"txn-1"}]}`, attempts[1].MatchDiagnosticsJSON)
+}
+
+func TestStorage_OrderTransactions_MultipleRowsPerOrder(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{
+		OrderID:       "ORDER-TXNS",
+		TransactionID: "txn-parent",
+		Role:          "matched",
+		Amount:        -307.79,
+	}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{
+		OrderID:       "ORDER-TXNS",
+		TransactionID: "txn-child",
+		Role:          "reconciled",
+		Amount:        -127.64,
+		Notes:         "Groceries:\n- CANTALOUPE $6.99",
+	}))
+
+	txns, err := store.GetOrderTransactions("ORDER-TXNS")
+	require.NoError(t, err)
+	require.Len(t, txns, 2)
+	assert.Equal(t, "txn-parent", txns[0].TransactionID)
+	assert.Equal(t, "matched", txns[0].Role)
+	assert.Equal(t, "txn-child", txns[1].TransactionID)
+	assert.Equal(t, "reconciled", txns[1].Role)
+	assert.Contains(t, txns[1].Notes, "CANTALOUPE")
 }
 
 func TestStorage_IsProcessed(t *testing.T) {
