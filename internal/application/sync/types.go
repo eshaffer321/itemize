@@ -202,10 +202,6 @@ func (a *monarchAdapter) UpdateSplits(ctx context.Context, id string, splits []*
 	return err
 }
 
-func (a *monarchAdapter) logAPICall(ctx context.Context, transactionID, method string, request, response any, callErr error, duration time.Duration) {
-	a.logAPICallPhase(ctx, transactionID, method, "completed", request, response, callErr, duration)
-}
-
 func (a *monarchAdapter) logAPICallIntent(ctx context.Context, transactionID, method string, request any) {
 	a.logAPICallPhase(ctx, transactionID, method, "intent", request, nil, nil, 0)
 }
