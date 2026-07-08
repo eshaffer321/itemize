@@ -383,6 +383,38 @@ func TestStorage_OrderTransactions_MultipleRowsPerOrder(t *testing.T) {
 	assert.Contains(t, txns[1].Notes, "CANTALOUPE")
 }
 
+func TestStorage_ProviderFetchLog_RoundTrip(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	runID, err := store.StartSyncRun("Costco", 14, false)
+	require.NoError(t, err)
+
+	fetch := &ProviderFetchLog{
+		RunID:        runID,
+		Provider:     "Costco",
+		FetchType:    "orders",
+		RequestJSON:  `{"lookback_days":14}`,
+		ResponseJSON: `[{"id":"receipt-1"}]`,
+		OrderCount:   1,
+		DurationMs:   250,
+	}
+	require.NoError(t, store.LogProviderFetch(fetch))
+
+	logs, err := store.GetProviderFetchesByRunID(runID)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	assert.Equal(t, "Costco", logs[0].Provider)
+	assert.Equal(t, "orders", logs[0].FetchType)
+	assert.Equal(t, `[{"id":"receipt-1"}]`, logs[0].ResponseJSON)
+	assert.Equal(t, 1, logs[0].OrderCount)
+	assert.Equal(t, int64(250), logs[0].DurationMs)
+}
+
 func TestStorage_IsProcessed(t *testing.T) {
 	tmpDB := createTempDB(t)
 	defer os.Remove(tmpDB)

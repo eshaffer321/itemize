@@ -107,30 +107,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		"force", opts.Force,
 	)
 
-	// 1. Fetch orders from provider
-	orders, err := o.fetchOrders(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Fetch Monarch transactions (if clients configured)
-	if o.clients == nil {
-		return result, nil // Testing mode
-	}
-
-	providerTransactions, err := o.fetchMonarchTransactions(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. Get Monarch categories
-	catCategories, monarchCategories, err := o.fetchCategories(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. Start sync run tracking
+	// 1. Start sync run tracking before external fetches so fetch logs are tied to a run.
 	if o.storage != nil {
+		var err error
 		o.runID, err = o.storage.StartSyncRun(o.provider.DisplayName(), opts.LookbackDays, opts.DryRun)
 		if err != nil {
 			o.logger.Warn("Failed to start sync run tracking", "error", err)
@@ -145,6 +124,31 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		if o.walmartHandler != nil {
 			o.walmartHandler.SetLedgerStorage(&ledgerStorageAdapter{repo: o.storage}, o.runID)
 		}
+	}
+
+	// 2. Fetch orders from provider
+	orders, err := o.fetchOrders(ctx, opts)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
+	}
+
+	// 3. Fetch Monarch transactions (if clients configured)
+	if o.clients == nil {
+		return result, nil // Testing mode
+	}
+
+	providerTransactions, err := o.fetchMonarchTransactions(ctx, opts)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
+	}
+
+	// 4. Get Monarch categories
+	catCategories, monarchCategories, err := o.fetchCategories(ctx)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
 	}
 
 	// 5. Process orders
@@ -188,4 +192,13 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func (o *Orchestrator) completeFailedRun(errorCount int) {
+	if o.storage == nil || o.runID <= 0 {
+		return
+	}
+	if err := o.storage.CompleteSyncRun(o.runID, 0, 0, 0, errorCount); err != nil {
+		o.logger.Warn("Failed to complete failed sync run tracking", "error", err)
+	}
 }

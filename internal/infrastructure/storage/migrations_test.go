@@ -14,7 +14,7 @@ import (
 // expectedMigrationCount is the number of migrations we expect to have
 // Update this when adding new migrations
 // Note: goose adds a version 0 entry when initializing, so total count is migrations + 1
-const expectedMigrationCount = 9
+const expectedMigrationCount = 10
 const gooseVersionCount = expectedMigrationCount + 1 // includes goose's version 0 entry
 
 // TestMigrations_FreshDatabase tests running migrations on a fresh database
@@ -107,6 +107,12 @@ func TestMigrations_Schema(t *testing.T) {
 
 	err = store.db.QueryRow("SELECT transaction_id, dry_run FROM api_calls LIMIT 0").Scan()
 	assert.True(t, err == nil || err == sql.ErrNoRows, "api_calls mutation diagnostic columns should exist")
+
+	err = store.db.QueryRow("SELECT phase FROM api_calls LIMIT 0").Scan()
+	assert.True(t, err == nil || err == sql.ErrNoRows, "api_calls.phase should exist")
+
+	err = store.db.QueryRow("SELECT COUNT(*) FROM provider_fetches").Scan(new(int))
+	assert.NoError(t, err, "provider_fetches table should exist")
 }
 
 // TestMigrations_ForeignKeyConstraints tests that foreign keys are enforced

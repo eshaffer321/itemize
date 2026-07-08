@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // MockProvider implements providers.OrderProvider for testing
@@ -463,4 +465,36 @@ func TestOrchestrator_fetchOrders(t *testing.T) {
 			mockProvider.AssertExpectations(t)
 		})
 	}
+}
+
+func TestOrchestrator_fetchOrders_LogsProviderFetch(t *testing.T) {
+	mockProvider := new(MockProvider)
+	mockProvider.On("DisplayName").Return("Costco")
+	mockProvider.On("FetchOrders", mock.Anything, mock.Anything).Return([]providers.Order{
+		&mockSimpleOrder{
+			id:           "receipt-1",
+			date:         time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC),
+			total:        12.34,
+			subtotal:     11.00,
+			tax:          1.34,
+			providerName: "Costco",
+		},
+	}, nil)
+
+	store := storage.NewMockRepository()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	orchestrator := NewOrchestrator(mockProvider, nil, store, logger)
+	orchestrator.runID = 77
+
+	orders, err := orchestrator.fetchOrders(context.Background(), Options{LookbackDays: 14})
+	require.NoError(t, err)
+	require.Len(t, orders, 1)
+
+	logs, err := store.GetProviderFetchesByRunID(77)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	assert.Equal(t, "Costco", logs[0].Provider)
+	assert.Equal(t, "orders", logs[0].FetchType)
+	assert.Equal(t, 1, logs[0].OrderCount)
+	assert.Contains(t, logs[0].ResponseJSON, "receipt-1")
 }

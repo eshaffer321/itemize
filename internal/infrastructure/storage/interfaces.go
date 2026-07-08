@@ -111,6 +111,12 @@ type APICallRepository interface {
 
 	// GetAPICallsByRunID retrieves all API calls for a specific sync run
 	GetAPICallsByRunID(runID int64) ([]APICall, error)
+
+	// LogProviderFetch logs an external provider/Monarch fetch snapshot.
+	LogProviderFetch(fetch *ProviderFetchLog) error
+
+	// GetProviderFetchesByRunID retrieves provider fetch logs for a sync run.
+	GetProviderFetchesByRunID(runID int64) ([]ProviderFetchLog, error)
 }
 
 // LedgerRepository handles order ledger storage and history

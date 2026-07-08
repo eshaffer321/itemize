@@ -183,6 +183,27 @@ func TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction(t *testing.T) {
 	assert.Contains(t, calls[0].RequestJSON, "split_count")
 }
 
+func TestMonarchAdapter_LogAPICallRecordsIntentAndCompletion(t *testing.T) {
+	store := storage.NewMockRepository()
+	adapter := &monarchAdapter{
+		storage: store,
+		runID:   99,
+	}
+
+	ctx := withAuditContext(context.Background(), "ORDER-INTENT", false)
+	adapter.logAPICallIntent(ctx, "txn-intent", "Transactions.Update", map[string]any{"category": "groceries"})
+	adapter.logAPICallCompletion(ctx, "txn-intent", "Transactions.Update", map[string]any{"id": "txn-intent"}, nil, 25*time.Millisecond)
+
+	calls, err := store.GetAPICallsByOrderID("ORDER-INTENT")
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, "intent", calls[0].Phase)
+	assert.Equal(t, "completed", calls[1].Phase)
+	assert.Equal(t, "txn-intent", calls[0].TransactionID)
+	assert.Contains(t, calls[0].RequestJSON, "groceries")
+	assert.Contains(t, calls[1].ResponseJSON, "txn-intent")
+}
+
 // =============================================================================
 // Test: Generic Order Matching (Costco-like providers)
 // =============================================================================

@@ -147,12 +147,28 @@ type APICall struct {
 	RunID         int64
 	OrderID       string
 	TransactionID string
+	Phase         string
 	Method        string
 	RequestJSON   string
 	ResponseJSON  string
 	Error         string
 	DurationMs    int64
 	DryRun        bool
+}
+
+// ProviderFetchLog captures a provider/Monarch fetch request and summarized response.
+type ProviderFetchLog struct {
+	ID               int64  `json:"id"`
+	RunID            int64  `json:"run_id,omitempty"`
+	Provider         string `json:"provider"`
+	FetchType        string `json:"fetch_type"`
+	RequestJSON      string `json:"request_json,omitempty"`
+	ResponseJSON     string `json:"response_json,omitempty"`
+	Error            string `json:"error,omitempty"`
+	DurationMs       int64  `json:"duration_ms"`
+	OrderCount       int    `json:"order_count"`
+	TransactionCount int    `json:"transaction_count"`
+	CreatedAt        string `json:"created_at,omitempty"`
 }
 
 // LedgerState represents the current state of an order's ledger

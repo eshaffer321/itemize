@@ -713,9 +713,14 @@ func (s *Storage) CompleteSyncRun(runID int64, ordersFound, processed, skipped, 
 func (s *Storage) LogAPICall(call *APICall) error {
 	query := `
 		INSERT INTO api_calls
-		(run_id, order_id, method, request_json, response_json, error, duration_ms, transaction_id, dry_run)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(run_id, order_id, method, request_json, response_json, error, duration_ms, transaction_id, dry_run, phase)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	phase := call.Phase
+	if phase == "" {
+		phase = "completed"
+	}
 
 	_, err := s.db.Exec(query,
 		call.RunID,
@@ -727,6 +732,7 @@ func (s *Storage) LogAPICall(call *APICall) error {
 		call.DurationMs,
 		nullString(call.TransactionID),
 		call.DryRun,
+		phase,
 	)
 
 	return err
@@ -736,7 +742,7 @@ func (s *Storage) LogAPICall(call *APICall) error {
 func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 	query := `
 		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp,
-		       transaction_id, dry_run
+		       transaction_id, dry_run, phase
 		FROM api_calls
 		WHERE order_id = ?
 		ORDER BY timestamp ASC
@@ -764,6 +770,7 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 			&timestamp,
 			&transactionID,
 			&call.DryRun,
+			&call.Phase,
 		)
 		if err != nil {
 			return nil, err
@@ -781,7 +788,7 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	query := `
 		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp,
-		       transaction_id, dry_run
+		       transaction_id, dry_run, phase
 		FROM api_calls
 		WHERE run_id = ?
 		ORDER BY timestamp ASC
@@ -809,6 +816,7 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 			&timestamp,
 			&transactionID,
 			&call.DryRun,
+			&call.Phase,
 		)
 		if err != nil {
 			return nil, err
@@ -820,6 +828,78 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	}
 
 	return calls, rows.Err()
+}
+
+// LogProviderFetch logs an external provider/Monarch fetch snapshot.
+func (s *Storage) LogProviderFetch(fetch *ProviderFetchLog) error {
+	if fetch == nil {
+		return nil
+	}
+	query := `
+		INSERT INTO provider_fetches
+		(run_id, provider, fetch_type, request_json, response_json, error, duration_ms, order_count, transaction_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query,
+		nullInt64(fetch.RunID),
+		fetch.Provider,
+		fetch.FetchType,
+		nullString(fetch.RequestJSON),
+		nullString(fetch.ResponseJSON),
+		nullString(fetch.Error),
+		fetch.DurationMs,
+		fetch.OrderCount,
+		fetch.TransactionCount,
+	)
+	return err
+}
+
+// GetProviderFetchesByRunID retrieves provider fetch logs for a sync run.
+func (s *Storage) GetProviderFetchesByRunID(runID int64) ([]ProviderFetchLog, error) {
+	query := `
+		SELECT id, COALESCE(run_id, 0), provider, fetch_type, request_json, response_json,
+		       error, duration_ms, order_count, transaction_count, created_at
+		FROM provider_fetches
+		WHERE run_id = ?
+		ORDER BY id ASC
+	`
+	rows, err := s.db.Query(query, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var fetches []ProviderFetchLog
+	for rows.Next() {
+		var fetch ProviderFetchLog
+		var requestJSON, responseJSON, errorText sql.NullString
+		if err := rows.Scan(
+			&fetch.ID,
+			&fetch.RunID,
+			&fetch.Provider,
+			&fetch.FetchType,
+			&requestJSON,
+			&responseJSON,
+			&errorText,
+			&fetch.DurationMs,
+			&fetch.OrderCount,
+			&fetch.TransactionCount,
+			&fetch.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if requestJSON.Valid {
+			fetch.RequestJSON = requestJSON.String
+		}
+		if responseJSON.Valid {
+			fetch.ResponseJSON = responseJSON.String
+		}
+		if errorText.Valid {
+			fetch.Error = errorText.String
+		}
+		fetches = append(fetches, fetch)
+	}
+	return fetches, rows.Err()
 }
 
 // ListOrders returns orders matching the given filters with pagination
