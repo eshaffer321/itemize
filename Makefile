@@ -1,6 +1,7 @@
 # Variables
 BINARY_NAME=itemize
-GO_FILES=$(shell find . -name '*.go' -type f -not -path "./vendor/*")
+GO_FILES=$(shell git ls-files '*.go')
+STAGED_GO_FILES=$(shell git diff --cached --name-only --diff-filter=ACMR -- '*.go')
 COVERAGE_FILE=coverage.out
 COVERAGE_HTML=coverage.html
 
@@ -19,7 +20,7 @@ GREEN=\033[0;32m
 YELLOW=\033[1;33m
 NC=\033[0m # No Color
 
-.PHONY: all build clean test coverage fmt vet deps help install-tools pre-commit release version run-costco
+.PHONY: all build clean test coverage fmt check-fmt check-fmt-staged lint vet deps help install-tools install-hooks pre-commit pre-commit-local release version run-costco
 
 ## help: Display this help message
 help:
@@ -74,6 +75,45 @@ fmt:
 	fi
 	@echo "$(GREEN)Formatting complete!$(NC)"
 
+## check-fmt: Verify Go files are gofmt-formatted
+check-fmt:
+	@echo "$(GREEN)Checking Go formatting...$(NC)"
+	@unformatted="$$(gofmt -l $(GO_FILES))"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "$(RED)Go files need formatting:$(NC)"; \
+		echo "$$unformatted"; \
+		echo "Run: make fmt"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)Formatting check passed!$(NC)"
+
+## check-fmt-staged: Verify staged Go files are gofmt-formatted
+check-fmt-staged:
+	@echo "$(GREEN)Checking staged Go formatting...$(NC)"
+	@if [ -n "$(STAGED_GO_FILES)" ]; then \
+		unformatted="$$(gofmt -l $(STAGED_GO_FILES))"; \
+		if [ -n "$$unformatted" ]; then \
+			echo "$(RED)Staged Go files need formatting:$(NC)"; \
+			echo "$$unformatted"; \
+			echo "Run: gofmt -w $$unformatted"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "$(YELLOW)No staged Go files to check.$(NC)"; \
+	fi
+	@echo "$(GREEN)Staged formatting check passed!$(NC)"
+
+## lint: Run golangci-lint using the repo config
+lint:
+	@echo "$(GREEN)Running golangci-lint...$(NC)"
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "$(RED)golangci-lint is not installed.$(NC)"; \
+		echo "Install v2.4.0+ or run: brew install golangci-lint"; \
+		exit 1; \
+	fi
+	golangci-lint run --timeout=5m
+	@echo "$(GREEN)Lint complete!$(NC)"
+
 ## vet: Run go vet
 vet:
 	@echo "$(GREEN)Running go vet...$(NC)"
@@ -88,8 +128,14 @@ deps:
 	$(GOMOD) tidy
 	@echo "$(GREEN)Dependencies updated!$(NC)"
 
-## pre-commit: Run pre-commit checks (fmt, vet, test)
-pre-commit: fmt vet test
+## pre-commit-local: Run local pre-commit checks without modifying files
+pre-commit-local: check-fmt-staged lint vet
+	@echo "$(GREEN)Running tests...$(NC)"
+	$(GOTEST) ./...
+	@echo "$(GREEN)Pre-commit checks passed!$(NC)"
+
+## pre-commit: Run full pre-commit checks (format, lint, vet, race tests)
+pre-commit: fmt lint vet test
 	@echo "$(GREEN)Pre-commit checks passed!$(NC)"
 
 ## release: Build release binaries for multiple platforms
@@ -116,11 +162,20 @@ run-costco:
 	@echo "$(GREEN)Running Costco sync (dry-run)...$(NC)"
 	$(GOCMD) run ./cmd/itemize costco -dry-run -verbose
 
-## install-tools: Install development tools (goimports)
+## install-hooks: Install versioned git hooks for this checkout
+install-hooks:
+	@echo "$(GREEN)Installing git hooks...$(NC)"
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/pre-commit scripts/pre-commit.sh
+	@echo "$(GREEN)Git hooks installed. Use ITEMIZE_SKIP_PRECOMMIT=1 to bypass once.$(NC)"
+
+## install-tools: Install development tools (goimports, golangci-lint)
 install-tools:
 	@echo "$(GREEN)Installing development tools...$(NC)"
 	@echo "Installing goimports..."
 	@go install golang.org/x/tools/cmd/goimports@latest
+	@echo "Installing golangci-lint..."
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
 	@echo "$(GREEN)Tools installation complete!$(NC)"
 
 # Default target
