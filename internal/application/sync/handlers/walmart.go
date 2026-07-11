@@ -334,13 +334,25 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 	}
 
 	if !multiResult.AllFound {
-		// Count actual non-nil matches (len(Matches) includes nil entries for index alignment)
-		foundCount := 0
-		for _, match := range multiResult.Matches {
-			if match != nil {
-				foundCount++
-			}
+		aggregateResult, aggregateErr := h.processMultiDeliveryAggregateFallback(
+			ctx,
+			order,
+			monarchTxns,
+			usedTxnIDs,
+			catCategories,
+			monarchCategories,
+			charges,
+			dryRun,
+		)
+		if aggregateErr != nil {
+			return nil, aggregateErr
 		}
+		if aggregateResult != nil {
+			return aggregateResult, nil
+		}
+
+		// Count actual non-nil matches (len(Matches) includes nil entries for index alignment)
+		foundCount := countFoundMatches(multiResult.Matches)
 		result.Skipped = true
 		result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
 			len(charges), foundCount)
@@ -379,55 +391,108 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 	return h.categorizeAndApplySplits(ctx, order, consolidatedTxn, catCategories, monarchCategories, dryRun)
 }
 
-func (h *WalmartHandler) processRefundOnlyOrder(
+func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 	ctx context.Context,
 	order WalmartOrder,
 	monarchTxns []*monarch.Transaction,
 	usedTxnIDs map[string]bool,
 	catCategories []categorizer.Category,
 	monarchCategories []*monarch.TransactionCategory,
-	refundCharges []float64,
-	refundItems []providers.OrderItem,
+	charges []float64,
 	dryRun bool,
 ) (*ProcessResult, error) {
-	result := &ProcessResult{}
+	ledgerTotal := sumCharges(charges)
+	if ledgerTotal <= 0 {
+		return nil, nil
+	}
 
+	matchOrder := &ledgerAmountOrder{
+		Order:        order,
+		ledgerAmount: ledgerTotal,
+	}
+
+	matchedTxns, err := h.matcher.FindSubsetByTotal(matchOrder, monarchTxns, usedTxnIDs)
+	if err != nil {
+		h.logDebug("No aggregate transaction fallback match",
+			"order_id", order.GetID(),
+			"ledger_total", ledgerTotal,
+			"error", err)
+		return nil, nil
+	}
+
+	for _, txn := range matchedTxns {
+		usedTxnIDs[txn.ID] = true
+	}
+
+	if len(matchedTxns) == 1 {
+		h.logInfo("Matched multi-delivery order by aggregate ledger total",
+			"order_id", order.GetID(),
+			"ledger_charge_count", len(charges),
+			"ledger_total", ledgerTotal,
+			"transaction_id", matchedTxns[0].ID)
+		return h.categorizeAndApplySplits(ctx, order, matchedTxns[0], catCategories, monarchCategories, dryRun)
+	}
+
+	if h.consolidator == nil {
+		return nil, fmt.Errorf("aggregate match found %d transactions but consolidator is not configured", len(matchedTxns))
+	}
+
+	h.logInfo("Matched multi-delivery order by aggregate transaction subset",
+		"order_id", order.GetID(),
+		"ledger_charge_count", len(charges),
+		"ledger_total", ledgerTotal,
+		"transaction_count", len(matchedTxns))
+
+	consolidationResult, err := h.consolidator.ConsolidateTransactions(ctx, matchedTxns, matchOrder, dryRun)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate fallback consolidation error: %w", err)
+	}
+
+	return h.categorizeAndApplySplits(ctx, order, consolidationResult.ConsolidatedTransaction, catCategories, monarchCategories, dryRun)
+}
+
+func countFoundMatches(matches []*matcher.MatchResult) int {
+	foundCount := 0
+	for _, match := range matches {
+		if match != nil {
+			foundCount++
+		}
+	}
+	return foundCount
+}
+
+func sumCharges(charges []float64) float64 {
+	total := 0.0
+	for _, charge := range charges {
+		total += charge
+	}
+	return math.Round(total*100) / 100
+}
+
+func (h *WalmartHandler) processRefundOnlyOrder(ctx context.Context, order WalmartOrder, monarchTxns []*monarch.Transaction, usedTxnIDs map[string]bool, catCategories []categorizer.Category, monarchCategories []*monarch.TransactionCategory, refundCharges []float64, refundItems []providers.OrderItem, dryRun bool) (*ProcessResult, error) {
+	result := &ProcessResult{}
 	if len(refundItems) == 0 {
 		result.Skipped = true
 		result.SkipReason = "refund item not identified"
 		return result, nil
 	}
-
 	refunds, err := h.processRefundCharges(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, refundCharges, refundItems, dryRun)
 	if err != nil {
 		result.Skipped = true
 		result.SkipReason = err.Error()
 		return result, nil
 	}
-
 	result.Processed = true
 	result.Refunds = refunds
 	if len(refunds) > 0 {
 		result.Transaction = refunds[0].Transaction
 		result.Splits = refunds[0].Splits
 	}
-
 	return result, nil
 }
 
-func (h *WalmartHandler) processRefundCharges(
-	ctx context.Context,
-	order WalmartOrder,
-	monarchTxns []*monarch.Transaction,
-	usedTxnIDs map[string]bool,
-	catCategories []categorizer.Category,
-	monarchCategories []*monarch.TransactionCategory,
-	refundCharges []float64,
-	refundItems []providers.OrderItem,
-	dryRun bool,
-) ([]RefundProcessResult, error) {
+func (h *WalmartHandler) processRefundCharges(ctx context.Context, order WalmartOrder, monarchTxns []*monarch.Transaction, usedTxnIDs map[string]bool, catCategories []categorizer.Category, monarchCategories []*monarch.TransactionCategory, refundCharges []float64, refundItems []providers.OrderItem, dryRun bool) ([]RefundProcessResult, error) {
 	refunds := make([]RefundProcessResult, 0, len(refundCharges))
-
 	for _, amount := range refundCharges {
 		refundOrder := newRefundOrderView(order, amount, refundItems)
 		matchResult, err := h.matcher.FindMatch(refundOrder, monarchTxns, usedTxnIDs)
@@ -437,27 +502,14 @@ func (h *WalmartHandler) processRefundCharges(
 		if matchResult == nil {
 			return refunds, fmt.Errorf("no matching refund transaction found for amount %.2f", amount)
 		}
-
 		usedTxnIDs[matchResult.Transaction.ID] = true
-
-		h.logInfo("Matched refund transaction",
-			"order_id", order.GetID(),
-			"transaction_id", matchResult.Transaction.ID,
-			"refund_amount", amount,
-			"date_diff_days", matchResult.DateDiff)
-
+		h.logInfo("Matched refund transaction", "order_id", order.GetID(), "transaction_id", matchResult.Transaction.ID, "refund_amount", amount, "date_diff_days", matchResult.DateDiff)
 		refundResult, err := h.categorizeAndApplySplits(ctx, refundOrder, matchResult.Transaction, catCategories, monarchCategories, dryRun)
 		if err != nil {
 			return refunds, fmt.Errorf("refund split creation error: %w", err)
 		}
-
-		refunds = append(refunds, RefundProcessResult{
-			Amount:      amount,
-			Transaction: matchResult.Transaction,
-			Splits:      refundResult.Splits,
-		})
+		refunds = append(refunds, RefundProcessResult{Amount: amount, Transaction: matchResult.Transaction, Splits: refundResult.Splits})
 	}
-
 	return refunds, nil
 }
 

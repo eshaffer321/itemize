@@ -158,8 +158,31 @@ func TestProvider_FetchOrdersReturnsHealthCheckError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, orders)
 	assert.Contains(t, err.Error(), "amazon auth check failed")
-	assert.Contains(t, err.Error(), "amazon-go import-browser-profile -profile-dir <profile-dir> -account wife")
+	assert.Contains(t, err.Error(), "itemize amazon -import-browser-profile <profile-dir> -account wife")
 	assert.True(t, client.healthChecked)
+}
+
+func TestProvider_FetchOrdersRewordsExpiredCookieError(t *testing.T) {
+	client := &fakeAmazonClient{healthErr: errors.New("authentication failed: cookies are expired, please re-import cookies from browser")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
+	_, err := provider.FetchOrders(context.Background(), providers.FetchOptions{IncludeDetails: true})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "amazon auth check failed")
+	assert.Contains(t, err.Error(), "Amazon rejected the saved cookies or opened a sign-in page")
+	assert.NotContains(t, err.Error(), "cookies are expired")
+}
+
+func TestProvider_HealthCheckRewordsExpiredCookieError(t *testing.T) {
+	client := &fakeAmazonClient{healthErr: errors.New("authentication failed: cookies are expired, please re-import cookies from browser")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
+	err := provider.HealthCheck(context.Background())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Amazon rejected the saved cookies or opened a sign-in page")
+	assert.NotContains(t, err.Error(), "cookies are expired")
 }
 
 func TestProvider_GetOrderDetailsFetchesOrderWithTransactions(t *testing.T) {
@@ -204,7 +227,7 @@ func TestProvider_HealthCheckWrapsAuthErrorWithLoginCommand(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "amazon auth check failed")
-	assert.Contains(t, err.Error(), "amazon-go import-browser-profile -profile-dir <profile-dir> -account wife")
+	assert.Contains(t, err.Error(), "itemize amazon -import-browser-profile <profile-dir> -account wife")
 }
 
 func TestConvertGoTransactionMapsRefundAndPendingStatuses(t *testing.T) {
@@ -221,6 +244,7 @@ func TestLoginCommandUsesExplicitCookieFile(t *testing.T) {
 	provider := NewProvider(nil, &ProviderConfig{CookieFile: "/tmp/amazon-cookies.json"})
 
 	assert.Contains(t, provider.loginCommand(), `-cookie-file "/tmp/amazon-cookies.json"`)
+	assert.Contains(t, provider.loginCommand(), "itemize amazon -import-browser-profile <profile-dir>")
 }
 
 type fakeAmazonClient struct {

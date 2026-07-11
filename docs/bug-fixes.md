@@ -12,41 +12,83 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
-### 2026-07-10: Walmart ledger refunds were skipped instead of matched to Monarch credits
+### 2026-07-10: Walmart refunds lacked item-level categorization
 
 **Description:**
-Walmart order ledgers can include negative credit-card final charges for refunds. Itemize logged `Skipping refund in ledger (not yet supported)`, matched only the purchase charges, and left the corresponding positive Monarch refund transaction uncategorized. Refund-only ledgers could also fall back toward normal order-total matching after `no positive charges found`.
+Walmart ledger credits were ignored, leaving the matching Monarch refund uncategorized. The typed Walmart client also discarded the `returnId` metadata that identifies the refunded item in the order response.
+
+**Fix Applied:**
+Match a supported single refund to its positive Monarch credit, make a supplemental order request to extract its `returnId` item, and categorize/note only that item. Ambiguous or multi-refund orders remain untouched.
+
+**Verification:**
+- Regression tests cover `returnId` extraction and item-only categorization.
+- `./itemize walmart -dry-run -force -days 14 -order-id 200014872726122 -verbose` identified the Chobani Coffee Creamer and dry-ran the `$5.58` credit update.
+
+---
+
+### 2026-07-11: Walmart ledger charge lines did not always match Monarch posting groups
+
+**Description:**
+Two Walmart orders were repeatedly skipped even though their card transactions had posted in Monarch. Walmart's order ledger reported multiple `FINAL_CHARGES`, but Monarch/Plaid posted the same card activity as a combined transaction or as a different grouping. The strict Walmart multi-delivery path required every ledger charge line to have its own Monarch transaction, so it skipped posted orders as if transactions were missing.
+
+The same sync also processed byte-identical duplicate Walmart order summaries, producing duplicate ledger snapshots and duplicate errors for the same order IDs.
 
 **Test Case:**
 ```go
-// internal/adapters/providers/walmart/order_multi_delivery_test.go: TestOrder_GetFinalCharges/returns_refund_charges_separately
-// Expected: negative CREDITCARD ledger entries are exposed as positive refund amounts, while gift-card credits are ignored.
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateTransaction
+// Ledger charges $42.16 + $8.99 should match a single Monarch transaction for $51.15.
 
-// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundCharge
-// Expected: a purchase plus refund ledger matches and categorizes both the negative purchase transaction and positive refund credit.
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateSubset
+// Ledger charges $0.01 + $4.08 + $71.52 should match Monarch transactions $0.01 + $75.60.
 
-// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundOnlyLedger
-// Expected: a ledger with no positive charges can still process a matching refund credit instead of falling back to purchase matching.
+// internal/adapters/providers/walmart/provider_test.go:
+// TestDedupeOrderSummariesByID
+// Duplicate Walmart order summaries should be collapsed before fetching/processing details.
 
-// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundWhenPurchaseAlreadyConsolidated
-// Expected: if a forced historical rerun can no longer match original multi-delivery component charges,
-// a matching refund credit is still categorized.
+// internal/domain/matcher/subset_test.go:
+// TestSubsetSummingTo_PrefersExactTotalOverSmallerToleratedSubset
+// An exact $9.99 + $0.01 subset must beat a single $9.99 transaction for a $10.00 target.
+```
 
-// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_CategorizesIdentifiedRefundItemOnly
-// Expected: when Walmart marks one item with returnId, the refund categorizer receives only that item.
+**Root Cause:**
+The Walmart handler assumed `FINAL_CHARGES` ledger lines were always one-to-one with Monarch/Plaid transactions. In practice, the ledger lines are Walmart-side final charge entries, while the bank feed can post the same total as one card transaction or a different subset grouping. The Walmart purchase-history response can also include duplicate summaries for the same `orderId`. The subset matcher also returned the first valid, smallest subset, which could select a one-cent-off singleton before considering a later exact aggregate.
 
-// internal/adapters/providers/walmart/refunds_test.go: TestFindReturnedItems_UsesWalmartReturnIDAndDeduplicatesUIViews
-// Expected: the duplicated UI representations of one returned item resolve to one refunded item.
+**Fix Applied:**
+The Walmart multi-delivery path still tries exact per-charge matching first. If that fails, it now falls back to matching Monarch purchase transaction(s) whose absolute amounts sum to the ledger charge total. A single aggregate match is split directly; multiple aggregate matches are consolidated using the ledger charge total, then split. The subset matcher now ranks valid candidates by amount difference before transaction count, so exact totals beat tolerated near-matches. Walmart order summaries are deduped by `orderId` before fetching full order details.
+
+**Verification:**
+- New regression tests fail before the fix and pass after.
+- `go test ./internal/application/sync/handlers ./internal/adapters/providers/walmart -run 'TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBack|TestDedupeOrderSummariesByID' -count=1` passes.
+- `go test ./...` passes.
+- `go build -o itemize ./cmd/itemize/` passes.
+- A live read-only Monarch query confirmed the affected transactions were posted, unsplit, and grouped as `$51.15` and `$75.60 + $0.01`, with no hidden `$42.16`, `$8.99`, `$71.52`, or `$4.08` transactions.
+- Temp-DB live dry-runs for `200015335172701` and `200015072601480` both completed with `Processed=1 Skipped=0 Errors=0`. The fetch logs showed Walmart still returned 9 order summaries, deduped to 7 fetched orders.
+
+---
+
+### 2026-07-08: Amazon auth recovery leaked amazon-go and ignored positional accounts
+
+**Description:**
+Running `./itemize amazon amazon-wife` looked like it selected the `amazon-wife` cookie account, but the extra positional argument was silently ignored and the sync used the default Amazon account. When cookies were expired, the recovery message then told users to run `amazon-go import-browser-profile`, a command that is not available in a fresh itemize checkout or binary install.
+
+**Test Case:**
+```go
+// internal/cli/providers_test.go: TestResolveAmazonAccount_UsesSinglePositionalAccount
+// internal/adapters/providers/amazon/provider_test.go: TestProvider_FetchOrdersReturnsHealthCheckError
+// Expected: positional Amazon account is honored, ambiguous extras are rejected,
+// and auth failures point at `itemize amazon -import-browser-profile`.
 ```
 
 **Fix Applied:**
-Added Walmart refund charge extraction, refund-aware handler processing, and refund audit rows in `order_transactions`. Refunds are matched as positive Monarch credits by wrapping the order with a negative total for matching. Walmart's `getOrder` response carries `returnId` on refunded items, but the upstream typed client discards it; Itemize now makes a refund-only supplemental request and extracts those items. An identified refund is categorized and noted from that item alone; ambiguous or multi-refund cases remain untouched instead of being split across the original cart. Refund processing still runs when a forced historical rerun cannot re-match already-consolidated multi-delivery purchase components.
+Added an itemize-native Amazon cookie import path:
+`itemize amazon -import-browser-profile <profile-dir> [-account <name>]`.
+The CLI now resolves a single positional Amazon account as shorthand for `-account`, rejects ambiguous extra arguments, and lets `-cookie-file` override `AMAZON_COOKIE_FILE` so suggested recovery commands are runnable.
 
 **Verification:**
-- `go test ./internal/adapters/providers/walmart -count=1` passes.
-- `go test ./internal/application/sync/handlers -count=1` passes.
-- `go test ./internal/application/sync -count=1` passes.
-- `./itemize walmart -dry-run -force -days 14 -order-id 200014872726122 -verbose` detected refund `5.58`, extracted the returned Chobani Coffee Creamer item, matched positive Monarch transaction `248897036973870035`, and dry-ran a single-category update.
+- `go test ./internal/adapters/providers/amazon ./internal/cli` passes.
+- `go test ./...` passes.
 
 ---
 
@@ -149,7 +191,7 @@ While swapping Amazon from the npm scraper to `amazon-go`, a dry-run over 365 da
 The provider fetch path trusted `FetchOrders` directly. The Go client can return no orders when a cookie jar is stale unless auth is checked first, which hides the stale-session problem from the CLI.
 
 **Fix Applied:**
-The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant `amazon-go import-browser-profile` command. Itemize now consumes `amazon-go v0.3.0`, which includes the parser/auth detection fix for the `Amazon Sign-In` title variant.
+The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant browser-profile import command. Itemize now consumes `amazon-go v0.3.0`, which includes the parser/auth detection fix for the `Amazon Sign-In` title variant.
 
 **Verification:**
 - `TestProvider_FetchOrdersReturnsHealthCheckError` passes.
