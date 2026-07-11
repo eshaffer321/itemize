@@ -12,8 +12,8 @@ github.com/eshaffer321/costco-go v0.3.11 h1:vOEXcSj/vGlwE/4AbXK3uUdXG7XYg1qfUPVi
 github.com/eshaffer321/costco-go v0.3.11/go.mod h1:ANJTHfRSPyot9cWKNlfs5qDKRKkA4tYORrorvWx/vbM=
 github.com/eshaffer321/monarch-go/v2 v2.0.0 h1:3reQ15D0K/Btc3mu+sfWdKJnU0hmNb0/ZwsbVUjN4l8=
 github.com/eshaffer321/monarch-go/v2 v2.0.0/go.mod h1:0rdAjSetvYQ8wGkUdg4BsqN8jTMhJ4TbHAr6qhAzSk4=
-github.com/eshaffer321/walmart-client-go/v2 v2.0.2 h1:0NJLInbsgUKs24PzxumQMMFyEwVA5zegD2t38gURSq0=
-github.com/eshaffer321/walmart-client-go/v2 v2.0.2/go.mod h1:4PVK9TsqFscTZypC67dgCt/vnPxXdtaheJVM7HOnod0=
+github.com/eshaffer321/walmart-client-go/v2 v2.1.0 h1:FbOL/CuTXaTVDLgcBtE5C0SvjkwO6d/cIqNAVAF1OvU=
+github.com/eshaffer321/walmart-client-go/v2 v2.1.0/go.mod h1:4PVK9TsqFscTZypC67dgCt/vnPxXdtaheJVM7HOnod0=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
 github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
 github.com/getsentry/sentry-go v0.36.0 h1:UkCk0zV28PiGf+2YIONSSYiYhxwlERE5Li3JPpZqEns=

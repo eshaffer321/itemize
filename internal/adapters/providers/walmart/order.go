@@ -195,43 +195,15 @@ func (i *OrderItem) GetCategory() string {
 // Returns multiple charges for multi-delivery orders
 // Uses cached ledger result to avoid duplicate API calls
 func (o *Order) GetFinalCharges() ([]float64, error) {
-	var ledger *walmartclient.OrderLedger
-
-	// Check cache first
-	if o.ledgerCache != nil {
-		ledger = o.ledgerCache
-	} else {
-		// Client is required for ledger API
-		if o.client == nil {
-			return nil, fmt.Errorf("client not available")
-		}
-
-		// Fetch ledger from API
-		var err error
-		ctx := o.ctx
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		ledger, err = o.client.GetOrderLedger(ctx, o.GetID())
-		if err != nil {
-			return nil, fmt.Errorf("failed to get order ledger: %w", err)
-		}
-
-		// Cache for future calls
-		o.ledgerCache = ledger
+	ledger, err := o.getLedger()
+	if err != nil {
+		return nil, err
 	}
 
 	// Extract and validate charges
 	if len(ledger.PaymentMethods) == 0 {
 		return nil, fmt.Errorf("order not yet charged (payment pending)")
 	}
-
-	// TODO: Handle refund transactions (negative charges)
-	// Currently we skip negative charges in the ledger, which means refund
-	// transactions in Monarch won't be categorized. Future enhancement:
-	// 1. Match the refund transaction (positive amount in Monarch)
-	// 2. Determine which item(s) were refunded from the ledger
-	// 3. Categorize the refund with the same category as the refunded item
 
 	// Collect positive charges from credit card payment methods only
 	// Gift cards don't appear in bank transactions, so skip them
@@ -249,17 +221,11 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 			continue
 		}
 
-		// Filter to positive charges only (actual bank charges)
-		// Skip negative charges (refunds/credits) and zero charges
+		// Filter to positive charges only (actual bank charges).
+		// Refunds are exposed separately via GetRefundCharges.
 		for _, charge := range pm.FinalCharges {
 			if charge > 0 {
 				positiveCharges = append(positiveCharges, charge)
-			} else if charge < 0 {
-				if o.logger != nil {
-					o.logger.Warn("Skipping refund in ledger (not yet supported)",
-						"order_id", o.GetID(),
-						"refund_amount", charge)
-				}
 			}
 		}
 	}
@@ -269,6 +235,68 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	}
 
 	return positiveCharges, nil
+}
+
+// GetRefundCharges returns credit-card refunds for this order as positive amounts.
+// Walmart records refunds as negative ledger entries, while Monarch records the
+// corresponding bank credits as positive transactions.
+func (o *Order) GetRefundCharges() ([]float64, error) {
+	ledger, err := o.getLedger()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(ledger.PaymentMethods) == 0 {
+		return nil, fmt.Errorf("order not yet charged (payment pending)")
+	}
+
+	var refunds []float64
+	for _, pm := range ledger.PaymentMethods {
+		if pm.PaymentType != "CREDITCARD" {
+			continue
+		}
+
+		for _, charge := range pm.FinalCharges {
+			if charge < 0 {
+				refunds = append(refunds, -charge)
+			}
+		}
+	}
+
+	return refunds, nil
+}
+
+// GetRefundItems returns the item(s) that Walmart explicitly marked as refunded.
+func (o *Order) GetRefundItems() ([]providers.OrderItem, error) {
+	refunded := o.walmartOrder.GetRefundedItems()
+	items := make([]providers.OrderItem, 0, len(refunded))
+	for _, item := range refunded {
+		items = append(items, &OrderItem{item: item})
+	}
+	return items, nil
+}
+
+func (o *Order) getLedger() (*walmartclient.OrderLedger, error) {
+	if o.ledgerCache != nil {
+		return o.ledgerCache, nil
+	}
+
+	if o.client == nil {
+		return nil, fmt.Errorf("client not available")
+	}
+
+	ctx := o.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ledger, err := o.client.GetOrderLedger(ctx, o.GetID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order ledger: %w", err)
+	}
+
+	o.ledgerCache = ledger
+	return ledger, nil
 }
 
 // IsMultiDelivery checks if order was split into multiple deliveries

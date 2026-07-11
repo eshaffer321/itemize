@@ -8,6 +8,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOrder_GetRefundItems_UsesClientReturnIDMetadata(t *testing.T) {
+	order := &Order{walmartOrder: &walmartclient.Order{
+		ID: "REFUND-ITEMS",
+		Groups: []walmartclient.OrderGroup{{
+			Categories: []walmartclient.OrderCategory{{
+				Items: []walmartclient.OrderItem{{
+					ID:          "item-1",
+					ReturnID:    "return-1",
+					Quantity:    1,
+					ProductInfo: &walmartclient.ProductInfo{Name: "Refunded item", USItemID: "sku-1"},
+					PriceInfo:   &walmartclient.ItemPrice{LinePrice: &walmartclient.Price{Value: 4.5}},
+				}},
+			}},
+		}},
+	}}
+
+	items, err := order.GetRefundItems()
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Refunded item", items[0].GetName())
+	assert.Equal(t, "sku-1", items[0].GetSKU())
+}
+
 // TestOrder_GetFinalCharges tests retrieving final charges from order ledger
 func TestOrder_GetFinalCharges(t *testing.T) {
 	t.Run("single delivery order", func(t *testing.T) {
@@ -148,6 +171,31 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, charges, 1, "should filter out negative charges")
 		assert.Equal(t, 100.00, charges[0], "should return only positive charge")
+	})
+
+	t.Run("returns refund charges separately", func(t *testing.T) {
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "TEST003-REFUND"},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID: "TEST003-REFUND",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{
+					{
+						PaymentType:  "CREDITCARD",
+						FinalCharges: []float64{100.00, -50.00, -5.58},
+						TotalCharged: 44.42,
+					},
+					{
+						PaymentType:  "GIFTCARD",
+						FinalCharges: []float64{-3.00},
+						TotalCharged: -3.00,
+					},
+				},
+			},
+		}
+
+		refunds, err := order.GetRefundCharges()
+		require.NoError(t, err)
+		assert.Equal(t, []float64{50.00, 5.58}, refunds, "should return credit-card refunds as positive Monarch credit amounts")
 	})
 
 	t.Run("filters zero charge amounts", func(t *testing.T) {

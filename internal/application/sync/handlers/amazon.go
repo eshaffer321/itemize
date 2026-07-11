@@ -90,6 +90,7 @@ type ProcessResult struct {
 	SkipReason  string
 	Allocations *allocator.Result
 	Splits      []*monarch.TransactionSplit
+	Refunds     []RefundProcessResult
 
 	// Transaction tracking for audit trail - the matched/consolidated transaction
 	Transaction *monarch.Transaction
@@ -102,6 +103,13 @@ type ProcessResult struct {
 	// Debug/reconciliation audit fields
 	MatchDiagnosticsJSON   string
 	ReconciledTransactions []*monarch.Transaction
+}
+
+// RefundProcessResult describes a refund transaction categorized for an order.
+type RefundProcessResult struct {
+	Amount      float64
+	Transaction *monarch.Transaction
+	Splits      []*monarch.TransactionSplit
 }
 
 // AmazonHandler processes Amazon orders with pro-rata allocation
