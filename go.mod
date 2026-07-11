@@ -1,6 +1,6 @@
 module github.com/eshaffer321/itemize
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/eshaffer321/amazon-go v0.3.0

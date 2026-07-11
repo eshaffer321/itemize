@@ -4,6 +4,8 @@ package storage
 // It stores all data in maps and slices, making tests fast and isolated.
 type MockRepository struct {
 	records       map[string]*ProcessingRecord
+	attempts      map[string][]ProcessingAttempt
+	orderTxns     map[string][]OrderTransaction
 	syncRuns      map[int64]*mockSyncRun
 	apiCalls      []APICall
 	ledgers       map[string][]*OrderLedger // Keyed by order_id
@@ -47,6 +49,8 @@ type mockSyncRun struct {
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
 		records:       make(map[string]*ProcessingRecord),
+		attempts:      make(map[string][]ProcessingAttempt),
+		orderTxns:     make(map[string][]OrderTransaction),
 		syncRuns:      make(map[int64]*mockSyncRun),
 		apiCalls:      make([]APICall, 0),
 		ledgers:       make(map[string][]*OrderLedger),
@@ -74,8 +78,38 @@ func (m *MockRepository) SaveRecord(record *ProcessingRecord) error {
 	}
 	// Deep copy to avoid test mutations
 	copied := *record
+	m.attempts[record.OrderID] = append(m.attempts[record.OrderID], ProcessingAttempt{ProcessingRecord: copied})
+	if existing, ok := m.records[record.OrderID]; ok && existing.Status == "success" && !existing.DryRun && record.Status != "success" {
+		return nil
+	}
 	m.records[record.OrderID] = &copied
 	return nil
+}
+
+// GetAttemptsByOrderID retrieves append-only attempts for an order.
+func (m *MockRepository) GetAttemptsByOrderID(orderID string) ([]ProcessingAttempt, error) {
+	attempts := m.attempts[orderID]
+	result := make([]ProcessingAttempt, len(attempts))
+	copy(result, attempts)
+	return result, nil
+}
+
+// SaveOrderTransaction records a Monarch transaction association for an order.
+func (m *MockRepository) SaveOrderTransaction(txn *OrderTransaction) error {
+	if txn == nil {
+		return nil
+	}
+	copied := *txn
+	m.orderTxns[txn.OrderID] = append(m.orderTxns[txn.OrderID], copied)
+	return nil
+}
+
+// GetOrderTransactions retrieves Monarch transaction associations for an order.
+func (m *MockRepository) GetOrderTransactions(orderID string) ([]OrderTransaction, error) {
+	txns := m.orderTxns[orderID]
+	result := make([]OrderTransaction, len(txns))
+	copy(result, txns)
+	return result, nil
 }
 
 // GetRecord retrieves a record from the in-memory map
@@ -375,7 +409,10 @@ func (m *MockRepository) GetSyncRun(runID int64) (*SyncRun, error) {
 
 // AddRecord adds a record directly (for test setup)
 func (m *MockRepository) AddRecord(record *ProcessingRecord) {
-	m.records[record.OrderID] = record
+	if record != nil {
+		m.records[record.OrderID] = record
+		m.attempts[record.OrderID] = append(m.attempts[record.OrderID], ProcessingAttempt{ProcessingRecord: *record})
+	}
 }
 
 // GetAllRecords returns all stored records (for assertions)
@@ -395,6 +432,8 @@ func (m *MockRepository) GetMockSyncRun(id int64) *mockSyncRun {
 // Reset clears all data and flags (for reuse between tests)
 func (m *MockRepository) Reset() {
 	m.records = make(map[string]*ProcessingRecord)
+	m.attempts = make(map[string][]ProcessingAttempt)
+	m.orderTxns = make(map[string][]OrderTransaction)
 	m.syncRuns = make(map[int64]*mockSyncRun)
 	m.apiCalls = make([]APICall, 0)
 	m.ledgers = make(map[string][]*OrderLedger)

@@ -16,6 +16,15 @@ type OrderRepository interface {
 	// SaveRecord saves or updates a processing record
 	SaveRecord(record *ProcessingRecord) error
 
+	// GetAttemptsByOrderID retrieves append-only attempts for an order.
+	GetAttemptsByOrderID(orderID string) ([]ProcessingAttempt, error)
+
+	// SaveOrderTransaction records a Monarch transaction associated with an order.
+	SaveOrderTransaction(txn *OrderTransaction) error
+
+	// GetOrderTransactions retrieves Monarch transaction associations for an order.
+	GetOrderTransactions(orderID string) ([]OrderTransaction, error)
+
 	// GetRecord retrieves a record by order ID
 	GetRecord(orderID string) (*ProcessingRecord, error)
 
@@ -54,12 +63,12 @@ type OrderListResult struct {
 
 // ItemSearchResult represents an item found in search
 type ItemSearchResult struct {
-	OrderID    string  `json:"order_id"`
-	Provider   string  `json:"provider"`
-	OrderDate  string  `json:"order_date"`
-	ItemName   string  `json:"item_name"`
-	ItemPrice  float64 `json:"item_price"`
-	Category   string  `json:"category,omitempty"`
+	OrderID   string  `json:"order_id"`
+	Provider  string  `json:"provider"`
+	OrderDate string  `json:"order_date"`
+	ItemName  string  `json:"item_name"`
+	ItemPrice float64 `json:"item_price"`
+	Category  string  `json:"category,omitempty"`
 }
 
 // SyncRunRepository handles sync run tracking
@@ -79,17 +88,17 @@ type SyncRunRepository interface {
 
 // SyncRun represents a sync run record
 type SyncRun struct {
-	ID              int64   `json:"id"`
-	Provider        string  `json:"provider"`
-	StartedAt       string  `json:"started_at"`
-	CompletedAt     string  `json:"completed_at,omitempty"`
-	LookbackDays    int     `json:"lookback_days"`
-	DryRun          bool    `json:"dry_run"`
-	OrdersFound     int     `json:"orders_found"`
-	OrdersProcessed int     `json:"orders_processed"`
-	OrdersSkipped   int     `json:"orders_skipped"`
-	OrdersErrored   int     `json:"orders_errored"`
-	Status          string  `json:"status"`
+	ID              int64  `json:"id"`
+	Provider        string `json:"provider"`
+	StartedAt       string `json:"started_at"`
+	CompletedAt     string `json:"completed_at,omitempty"`
+	LookbackDays    int    `json:"lookback_days"`
+	DryRun          bool   `json:"dry_run"`
+	OrdersFound     int    `json:"orders_found"`
+	OrdersProcessed int    `json:"orders_processed"`
+	OrdersSkipped   int    `json:"orders_skipped"`
+	OrdersErrored   int    `json:"orders_errored"`
+	Status          string `json:"status"`
 }
 
 // APICallRepository handles API call logging

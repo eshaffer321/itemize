@@ -2,9 +2,10 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/clients"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
@@ -12,6 +13,7 @@ import (
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
 	"github.com/eshaffer321/itemize/internal/domain/splitter"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // ProgressUpdate represents a progress update during sync
@@ -55,6 +57,7 @@ type Orchestrator struct {
 	amazonHandler  *handlers.AmazonHandler
 	walmartHandler *handlers.WalmartHandler
 	simpleHandler  *handlers.SimpleHandler
+	monarchAdapter *monarchAdapter
 	storage        storage.Repository // Interface instead of concrete type
 	logger         *slog.Logger
 	runID          int64 // Current sync run ID for API logging
@@ -86,6 +89,15 @@ func NewOrchestrator(
 		consolidator = NewConsolidator(clients.Monarch, logger, store, 0)
 	}
 
+	var mAdapter *monarchAdapter
+	if clients != nil && clients.Monarch != nil {
+		mAdapter = &monarchAdapter{
+			client:  clients.Monarch,
+			storage: store,
+			logger:  logger,
+		}
+	}
+
 	// Create Amazon handler (if all dependencies available)
 	var amazonHandler *handlers.AmazonHandler
 	if clients != nil && clients.Monarch != nil && spl != nil && consolidator != nil {
@@ -93,7 +105,7 @@ func NewOrchestrator(
 			transactionMatcher,
 			&consolidatorAdapter{consolidator},
 			&splitterAdapter{spl},
-			&monarchAdapter{clients.Monarch},
+			mAdapter,
 			logger,
 		)
 	}
@@ -105,7 +117,7 @@ func NewOrchestrator(
 			transactionMatcher,
 			&consolidatorAdapter{consolidator},
 			&splitterAdapter{spl},
-			&monarchAdapter{clients.Monarch},
+			mAdapter,
 			logger,
 		)
 	}
@@ -116,7 +128,7 @@ func NewOrchestrator(
 		simpleHandler = handlers.NewSimpleHandler(
 			transactionMatcher,
 			&splitterAdapter{spl},
-			&monarchAdapter{clients.Monarch},
+			mAdapter,
 			logger,
 		)
 	}
@@ -130,6 +142,7 @@ func NewOrchestrator(
 		amazonHandler:  amazonHandler,
 		walmartHandler: walmartHandler,
 		simpleHandler:  simpleHandler,
+		monarchAdapter: mAdapter,
 		storage:        store,
 		logger:         logger,
 	}
@@ -166,16 +179,83 @@ func (a *splitterAdapter) GetSingleCategoryInfo(ctx context.Context, order provi
 
 // monarchAdapter wraps monarch.Client to implement handlers.MonarchClient
 type monarchAdapter struct {
-	client *monarch.Client
+	client  *monarch.Client
+	storage storage.Repository
+	logger  *slog.Logger
+	runID   int64
 }
 
 func (a *monarchAdapter) UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error {
-	_, err := a.client.Transactions.Update(ctx, id, params)
+	start := time.Now()
+	updated, err := a.client.Transactions.Update(ctx, id, params)
+	a.logAPICall(ctx, id, "Transactions.Update", params, updated, err, time.Since(start))
 	return err
 }
 
 func (a *monarchAdapter) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {
-	return a.client.Transactions.UpdateSplits(ctx, id, splits)
+	start := time.Now()
+	err := a.client.Transactions.UpdateSplits(ctx, id, splits)
+	response := map[string]any{"ok": err == nil, "split_count": len(splits)}
+	a.logAPICall(ctx, id, "Transactions.UpdateSplits", splits, response, err, time.Since(start))
+	return err
+}
+
+func (a *monarchAdapter) logAPICall(ctx context.Context, transactionID, method string, request, response any, callErr error, duration time.Duration) {
+	if a == nil || a.storage == nil {
+		return
+	}
+
+	requestJSON, _ := json.Marshal(request)
+	responseJSON, _ := json.Marshal(response)
+	errText := ""
+	if callErr != nil {
+		errText = callErr.Error()
+	}
+
+	call := &storage.APICall{
+		RunID:         a.runID,
+		OrderID:       auditOrderID(ctx),
+		TransactionID: transactionID,
+		Method:        method,
+		RequestJSON:   string(requestJSON),
+		ResponseJSON:  string(responseJSON),
+		Error:         errText,
+		DurationMs:    duration.Milliseconds(),
+		DryRun:        auditDryRun(ctx),
+	}
+	if err := a.storage.LogAPICall(call); err != nil && a.logger != nil {
+		a.logger.Warn("Failed to log Monarch API call",
+			"order_id", call.OrderID,
+			"transaction_id", transactionID,
+			"method", method,
+			"error", err)
+	}
+}
+
+type auditContextKey string
+
+const (
+	auditOrderIDKey auditContextKey = "order_id"
+	auditDryRunKey  auditContextKey = "dry_run"
+)
+
+func withAuditContext(ctx context.Context, orderID string, dryRun bool) context.Context {
+	ctx = context.WithValue(ctx, auditOrderIDKey, orderID)
+	return context.WithValue(ctx, auditDryRunKey, dryRun)
+}
+
+func auditOrderID(ctx context.Context) string {
+	if value, ok := ctx.Value(auditOrderIDKey).(string); ok {
+		return value
+	}
+	return ""
+}
+
+func auditDryRun(ctx context.Context) bool {
+	if value, ok := ctx.Value(auditDryRunKey).(bool); ok {
+		return value
+	}
+	return false
 }
 
 // ledgerStorageAdapter wraps storage.Repository to implement handlers.LedgerStorage

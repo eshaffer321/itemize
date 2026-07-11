@@ -8,6 +8,7 @@ import (
 // ProcessingRecord includes detailed split information
 type ProcessingRecord struct {
 	ID                int64     `json:"id"`
+	RunID             int64     `json:"run_id,omitempty"`
 	OrderID           string    `json:"order_id"`
 	Provider          string    `json:"provider"`
 	TransactionID     string    `json:"transaction_id"`
@@ -40,6 +41,29 @@ type ProcessingRecord struct {
 	CategoryName  string `json:"category_name,omitempty"`   // Human-readable category name
 	OrderFeesJSON string `json:"order_fees_json,omitempty"` // Raw fees breakdown from provider
 	RawOrderJSON  string `json:"raw_order_json,omitempty"`  // Complete raw order data from provider
+
+	// MatchDiagnosticsJSON captures why matching did or did not happen.
+	MatchDiagnosticsJSON string `json:"match_diagnostics_json,omitempty"`
+}
+
+// ProcessingAttempt is an append-only snapshot of each attempt to process an order.
+type ProcessingAttempt struct {
+	ProcessingRecord
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+// OrderTransaction records every Monarch transaction observed or touched for an order.
+type OrderTransaction struct {
+	ID            int64   `json:"id"`
+	RunID         int64   `json:"run_id,omitempty"`
+	OrderID       string  `json:"order_id"`
+	TransactionID string  `json:"transaction_id"`
+	Role          string  `json:"role"`
+	Amount        float64 `json:"amount"`
+	CategoryID    string  `json:"category_id,omitempty"`
+	CategoryName  string  `json:"category_name,omitempty"`
+	Notes         string  `json:"notes,omitempty"`
+	ObservedAt    string  `json:"observed_at,omitempty"`
 }
 
 // OrderItem represents an item in the order
@@ -120,13 +144,15 @@ type ProviderStats struct {
 
 // APICall represents a logged API call
 type APICall struct {
-	RunID        int64
-	OrderID      string
-	Method       string
-	RequestJSON  string
-	ResponseJSON string
-	Error        string
-	DurationMs   int64
+	RunID         int64
+	OrderID       string
+	TransactionID string
+	Method        string
+	RequestJSON   string
+	ResponseJSON  string
+	Error         string
+	DurationMs    int64
+	DryRun        bool
 }
 
 // LedgerState represents the current state of an order's ledger
@@ -168,9 +194,9 @@ type LedgerCharge struct {
 	SyncRunID            int64     `json:"sync_run_id,omitempty"`
 	ChargeSequence       int       `json:"charge_sequence"` // Order within ledger
 	ChargeAmount         float64   `json:"charge_amount"`
-	ChargeType           string    `json:"charge_type"`            // "payment", "refund"
-	PaymentMethod        string    `json:"payment_method"`         // "CREDITCARD", "GIFTCARD"
-	CardType             string    `json:"card_type,omitempty"`    // "VISA", "AMEX"
+	ChargeType           string    `json:"charge_type"`         // "payment", "refund"
+	PaymentMethod        string    `json:"payment_method"`      // "CREDITCARD", "GIFTCARD"
+	CardType             string    `json:"card_type,omitempty"` // "VISA", "AMEX"
 	CardLastFour         string    `json:"card_last_four,omitempty"`
 	ChargedAt            time.Time `json:"charged_at,omitempty"` // When the charge occurred
 	MonarchTransactionID string    `json:"monarch_transaction_id,omitempty"`

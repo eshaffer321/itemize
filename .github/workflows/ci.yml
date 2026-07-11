@@ -7,7 +7,7 @@ on:
     branches: [ main, develop ]
 
 env:
-  GO_VERSION: '1.25.11'
+  GO_VERSION: '1.25.12'
 
 jobs:
   lint:
@@ -72,7 +72,7 @@ jobs:
     needs: [module-integrity]
     strategy:
       matrix:
-        go-version: ['1.25.11']
+        go-version: ['1.25.12']
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -92,7 +92,7 @@ jobs:
           go tool cover -func=coverage.txt
 
       - name: Upload coverage reports to Codecov
-        if: matrix.go-version == '1.25.11' && (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
+        if: matrix.go-version == '1.25.12' && (github.event_name != 'pull_request' || github.event.pull_request.user.login != 'dependabot[bot]')
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
