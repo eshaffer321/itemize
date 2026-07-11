@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +29,10 @@ type walmartTestOrder struct {
 	tax            float64
 	items          []providers.OrderItem
 	charges        []float64
+	refundCharges  []float64
+	refundItems    []providers.OrderItem
 	chargesErr     error
+	refundsErr     error
 	isMultiDeliver bool
 }
 
@@ -49,6 +52,17 @@ func (m *walmartTestOrder) GetFinalCharges() ([]float64, error) {
 		return nil, m.chargesErr
 	}
 	return m.charges, nil
+}
+
+func (m *walmartTestOrder) GetRefundCharges() ([]float64, error) {
+	if m.refundsErr != nil {
+		return nil, m.refundsErr
+	}
+	return m.refundCharges, nil
+}
+
+func (m *walmartTestOrder) GetRefundItems() ([]providers.OrderItem, error) {
+	return m.refundItems, nil
 }
 
 func (m *walmartTestOrder) IsMultiDelivery() (bool, error) {
@@ -76,12 +90,34 @@ type walmartTestSplitter struct {
 	categoryID string
 	notes      string
 	err        error
+	calls      []walmartSplitterCall
+}
+
+type walmartSplitterCall struct {
+	orderTotal        float64
+	transactionID     string
+	transactionAmount float64
+	itemTotal         float64
+	itemNames         []string
 }
 
 func (m *walmartTestSplitter) CreateSplits(ctx context.Context, order providers.Order, transaction *monarch.Transaction, catCategories []categorizer.Category, monarchCategories []*monarch.TransactionCategory) ([]*monarch.TransactionSplit, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
+	itemTotal := 0.0
+	itemNames := make([]string, 0, len(order.GetItems()))
+	for _, item := range order.GetItems() {
+		itemTotal += item.GetPrice()
+		itemNames = append(itemNames, item.GetName())
+	}
+	m.calls = append(m.calls, walmartSplitterCall{
+		orderTotal:        order.GetTotal(),
+		transactionID:     transaction.ID,
+		transactionAmount: transaction.Amount,
+		itemTotal:         itemTotal,
+		itemNames:         itemNames,
+	})
 	return m.splits, nil
 }
 
@@ -93,16 +129,20 @@ func (m *walmartTestSplitter) GetSingleCategoryInfo(ctx context.Context, order p
 type walmartTestMonarch struct {
 	updateCalled      bool
 	updateSplitsCaled bool
+	updateCount       int
+	updateSplitsCount int
 	err               error
 }
 
 func (m *walmartTestMonarch) UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error {
 	m.updateCalled = true
+	m.updateCount++
 	return m.err
 }
 
 func (m *walmartTestMonarch) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {
 	m.updateSplitsCaled = true
+	m.updateSplitsCount++
 	return m.err
 }
 
@@ -266,7 +306,7 @@ func TestWalmartHandler_ProcessOrder_GiftCard_UsesLedgerAmount(t *testing.T) {
 	}
 
 	txns := []*monarch.Transaction{
-		{ID: "txn-gc", Amount: -70.00, Date: walmartToMonarchDate(orderDate)}, // Matches ledger amount
+		{ID: "txn-gc", Amount: -70.00, Date: walmartToMonarchDate(orderDate)},     // Matches ledger amount
 		{ID: "txn-other", Amount: -100.00, Date: walmartToMonarchDate(orderDate)}, // Would match order total
 	}
 
@@ -286,6 +326,167 @@ func TestWalmartHandler_ProcessOrder_GiftCard_UsesLedgerAmount(t *testing.T) {
 	// Should match the $70 transaction, not the $100 one
 	assert.True(t, usedTxnIDs["txn-gc"], "Should match using ledger amount")
 	assert.False(t, usedTxnIDs["txn-other"], "Should not match order total amount")
+}
+
+func TestWalmartHandler_ProcessOrder_ProcessesRefundCharge(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:            "ORDER-REFUND",
+		date:          orderDate,
+		total:         86.06,
+		subtotal:      80.00,
+		tax:           6.06,
+		items:         []providers.OrderItem{&walmartTestItem{name: "Milk", price: 50.00, quantity: 1}, &walmartTestItem{name: "Bread", price: 30.00, quantity: 1}},
+		charges:       []float64{86.06},
+		refundCharges: []float64{5.58},
+		refundItems:   []providers.OrderItem{&walmartTestItem{name: "Milk", price: 5.00, quantity: 1}},
+	}
+
+	txns := []*monarch.Transaction{
+		{ID: "purchase-txn", Amount: -86.06, Date: walmartToMonarchDate(orderDate)},
+		{ID: "refund-txn", Amount: 5.58, Date: walmartToMonarchDate(orderDate.AddDate(0, 0, 1))},
+	}
+
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		usedTxnIDs,
+		nil, nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.True(t, usedTxnIDs["purchase-txn"], "purchase transaction should be matched")
+	assert.True(t, usedTxnIDs["refund-txn"], "refund credit transaction should be matched")
+	require.Len(t, result.Refunds, 1)
+	assert.Equal(t, "refund-txn", result.Refunds[0].Transaction.ID)
+	assert.Equal(t, 2, monarchClient.updateCount, "purchase and refund should both be categorized")
+	require.Len(t, splitter.calls, 2)
+	assert.Equal(t, -5.58, splitter.calls[1].orderTotal, "refund order view should match positive Monarch credits")
+	assert.InDelta(t, 5.58, splitter.calls[1].itemTotal, 0.01, "refund item prices should be scaled to the refund amount")
+}
+
+func TestWalmartHandler_ProcessOrder_CategorizesIdentifiedRefundItemOnly(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries: Chobani creamer"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:            "ORDER-REFUND-ITEM",
+		date:          orderDate,
+		total:         20,
+		items:         []providers.OrderItem{&walmartTestItem{name: "Unrelated item", price: 14.74, quantity: 1}, &walmartTestItem{name: "Chobani Coffee Creamer", price: 5.26, quantity: 1}},
+		charges:       []float64{20},
+		refundCharges: []float64{5.58},
+		refundItems:   []providers.OrderItem{&walmartTestItem{name: "Chobani Coffee Creamer", price: 5.26, quantity: 1}},
+	}
+	txns := []*monarch.Transaction{
+		{ID: "purchase", Amount: -20, Date: walmartToMonarchDate(orderDate)},
+		{ID: "refund", Amount: 5.58, Date: walmartToMonarchDate(orderDate)},
+	}
+
+	_, err := handler.ProcessOrder(context.Background(), order, txns, map[string]bool{}, nil, nil, true)
+	require.NoError(t, err)
+	require.Len(t, splitter.calls, 2)
+	assert.Equal(t, []string{"Chobani Coffee Creamer"}, splitter.calls[1].itemNames)
+	assert.InDelta(t, 5.58, splitter.calls[1].itemTotal, 0.01, "refund amount should include the refunded item's tax")
+}
+
+func TestWalmartHandler_ProcessOrder_ProcessesRefundOnlyLedger(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:            "ORDER-FULL-REFUND",
+		date:          orderDate,
+		total:         15.00,
+		subtotal:      15.00,
+		items:         []providers.OrderItem{&walmartTestItem{name: "Returned item", price: 15.00, quantity: 1}},
+		chargesErr:    errors.New("no positive charges found (order may be fully refunded or paid entirely with gift card)"),
+		refundCharges: []float64{15.00},
+		refundItems:   []providers.OrderItem{&walmartTestItem{name: "Returned item", price: 15.00, quantity: 1}},
+	}
+
+	txns := []*monarch.Transaction{
+		{ID: "refund-only-txn", Amount: 15.00, Date: walmartToMonarchDate(orderDate)},
+	}
+
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		usedTxnIDs,
+		nil, nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.False(t, result.Skipped)
+	assert.True(t, usedTxnIDs["refund-only-txn"])
+	require.Len(t, result.Refunds, 1)
+	assert.Equal(t, "refund-only-txn", result.Transaction.ID)
+	assert.Equal(t, 1, monarchClient.updateCount)
+}
+
+func TestWalmartHandler_ProcessOrder_ProcessesRefundWhenPurchaseAlreadyConsolidated(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:             "ORDER-REFUND-AFTER-CONSOLIDATION",
+		date:           orderDate,
+		total:          86.06,
+		subtotal:       80.00,
+		tax:            6.06,
+		items:          []providers.OrderItem{&walmartTestItem{name: "Milk", price: 50.00, quantity: 1}, &walmartTestItem{name: "Bread", price: 30.00, quantity: 1}},
+		charges:        []float64{4.63, 3.48, 16.90, 5.80, 47.73, 5.27, 2.25},
+		refundCharges:  []float64{5.58},
+		refundItems:    []providers.OrderItem{&walmartTestItem{name: "Milk", price: 5.00, quantity: 1}},
+		isMultiDeliver: true,
+	}
+
+	txns := []*monarch.Transaction{
+		// This is the already-consolidated purchase. It no longer matches the
+		// individual ledger charge rows during a forced historical rerun.
+		{ID: "consolidated-purchase", Amount: -86.06, Date: walmartToMonarchDate(orderDate)},
+		{ID: "refund-txn", Amount: 5.58, Date: walmartToMonarchDate(orderDate.AddDate(0, 0, 1))},
+	}
+
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		usedTxnIDs,
+		nil, nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.False(t, result.Skipped)
+	assert.False(t, usedTxnIDs["consolidated-purchase"], "already-consolidated purchase should not be forced into component matching")
+	assert.True(t, usedTxnIDs["refund-txn"], "refund should still be processed")
+	require.Len(t, result.Refunds, 1)
+	assert.Equal(t, "refund-txn", result.Transaction.ID)
+	assert.Equal(t, 1, monarchClient.updateCount)
 }
 
 func TestWalmartHandler_ProcessOrder_NoMatch_ReturnsSkipped(t *testing.T) {

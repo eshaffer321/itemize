@@ -220,6 +220,24 @@ func (o *Orchestrator) recordOrderTransactions(order providers.Order, record *st
 			o.logger.Error("Failed to save order transaction", "order_id", order.GetID(), "transaction_id", result.Transaction.ID, "error", err)
 		}
 	}
+	for _, refund := range result.Refunds {
+		if refund.Transaction == nil {
+			continue
+		}
+		if result.Transaction != nil && refund.Transaction.ID == result.Transaction.ID {
+			continue
+		}
+		if err := o.storage.SaveOrderTransaction(&storage.OrderTransaction{
+			RunID:         o.runID,
+			OrderID:       order.GetID(),
+			TransactionID: refund.Transaction.ID,
+			Role:          "refund",
+			Amount:        refund.Transaction.Amount,
+			Notes:         refund.Transaction.Notes,
+		}); err != nil {
+			o.logger.Error("Failed to save refund order transaction", "order_id", order.GetID(), "transaction_id", refund.Transaction.ID, "error", err)
+		}
+	}
 }
 
 // extractFeesBreakdown extracts fee breakdown from provider-specific order data

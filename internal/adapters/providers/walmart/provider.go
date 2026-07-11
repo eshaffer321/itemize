@@ -84,10 +84,12 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 			}
 
 			providerOrders = append(providerOrders, &Order{
-				walmartOrder: fullOrder,
-				client:       p.client,
-				logger:       p.logger,
-				ctx:          ctx,
+				walmartOrder:      fullOrder,
+				client:            p.client,
+				logger:            p.logger,
+				ctx:               ctx,
+				isInStore:         isInStore,
+				refundItemFetcher: newRefundItemFetcher(),
 			})
 		} else {
 			// For basic listing, we'd need to create a minimal Order
@@ -102,10 +104,12 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 			}
 
 			providerOrders = append(providerOrders, &Order{
-				walmartOrder: fullOrder,
-				client:       p.client,
-				logger:       p.logger,
-				ctx:          ctx,
+				walmartOrder:      fullOrder,
+				client:            p.client,
+				logger:            p.logger,
+				ctx:               ctx,
+				isInStore:         isInStore,
+				refundItemFetcher: newRefundItemFetcher(),
 			})
 		}
 	}

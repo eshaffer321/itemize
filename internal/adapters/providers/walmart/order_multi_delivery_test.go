@@ -150,6 +150,31 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		assert.Equal(t, 100.00, charges[0], "should return only positive charge")
 	})
 
+	t.Run("returns refund charges separately", func(t *testing.T) {
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "TEST003-REFUND"},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID: "TEST003-REFUND",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{
+					{
+						PaymentType:  "CREDITCARD",
+						FinalCharges: []float64{100.00, -50.00, -5.58},
+						TotalCharged: 44.42,
+					},
+					{
+						PaymentType:  "GIFTCARD",
+						FinalCharges: []float64{-3.00},
+						TotalCharged: -3.00,
+					},
+				},
+			},
+		}
+
+		refunds, err := order.GetRefundCharges()
+		require.NoError(t, err)
+		assert.Equal(t, []float64{50.00, 5.58}, refunds, "should return credit-card refunds as positive Monarch credit amounts")
+	})
+
 	t.Run("filters zero charge amounts", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST004"},

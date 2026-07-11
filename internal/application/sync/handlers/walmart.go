@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	walmartprovider "github.com/eshaffer321/itemize/internal/adapters/providers/walmart"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // WalmartOrder extends providers.Order with Walmart-specific methods
@@ -22,6 +22,17 @@ type WalmartOrder interface {
 	providers.Order
 	GetFinalCharges() ([]float64, error)
 	IsMultiDelivery() (bool, error)
+}
+
+// WalmartOrderWithRefunds extends WalmartOrder with refund ledger access.
+type WalmartOrderWithRefunds interface {
+	WalmartOrder
+	GetRefundCharges() ([]float64, error)
+}
+
+type WalmartOrderWithRefundItems interface {
+	WalmartOrder
+	GetRefundItems() ([]providers.OrderItem, error)
 }
 
 // WalmartOrderWithLedger extends WalmartOrder with ledger access for persistence
@@ -74,17 +85,28 @@ func (h *WalmartHandler) ProcessOrder(
 	monarchCategories []*monarch.TransactionCategory,
 	dryRun bool,
 ) (*ProcessResult, error) {
-	result := &ProcessResult{}
-
 	// Step 1: Get bank charges from ledger
 	bankCharges, err := order.GetFinalCharges()
+	refundCharges := h.getRefundCharges(order)
+	refundItems := h.getRefundItems(order, len(refundCharges))
+
+	h.saveLedgerIfAvailable(order)
+
 	if err != nil {
 		// Check if this is a pending order (not yet charged)
-		if strings.Contains(err.Error(), "payment pending") {
+		if strings.Contains(err.Error(), "payment pending") && len(refundCharges) == 0 {
 			h.logInfo("Skipping order - not yet charged", "order_id", order.GetID())
+			result := &ProcessResult{}
 			result.Skipped = true
 			result.SkipReason = "payment pending"
 			return result, nil
+		}
+		if strings.Contains(err.Error(), "no positive charges found") && len(refundCharges) > 0 {
+			h.logInfo("Processing refund-only order",
+				"order_id", order.GetID(),
+				"refund_count", len(refundCharges),
+				"refunds", refundCharges)
+			return h.processRefundOnlyOrder(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, refundCharges, refundItems, dryRun)
 		}
 		// For other ledger errors, fall through to regular matching using order total
 		h.logWarn("Failed to get ledger charges, falling back to order total",
@@ -98,17 +120,66 @@ func (h *WalmartHandler) ProcessOrder(
 		"charges", bankCharges,
 		"charge_count", len(bankCharges))
 
-	// Save ledger data if storage is configured
-	h.saveLedgerIfAvailable(order)
-
-	// Step 2: Handle based on number of charges
+	var result *ProcessResult
 	if len(bankCharges) > 1 {
-		// Multi-delivery order
-		return h.processMultiDeliveryOrder(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, bankCharges, dryRun)
+		result, err = h.processMultiDeliveryOrder(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, bankCharges, dryRun)
+	} else {
+		result, err = h.processSingleChargeOrder(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, bankCharges[0], dryRun)
+	}
+	if err != nil || len(refundCharges) == 0 || len(refundItems) == 0 {
+		if err == nil && len(refundCharges) > 0 && len(refundItems) == 0 {
+			h.logInfo("Skipping refund without item-level Walmart detail", "order_id", order.GetID())
+		}
+		return result, err
 	}
 
+	refundResults, refundErr := h.processRefundCharges(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, refundCharges, refundItems, dryRun)
+	if refundErr != nil {
+		h.logWarn("Failed to process refund charges",
+			"order_id", order.GetID(),
+			"error", refundErr)
+		return result, nil
+	}
+	result.Refunds = refundResults
+	if result.Skipped {
+		result.Skipped = false
+		result.SkipReason = ""
+		result.Processed = true
+		if len(refundResults) > 0 {
+			result.Transaction = refundResults[0].Transaction
+			result.Splits = refundResults[0].Splits
+		}
+	}
+	return result, nil
+}
+
+func (h *WalmartHandler) getRefundItems(order WalmartOrder, refundCount int) []providers.OrderItem {
+	if refundCount != 1 {
+		return nil
+	}
+	refundOrder, ok := order.(WalmartOrderWithRefundItems)
+	if !ok {
+		return nil
+	}
+	items, err := refundOrder.GetRefundItems()
+	if err != nil {
+		h.logWarn("Failed to get refunded Walmart items", "order_id", order.GetID(), "error", err)
+		return nil
+	}
+	return items
+}
+
+func (h *WalmartHandler) processSingleChargeOrder(
+	ctx context.Context,
+	order WalmartOrder,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	bankCharge float64,
+	dryRun bool,
+) (*ProcessResult, error) {
 	// Single charge - check if it differs from order total (gift card scenario)
-	bankCharge := bankCharges[0]
 	orderTotal := order.GetTotal()
 
 	const epsilon = 0.01 // Allow 1 cent difference for floating point
@@ -124,6 +195,35 @@ func (h *WalmartHandler) ProcessOrder(
 
 	// Ledger amount equals order total - use regular matching
 	return h.processWithOrderTotal(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, dryRun)
+}
+
+func (h *WalmartHandler) getRefundCharges(order WalmartOrder) []float64 {
+	refundOrder, ok := order.(WalmartOrderWithRefunds)
+	if !ok {
+		return nil
+	}
+
+	refunds, err := refundOrder.GetRefundCharges()
+	if err != nil {
+		if strings.Contains(err.Error(), "payment pending") {
+			h.logDebug("No refund charges available for pending order",
+				"order_id", order.GetID())
+			return nil
+		}
+		h.logWarn("Failed to get refund charges",
+			"order_id", order.GetID(),
+			"error", err)
+		return nil
+	}
+
+	if len(refunds) > 0 {
+		h.logInfo("Got refund charges",
+			"order_id", order.GetID(),
+			"refund_count", len(refunds),
+			"refunds", refunds)
+	}
+
+	return refunds
 }
 
 // processWithOrderTotal handles standard orders using GetTotal() for matching
@@ -279,6 +379,88 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 	return h.categorizeAndApplySplits(ctx, order, consolidatedTxn, catCategories, monarchCategories, dryRun)
 }
 
+func (h *WalmartHandler) processRefundOnlyOrder(
+	ctx context.Context,
+	order WalmartOrder,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	refundCharges []float64,
+	refundItems []providers.OrderItem,
+	dryRun bool,
+) (*ProcessResult, error) {
+	result := &ProcessResult{}
+
+	if len(refundItems) == 0 {
+		result.Skipped = true
+		result.SkipReason = "refund item not identified"
+		return result, nil
+	}
+
+	refunds, err := h.processRefundCharges(ctx, order, monarchTxns, usedTxnIDs, catCategories, monarchCategories, refundCharges, refundItems, dryRun)
+	if err != nil {
+		result.Skipped = true
+		result.SkipReason = err.Error()
+		return result, nil
+	}
+
+	result.Processed = true
+	result.Refunds = refunds
+	if len(refunds) > 0 {
+		result.Transaction = refunds[0].Transaction
+		result.Splits = refunds[0].Splits
+	}
+
+	return result, nil
+}
+
+func (h *WalmartHandler) processRefundCharges(
+	ctx context.Context,
+	order WalmartOrder,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	refundCharges []float64,
+	refundItems []providers.OrderItem,
+	dryRun bool,
+) ([]RefundProcessResult, error) {
+	refunds := make([]RefundProcessResult, 0, len(refundCharges))
+
+	for _, amount := range refundCharges {
+		refundOrder := newRefundOrderView(order, amount, refundItems)
+		matchResult, err := h.matcher.FindMatch(refundOrder, monarchTxns, usedTxnIDs)
+		if err != nil {
+			return refunds, fmt.Errorf("refund match error: %w", err)
+		}
+		if matchResult == nil {
+			return refunds, fmt.Errorf("no matching refund transaction found for amount %.2f", amount)
+		}
+
+		usedTxnIDs[matchResult.Transaction.ID] = true
+
+		h.logInfo("Matched refund transaction",
+			"order_id", order.GetID(),
+			"transaction_id", matchResult.Transaction.ID,
+			"refund_amount", amount,
+			"date_diff_days", matchResult.DateDiff)
+
+		refundResult, err := h.categorizeAndApplySplits(ctx, refundOrder, matchResult.Transaction, catCategories, monarchCategories, dryRun)
+		if err != nil {
+			return refunds, fmt.Errorf("refund split creation error: %w", err)
+		}
+
+		refunds = append(refunds, RefundProcessResult{
+			Amount:      amount,
+			Transaction: matchResult.Transaction,
+			Splits:      refundResult.Splits,
+		})
+	}
+
+	return refunds, nil
+}
+
 // categorizeAndApplySplits applies categorization and splits to a transaction
 func (h *WalmartHandler) categorizeAndApplySplits(
 	ctx context.Context,
@@ -354,6 +536,121 @@ type ledgerAmountOrder struct {
 // GetTotal returns the ledger amount instead of order total
 func (l *ledgerAmountOrder) GetTotal() float64 {
 	return l.ledgerAmount
+}
+
+type refundOrderView struct {
+	WalmartOrder
+	refundAmount float64
+	items        []providers.OrderItem
+}
+
+func newRefundOrderView(order WalmartOrder, refundAmount float64, items []providers.OrderItem) *refundOrderView {
+	return &refundOrderView{
+		WalmartOrder: order,
+		refundAmount: refundAmount,
+		items:        scaleRefundItems(items, refundAmount),
+	}
+}
+
+func (r *refundOrderView) GetTotal() float64 {
+	return -math.Abs(r.refundAmount)
+}
+
+func (r *refundOrderView) GetSubtotal() float64 {
+	return math.Abs(r.refundAmount)
+}
+
+func (r *refundOrderView) GetTax() float64 {
+	return 0
+}
+
+func (r *refundOrderView) GetTip() float64 {
+	return 0
+}
+
+func (r *refundOrderView) GetFees() float64 {
+	return 0
+}
+
+func (r *refundOrderView) GetItems() []providers.OrderItem {
+	return r.items
+}
+
+func scaleRefundItems(items []providers.OrderItem, refundAmount float64) []providers.OrderItem {
+	if len(items) == 0 {
+		return []providers.OrderItem{refundOrderItem{name: "Walmart refund", price: math.Abs(refundAmount), quantity: 1}}
+	}
+
+	itemTotal := 0.0
+	for _, item := range items {
+		itemTotal += math.Abs(item.GetPrice())
+	}
+	if itemTotal == 0 {
+		return []providers.OrderItem{refundOrderItem{name: "Walmart refund", price: math.Abs(refundAmount), quantity: 1}}
+	}
+
+	scaled := make([]providers.OrderItem, 0, len(items))
+	for _, item := range items {
+		scaledPrice := math.Abs(item.GetPrice()) / itemTotal * math.Abs(refundAmount)
+		scaled = append(scaled, refundOrderItem{
+			original: item,
+			name:     item.GetName(),
+			price:    scaledPrice,
+			quantity: item.GetQuantity(),
+		})
+	}
+	return scaled
+}
+
+type refundOrderItem struct {
+	original providers.OrderItem
+	name     string
+	price    float64
+	quantity float64
+}
+
+func (i refundOrderItem) GetName() string {
+	return i.name
+}
+
+func (i refundOrderItem) GetPrice() float64 {
+	return i.price
+}
+
+func (i refundOrderItem) GetQuantity() float64 {
+	if i.quantity == 0 {
+		return 1
+	}
+	return i.quantity
+}
+
+func (i refundOrderItem) GetUnitPrice() float64 {
+	quantity := i.GetQuantity()
+	if quantity == 0 {
+		return i.price
+	}
+	return i.price / quantity
+}
+
+func (i refundOrderItem) GetDescription() string {
+	if i.original == nil {
+		return ""
+	}
+	return i.original.GetDescription()
+}
+
+func (i refundOrderItem) GetSKU() string {
+	if i.original == nil {
+		return ""
+	}
+	return i.original.GetSKU()
+}
+
+func (i refundOrderItem) GetCategory() string {
+	if i.original == nil {
+		return ""
+	}
+	return i.original.GetCategory()
 }
 
 // IsWalmartOrder checks if an order is a Walmart order

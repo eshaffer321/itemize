@@ -12,6 +12,44 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-10: Walmart ledger refunds were skipped instead of matched to Monarch credits
+
+**Description:**
+Walmart order ledgers can include negative credit-card final charges for refunds. Itemize logged `Skipping refund in ledger (not yet supported)`, matched only the purchase charges, and left the corresponding positive Monarch refund transaction uncategorized. Refund-only ledgers could also fall back toward normal order-total matching after `no positive charges found`.
+
+**Test Case:**
+```go
+// internal/adapters/providers/walmart/order_multi_delivery_test.go: TestOrder_GetFinalCharges/returns_refund_charges_separately
+// Expected: negative CREDITCARD ledger entries are exposed as positive refund amounts, while gift-card credits are ignored.
+
+// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundCharge
+// Expected: a purchase plus refund ledger matches and categorizes both the negative purchase transaction and positive refund credit.
+
+// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundOnlyLedger
+// Expected: a ledger with no positive charges can still process a matching refund credit instead of falling back to purchase matching.
+
+// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_ProcessesRefundWhenPurchaseAlreadyConsolidated
+// Expected: if a forced historical rerun can no longer match original multi-delivery component charges,
+// a matching refund credit is still categorized.
+
+// internal/application/sync/handlers/walmart_test.go: TestWalmartHandler_ProcessOrder_CategorizesIdentifiedRefundItemOnly
+// Expected: when Walmart marks one item with returnId, the refund categorizer receives only that item.
+
+// internal/adapters/providers/walmart/refunds_test.go: TestFindReturnedItems_UsesWalmartReturnIDAndDeduplicatesUIViews
+// Expected: the duplicated UI representations of one returned item resolve to one refunded item.
+```
+
+**Fix Applied:**
+Added Walmart refund charge extraction, refund-aware handler processing, and refund audit rows in `order_transactions`. Refunds are matched as positive Monarch credits by wrapping the order with a negative total for matching. Walmart's `getOrder` response carries `returnId` on refunded items, but the upstream typed client discards it; Itemize now makes a refund-only supplemental request and extracts those items. An identified refund is categorized and noted from that item alone; ambiguous or multi-refund cases remain untouched instead of being split across the original cart. Refund processing still runs when a forced historical rerun cannot re-match already-consolidated multi-delivery purchase components.
+
+**Verification:**
+- `go test ./internal/adapters/providers/walmart -count=1` passes.
+- `go test ./internal/application/sync/handlers -count=1` passes.
+- `go test ./internal/application/sync -count=1` passes.
+- `./itemize walmart -dry-run -force -days 14 -order-id 200014872726122 -verbose` detected refund `5.58`, extracted the returned Chobani Coffee Creamer item, matched positive Monarch transaction `248897036973870035`, and dry-ran a single-category update.
+
+---
+
 ### 2026-07-08: Costco split success could be overwritten by later no-match failure
 
 **Description:**
