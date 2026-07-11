@@ -135,32 +135,30 @@ Requires cookies in `~/.walmart-api/cookies.json`. See [walmart-client-go](https
 Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).
 
 ### Amazon
-Uses [amazon-go](https://github.com/eshaffer321/amazon-go) as a library. Authenticate once by
-saving Amazon cookies from a browser profile that is already logged into Amazon:
+Set up an account with Itemize's guided login command:
 
-The browser-profile import uses Playwright to open Chromium. If Playwright is not already
-installed globally or in this repo, install it once:
+```bash
+./itemize amazon setup -account erick
+```
+
+Itemize creates a persistent browser profile under `~/.itemize/amazon/`, opens Chromium, and waits
+for you to sign into Amazon. After setup, verify the account with a small dry run:
+
+```bash
+./itemize amazon -account erick -dry-run -days 14 -max 1
+```
+
+Itemize uses [amazon-go](https://github.com/eshaffer321/amazon-go) as a library. The login flow uses
+Playwright to open Chromium. If Playwright is not already installed globally or in this repo,
+install it once:
 
 ```bash
 npm install playwright
 ```
 
-If Playwright lives somewhere else, pass `-playwright-root <dir>` where `<dir>` contains
-`node_modules/playwright`.
-
-```bash
-./itemize amazon \
-  -import-browser-profile "$HOME/.itemize/amazon/amazon-erick" \
-  -account erick
-```
-
-If you set `AMAZON_ACCOUNT_NAME`, save cookies for the matching amazon-go account:
-
-```bash
-./itemize amazon \
-  -import-browser-profile "$HOME/.itemize/amazon/$AMAZON_ACCOUNT_NAME" \
-  -account "$AMAZON_ACCOUNT_NAME"
-```
+If Playwright lives elsewhere, add `-playwright-root <dir>` to `amazon setup`, where `<dir>`
+contains `node_modules/playwright`. The lower-level `-import-browser-profile` flag remains
+available for importing a specific existing Chromium/Playwright profile.
 
 #### Multiple Amazon accounts
 

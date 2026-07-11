@@ -55,6 +55,24 @@ func TestResolveAmazonAccount_RejectsUnexpectedExtraArgs(t *testing.T) {
 	assert.Contains(t, err.Error(), "-account amazon-wife")
 }
 
+func TestResolveAmazonSetupAccount_RequiresExplicitAccount(t *testing.T) {
+	account, err := ResolveAmazonSetupAccount("", nil)
+
+	require.Error(t, err)
+	assert.Empty(t, account)
+	assert.Contains(t, err.Error(), "requires -account")
+}
+
+func TestResolveAmazonSetupAccount_AcceptsFlagOrPositionalName(t *testing.T) {
+	account, err := ResolveAmazonSetupAccount("wife", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "wife", account)
+
+	account, err = ResolveAmazonSetupAccount("", []string{"wife"})
+	require.NoError(t, err)
+	assert.Equal(t, "wife", account)
+}
+
 func TestResolveAmazonAccount_FlagBeatsConfig(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Providers.Amazon.AccountName = "from-config"

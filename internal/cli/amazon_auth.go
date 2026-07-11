@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,51 @@ type AmazonImportOptions struct {
 	Headless       bool
 	SkipAuthCheck  bool
 	Out            io.Writer
+}
+
+// PrepareAmazonSetup creates the persistent browser profile used for an Amazon
+// account. Keeping this convention inside itemize lets first-time users avoid
+// choosing or managing Chromium profile paths themselves.
+func PrepareAmazonSetup(account string) (string, error) {
+	if account == "" {
+		return "", fmt.Errorf("amazon setup requires -account <name>")
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(account) {
+		return "", fmt.Errorf("invalid Amazon account name %q: use only letters, numbers, dashes, and underscores", account)
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	profileDir := filepath.Join(homeDir, ".itemize", "amazon", account)
+	if err := os.MkdirAll(profileDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create Amazon browser profile %q: %w", profileDir, err)
+	}
+	if err := os.Chmod(profileDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to secure Amazon browser profile %q: %w", profileDir, err)
+	}
+	return profileDir, nil
+}
+
+// RunAmazonSetup provides the guided first-time authentication path while the
+// lower-level browser profile import remains available for advanced use.
+func RunAmazonSetup(cfg *config.Config, opts AmazonImportOptions) error {
+	profileDir, err := PrepareAmazonSetup(opts.Account)
+	if err != nil {
+		return err
+	}
+	opts.ProfileDir = profileDir
+	if opts.Out == nil {
+		opts.Out = os.Stdout
+	}
+	if _, err := fmt.Fprintf(opts.Out, "Amazon setup for account %q.\nOpening Chromium; sign in to Amazon when prompted. Itemize will continue after Your Orders loads.\nBrowser profile: %s\n\n", opts.Account, profileDir); err != nil {
+		return fmt.Errorf("failed to write setup instructions: %w", err)
+	}
+	if err := RunAmazonBrowserProfileImport(cfg, opts); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(opts.Out, "\nSetup complete. Test safely with:\n  itemize amazon -account %s -dry-run -days 14 -max 1\n", opts.Account)
+	return err
 }
 
 // RunAmazonBrowserProfileImport imports Amazon cookies into itemize's Amazon cookie store.
@@ -404,7 +450,7 @@ func resolvePlaywrightRoot(explicit string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("install Playwright with `npm install playwright` or pass -playwright-root pointing at a directory containing node_modules/playwright")
+	return "", fmt.Errorf("playwright is required for Amazon login; install it with `npm install playwright`, then rerun setup (or pass -playwright-root pointing at a directory containing node_modules/playwright)")
 }
 
 func npmRoot(args ...string) (string, error) {

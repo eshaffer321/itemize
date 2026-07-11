@@ -158,7 +158,7 @@ func TestProvider_FetchOrdersReturnsHealthCheckError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, orders)
 	assert.Contains(t, err.Error(), "amazon auth check failed")
-	assert.Contains(t, err.Error(), "itemize amazon -import-browser-profile <profile-dir> -account wife")
+	assert.Contains(t, err.Error(), "itemize amazon setup -account wife")
 	assert.True(t, client.healthChecked)
 }
 
@@ -227,7 +227,7 @@ func TestProvider_HealthCheckWrapsAuthErrorWithLoginCommand(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "amazon auth check failed")
-	assert.Contains(t, err.Error(), "itemize amazon -import-browser-profile <profile-dir> -account wife")
+	assert.Contains(t, err.Error(), "itemize amazon setup -account wife")
 }
 
 func TestConvertGoTransactionMapsRefundAndPendingStatuses(t *testing.T) {
@@ -244,7 +244,7 @@ func TestLoginCommandUsesExplicitCookieFile(t *testing.T) {
 	provider := NewProvider(nil, &ProviderConfig{CookieFile: "/tmp/amazon-cookies.json"})
 
 	assert.Contains(t, provider.loginCommand(), `-cookie-file "/tmp/amazon-cookies.json"`)
-	assert.Contains(t, provider.loginCommand(), "itemize amazon -import-browser-profile <profile-dir>")
+	assert.Contains(t, provider.loginCommand(), "itemize amazon setup")
 }
 
 type fakeAmazonClient struct {

@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/eshaffer321/itemize/internal/application/sync"
@@ -27,7 +28,7 @@ type SyncFlags struct {
 }
 
 // ParseSyncFlags parses common sync flags from command line
-func ParseSyncFlags() SyncFlags {
+func ParseSyncFlags(providerName string) SyncFlags {
 	var flags SyncFlags
 	flag.BoolVar(&flags.DryRun, "dry-run", false, "Run without making changes")
 	flag.IntVar(&flags.LookbackDays, "days", 14, "Number of days to look back")
@@ -44,6 +45,10 @@ func ParseSyncFlags() SyncFlags {
 	flag.BoolVar(&flags.SkipAuthCheck, "skip-auth-check", false, "Skip Amazon auth validation after importing cookies")
 
 	flag.Usage = func() {
+		if providerName == "amazon" {
+			PrintAmazonUsage(os.Stderr)
+			return
+		}
 		fmt.Fprintln(os.Stderr, "Usage: itemize <command> [flags]")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Sync Flags:")
@@ -65,6 +70,42 @@ func ParseSyncFlags() SyncFlags {
 	flag.Parse()
 	flags.ExtraArgs = flag.Args()
 	return flags
+}
+
+// PrintAmazonUsage keeps the guided setup path prominent and moves the
+// implementation-level authentication controls below normal sync options.
+func PrintAmazonUsage(w io.Writer) {
+	_, _ = fmt.Fprint(w, `Usage:
+  itemize amazon setup -account <name>
+  itemize amazon -account <name> [sync options]
+
+First-time setup:
+  setup                    Creates a browser profile and opens Chromium for Amazon sign-in
+  -account string          Name used to save and select this Amazon account
+
+Account management:
+  -list-accounts           List saved Amazon accounts
+
+Sync options:
+  -dry-run                 Preview without making Monarch changes
+  -days int                Number of days to look back (default 14)
+  -max int                 Maximum orders to process (0 = all)
+  -order-id string         Process only one order
+  -force                   Reprocess previously processed orders
+  -verbose                 Show debug diagnostics
+
+Advanced authentication:
+  -import-browser-profile string
+                            Import cookies from a specific Chromium/Playwright profile
+  -playwright-root string   Directory containing node_modules/playwright
+  -cookie-file string       Explicit Amazon cookie file
+  -headless                 Run profile import headlessly
+  -skip-auth-check          Skip validation after importing cookies
+
+Examples:
+  itemize amazon setup -account wife
+  itemize amazon -account wife -dry-run -days 14 -max 1
+`)
 }
 
 // ToSyncOptions converts SyncFlags to sync.Options
