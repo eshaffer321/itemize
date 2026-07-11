@@ -105,7 +105,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 		return nil, err
 	}
 	if err := client.HealthCheck(); err != nil {
-		return nil, fmt.Errorf("amazon auth check failed: %w. %s", err, p.loginCommand())
+		return nil, p.authCheckError(err)
 	}
 
 	amazonOrders, err := client.FetchOrders(ctx, amazongo.FetchOptions{
@@ -191,7 +191,7 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 		return err
 	}
 	if err := client.HealthCheck(); err != nil {
-		return fmt.Errorf("amazon auth check failed: %w. %s", err, p.loginCommand())
+		return p.authCheckError(err)
 	}
 	return nil
 }
@@ -240,9 +240,17 @@ func (p *Provider) loginCommand() string {
 		accountArg = " -account " + p.profile
 	}
 	if p.cookieFile != "" {
-		return fmt.Sprintf("run 'amazon-go import-browser-profile -profile-dir <profile-dir> -cookie-file %q' to authenticate", p.cookieFile)
+		return fmt.Sprintf("run 'itemize amazon -import-browser-profile <profile-dir> -cookie-file %q' to authenticate", p.cookieFile)
 	}
-	return fmt.Sprintf("run 'amazon-go import-browser-profile -profile-dir <profile-dir>%s' to authenticate", accountArg)
+	return fmt.Sprintf("run 'itemize amazon -import-browser-profile <profile-dir>%s' to authenticate", accountArg)
+}
+
+func (p *Provider) authCheckError(err error) error {
+	message := err.Error()
+	if strings.Contains(strings.ToLower(message), "cookies are expired") {
+		message = "Amazon rejected the saved cookies or opened a sign-in page"
+	}
+	return fmt.Errorf("amazon auth check failed: %s. %s", message, p.loginCommand())
 }
 
 func convertGoOrder(order *amazongo.Order, transactions []*amazongo.Transaction) *ParsedOrder {
