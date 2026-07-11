@@ -17,6 +17,8 @@ import (
 
 type refundItemFetcher func(context.Context, string, bool) ([]providers.OrderItem, error)
 
+var refundItemEndpoint = "https://www.walmart.com/orchestra/orders/graphql/getOrder/d0622497daef19150438d07c506739d451cad6749cf45c3b4db95f2f5a0a65c4"
+
 type cookieFile struct {
 	Cookies map[string]struct {
 		Value string `json:"value"`
@@ -48,7 +50,7 @@ func newRefundItemFetcher() refundItemFetcher {
 		if err != nil {
 			return nil, fmt.Errorf("encoding Walmart order request: %w", err)
 		}
-		endpoint, err := url.Parse("https://www.walmart.com/orchestra/orders/graphql/getOrder/d0622497daef19150438d07c506739d451cad6749cf45c3b4db95f2f5a0a65c4")
+		endpoint, err := url.Parse(refundItemEndpoint)
 		if err != nil {
 			return nil, fmt.Errorf("parsing Walmart order endpoint: %w", err)
 		}

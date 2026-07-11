@@ -1,12 +1,34 @@
 package walmart
 
 import (
+	"context"
 	"testing"
 
+	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOrder_GetRefundItems_CachesFetchedItems(t *testing.T) {
+	calls := 0
+	order := &Order{
+		walmartOrder: &walmartclient.Order{ID: "REFUND-ITEMS"},
+		ctx:          context.Background(),
+		refundItemFetcher: func(context.Context, string, bool) ([]providers.OrderItem, error) {
+			calls++
+			return []providers.OrderItem{returnedItem{name: "Refunded item", price: 4.5, quantity: 1}}, nil
+		},
+	}
+
+	items, err := order.GetRefundItems()
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	items, err = order.GetRefundItems()
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, calls)
+}
 
 // TestOrder_GetFinalCharges tests retrieving final charges from order ledger
 func TestOrder_GetFinalCharges(t *testing.T) {
