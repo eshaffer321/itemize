@@ -409,8 +409,8 @@ func (m *MockRepository) GetSyncRun(runID int64) (*SyncRun, error) {
 
 // AddRecord adds a record directly (for test setup)
 func (m *MockRepository) AddRecord(record *ProcessingRecord) {
-	m.records[record.OrderID] = record
 	if record != nil {
+		m.records[record.OrderID] = record
 		m.attempts[record.OrderID] = append(m.attempts[record.OrderID], ProcessingAttempt{ProcessingRecord: *record})
 	}
 }
