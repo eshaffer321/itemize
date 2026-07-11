@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	walmartprovider "github.com/eshaffer321/itemize/internal/adapters/providers/walmart"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // WalmartOrder extends providers.Order with Walmart-specific methods
@@ -234,13 +234,25 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 	}
 
 	if !multiResult.AllFound {
-		// Count actual non-nil matches (len(Matches) includes nil entries for index alignment)
-		foundCount := 0
-		for _, match := range multiResult.Matches {
-			if match != nil {
-				foundCount++
-			}
+		aggregateResult, aggregateErr := h.processMultiDeliveryAggregateFallback(
+			ctx,
+			order,
+			monarchTxns,
+			usedTxnIDs,
+			catCategories,
+			monarchCategories,
+			charges,
+			dryRun,
+		)
+		if aggregateErr != nil {
+			return nil, aggregateErr
 		}
+		if aggregateResult != nil {
+			return aggregateResult, nil
+		}
+
+		// Count actual non-nil matches (len(Matches) includes nil entries for index alignment)
+		foundCount := countFoundMatches(multiResult.Matches)
 		result.Skipped = true
 		result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
 			len(charges), foundCount)
@@ -277,6 +289,84 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 
 	// Categorize and apply splits to consolidated transaction
 	return h.categorizeAndApplySplits(ctx, order, consolidatedTxn, catCategories, monarchCategories, dryRun)
+}
+
+func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
+	ctx context.Context,
+	order WalmartOrder,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	catCategories []categorizer.Category,
+	monarchCategories []*monarch.TransactionCategory,
+	charges []float64,
+	dryRun bool,
+) (*ProcessResult, error) {
+	ledgerTotal := sumCharges(charges)
+	if ledgerTotal <= 0 {
+		return nil, nil
+	}
+
+	matchOrder := &ledgerAmountOrder{
+		Order:        order,
+		ledgerAmount: ledgerTotal,
+	}
+
+	matchedTxns, err := h.matcher.FindSubsetByTotal(matchOrder, monarchTxns, usedTxnIDs)
+	if err != nil {
+		h.logDebug("No aggregate transaction fallback match",
+			"order_id", order.GetID(),
+			"ledger_total", ledgerTotal,
+			"error", err)
+		return nil, nil
+	}
+
+	for _, txn := range matchedTxns {
+		usedTxnIDs[txn.ID] = true
+	}
+
+	if len(matchedTxns) == 1 {
+		h.logInfo("Matched multi-delivery order by aggregate ledger total",
+			"order_id", order.GetID(),
+			"ledger_charge_count", len(charges),
+			"ledger_total", ledgerTotal,
+			"transaction_id", matchedTxns[0].ID)
+		return h.categorizeAndApplySplits(ctx, order, matchedTxns[0], catCategories, monarchCategories, dryRun)
+	}
+
+	if h.consolidator == nil {
+		return nil, fmt.Errorf("aggregate match found %d transactions but consolidator is not configured", len(matchedTxns))
+	}
+
+	h.logInfo("Matched multi-delivery order by aggregate transaction subset",
+		"order_id", order.GetID(),
+		"ledger_charge_count", len(charges),
+		"ledger_total", ledgerTotal,
+		"transaction_count", len(matchedTxns))
+
+	consolidationResult, err := h.consolidator.ConsolidateTransactions(ctx, matchedTxns, matchOrder, dryRun)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate fallback consolidation error: %w", err)
+	}
+
+	return h.categorizeAndApplySplits(ctx, order, consolidationResult.ConsolidatedTransaction, catCategories, monarchCategories, dryRun)
+}
+
+func countFoundMatches(matches []*matcher.MatchResult) int {
+	foundCount := 0
+	for _, match := range matches {
+		if match != nil {
+			foundCount++
+		}
+	}
+	return foundCount
+}
+
+func sumCharges(charges []float64) float64 {
+	total := 0.0
+	for _, charge := range charges {
+		total += charge
+	}
+	return math.Round(total*100) / 100
 }
 
 // categorizeAndApplySplits applies categorization and splits to a transaction

@@ -56,51 +56,61 @@ func (m *Matcher) FindSubsetByTotal(
 	return matches, nil
 }
 
-// subsetSummingTo returns the smallest subset of txns whose absolute amounts
-// sum to target within tolerance, or nil if none exists.
+// subsetSummingTo returns the closest subset of txns whose absolute amounts
+// sum to target within tolerance, or nil if none exists. When multiple subsets
+// are equally close, it prefers the one with fewer transactions.
 func subsetSummingTo(txns []*monarch.Transaction, target, tolerance float64) []*monarch.Transaction {
 	n := len(txns)
 	if n > 20 {
 		n = 20 // guard; 2^20 is ~1M — still fast, but cap for safety
 	}
 
-	// Try subsets in increasing size order so we prefer fewer transactions
+	var best []*monarch.Transaction
+	bestDifference := math.Inf(1)
+
+	// Search every valid subset. Iterating by size preserves the fewer-transactions
+	// tie-breaker while allowing an exact total to beat an earlier tolerated match.
 	for size := 1; size <= n; size++ {
-		result := subsetOfSize(txns[:n], target, tolerance, 0, size, nil)
-		if result != nil {
-			return result
+		result, difference := closestSubsetOfSize(txns[:n], target, tolerance, 0, size, nil)
+		if result != nil && difference < bestDifference {
+			best = result
+			bestDifference = difference
 		}
 	}
-	return nil
+	return best
 }
 
-// subsetOfSize is a recursive backtracking search for a subset of exactly `size`
-// transactions summing to target.
-func subsetOfSize(
+// closestSubsetOfSize is a recursive backtracking search for the closest valid
+// subset of exactly `size` transactions.
+func closestSubsetOfSize(
 	txns []*monarch.Transaction,
 	target, tolerance float64,
 	start, remaining int,
 	current []*monarch.Transaction,
-) []*monarch.Transaction {
+) ([]*monarch.Transaction, float64) {
 	if remaining == 0 {
 		sum := 0.0
 		for _, t := range current {
 			sum += math.Abs(t.Amount)
 		}
-		if math.Abs(sum-target) <= tolerance {
+		difference := math.Abs(sum - target)
+		if difference <= tolerance {
 			result := make([]*monarch.Transaction, len(current))
 			copy(result, current)
-			return result
+			return result, difference
 		}
-		return nil
+		return nil, 0
 	}
 
+	var best []*monarch.Transaction
+	bestDifference := math.Inf(1)
 	for i := start; i <= len(txns)-remaining; i++ {
-		found := subsetOfSize(txns, target, tolerance, i+1, remaining-1,
+		found, difference := closestSubsetOfSize(txns, target, tolerance, i+1, remaining-1,
 			append(current, txns[i]))
-		if found != nil {
-			return found
+		if found != nil && difference < bestDifference {
+			best = found
+			bestDifference = difference
 		}
 	}
-	return nil
+	return best, bestDifference
 }
