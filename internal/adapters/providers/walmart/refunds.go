@@ -69,7 +69,9 @@ func newRefundItemFetcher() refundItemFetcher {
 				return nil, fmt.Errorf("fetching Walmart refund items: %w", err)
 			}
 			if resp.StatusCode == http.StatusTooManyRequests && attempt < 2 {
-				resp.Body.Close()
+				if err := resp.Body.Close(); err != nil {
+					return nil, fmt.Errorf("closing rate-limited Walmart refund response: %w", err)
+				}
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -78,14 +80,19 @@ func newRefundItemFetcher() refundItemFetcher {
 				}
 			}
 			if resp.StatusCode != http.StatusOK {
-				resp.Body.Close()
+				if err := resp.Body.Close(); err != nil {
+					return nil, fmt.Errorf("closing Walmart refund response: %w", err)
+				}
 				return nil, fmt.Errorf("fetching Walmart refund items: HTTP %d", resp.StatusCode)
 			}
 			var payload json.RawMessage
 			decodeErr := json.NewDecoder(resp.Body).Decode(&payload)
-			resp.Body.Close()
+			closeErr := resp.Body.Close()
 			if decodeErr != nil {
 				return nil, fmt.Errorf("decoding Walmart refund items: %w", decodeErr)
+			}
+			if closeErr != nil {
+				return nil, fmt.Errorf("closing Walmart refund response: %w", closeErr)
 			}
 			return findReturnedItems(payload), nil
 		}
@@ -118,7 +125,7 @@ func setRefundItemHeaders(req *http.Request, cookies string) {
 }
 
 func loadCookies(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is built from the current user's home directory.
 	if err != nil {
 		return "", fmt.Errorf("reading Walmart cookies: %w", err)
 	}
