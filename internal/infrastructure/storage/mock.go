@@ -3,16 +3,17 @@ package storage
 // MockRepository is an in-memory implementation of Repository for testing.
 // It stores all data in maps and slices, making tests fast and isolated.
 type MockRepository struct {
-	records       map[string]*ProcessingRecord
-	attempts      map[string][]ProcessingAttempt
-	orderTxns     map[string][]OrderTransaction
-	syncRuns      map[int64]*mockSyncRun
-	apiCalls      []APICall
-	ledgers       map[string][]*OrderLedger // Keyed by order_id
-	ledgerCharges map[int64][]LedgerCharge  // Keyed by ledger_id
-	nextRunID     int64
-	nextLedgerID  int64
-	nextChargeID  int64
+	records         map[string]*ProcessingRecord
+	attempts        map[string][]ProcessingAttempt
+	orderTxns       map[string][]OrderTransaction
+	syncRuns        map[int64]*mockSyncRun
+	apiCalls        []APICall
+	providerFetches []ProviderFetchLog
+	ledgers         map[string][]*OrderLedger // Keyed by order_id
+	ledgerCharges   map[int64][]LedgerCharge  // Keyed by ledger_id
+	nextRunID       int64
+	nextLedgerID    int64
+	nextChargeID    int64
 
 	// Hooks for test assertions
 	SaveRecordCalled   bool
@@ -48,16 +49,17 @@ type mockSyncRun struct {
 // NewMockRepository creates a new mock repository for testing
 func NewMockRepository() *MockRepository {
 	return &MockRepository{
-		records:       make(map[string]*ProcessingRecord),
-		attempts:      make(map[string][]ProcessingAttempt),
-		orderTxns:     make(map[string][]OrderTransaction),
-		syncRuns:      make(map[int64]*mockSyncRun),
-		apiCalls:      make([]APICall, 0),
-		ledgers:       make(map[string][]*OrderLedger),
-		ledgerCharges: make(map[int64][]LedgerCharge),
-		nextRunID:     1,
-		nextLedgerID:  1,
-		nextChargeID:  1,
+		records:         make(map[string]*ProcessingRecord),
+		attempts:        make(map[string][]ProcessingAttempt),
+		orderTxns:       make(map[string][]OrderTransaction),
+		syncRuns:        make(map[int64]*mockSyncRun),
+		apiCalls:        make([]APICall, 0),
+		providerFetches: make([]ProviderFetchLog, 0),
+		ledgers:         make(map[string][]*OrderLedger),
+		ledgerCharges:   make(map[int64][]LedgerCharge),
+		nextRunID:       1,
+		nextLedgerID:    1,
+		nextChargeID:    1,
 	}
 }
 
@@ -242,6 +244,26 @@ func (m *MockRepository) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	for _, call := range m.apiCalls {
 		if call.RunID == runID {
 			result = append(result, call)
+		}
+	}
+	return result, nil
+}
+
+// LogProviderFetch logs a provider fetch snapshot.
+func (m *MockRepository) LogProviderFetch(fetch *ProviderFetchLog) error {
+	if fetch == nil {
+		return nil
+	}
+	m.providerFetches = append(m.providerFetches, *fetch)
+	return nil
+}
+
+// GetProviderFetchesByRunID retrieves provider fetch snapshots for a run.
+func (m *MockRepository) GetProviderFetchesByRunID(runID int64) ([]ProviderFetchLog, error) {
+	var result []ProviderFetchLog
+	for _, fetch := range m.providerFetches {
+		if fetch.RunID == runID {
+			result = append(result, fetch)
 		}
 	}
 	return result, nil
@@ -436,6 +458,7 @@ func (m *MockRepository) Reset() {
 	m.orderTxns = make(map[string][]OrderTransaction)
 	m.syncRuns = make(map[int64]*mockSyncRun)
 	m.apiCalls = make([]APICall, 0)
+	m.providerFetches = make([]ProviderFetchLog, 0)
 	m.ledgers = make(map[string][]*OrderLedger)
 	m.ledgerCharges = make(map[int64][]LedgerCharge)
 	m.nextRunID = 1

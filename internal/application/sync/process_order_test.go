@@ -164,8 +164,7 @@ func TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction(t *testing.T) {
 	}
 
 	ctx := withAuditContext(context.Background(), "ORDER-AUDIT", false)
-	adapter.logAPICall(ctx, "txn-123", "Transactions.UpdateSplits",
-		map[string]any{"split_count": 2},
+	adapter.logAPICallCompletion(ctx, "txn-123", "Transactions.UpdateSplits",
 		map[string]any{"ok": true},
 		nil,
 		150*time.Millisecond,
@@ -178,9 +177,31 @@ func TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction(t *testing.T) {
 	assert.Equal(t, "ORDER-AUDIT", calls[0].OrderID)
 	assert.Equal(t, "txn-123", calls[0].TransactionID)
 	assert.Equal(t, "Transactions.UpdateSplits", calls[0].Method)
+	assert.Equal(t, "completed", calls[0].Phase)
 	assert.Equal(t, int64(150), calls[0].DurationMs)
 	assert.False(t, calls[0].DryRun)
-	assert.Contains(t, calls[0].RequestJSON, "split_count")
+	assert.Contains(t, calls[0].ResponseJSON, "ok")
+}
+
+func TestMonarchAdapter_LogAPICallRecordsIntentAndCompletion(t *testing.T) {
+	store := storage.NewMockRepository()
+	adapter := &monarchAdapter{
+		storage: store,
+		runID:   99,
+	}
+
+	ctx := withAuditContext(context.Background(), "ORDER-INTENT", false)
+	adapter.logAPICallIntent(ctx, "txn-intent", "Transactions.Update", map[string]any{"category": "groceries"})
+	adapter.logAPICallCompletion(ctx, "txn-intent", "Transactions.Update", map[string]any{"id": "txn-intent"}, nil, 25*time.Millisecond)
+
+	calls, err := store.GetAPICallsByOrderID("ORDER-INTENT")
+	require.NoError(t, err)
+	require.Len(t, calls, 2)
+	assert.Equal(t, "intent", calls[0].Phase)
+	assert.Equal(t, "completed", calls[1].Phase)
+	assert.Equal(t, "txn-intent", calls[0].TransactionID)
+	assert.Contains(t, calls[0].RequestJSON, "groceries")
+	assert.Contains(t, calls[1].ResponseJSON, "txn-intent")
 }
 
 // =============================================================================

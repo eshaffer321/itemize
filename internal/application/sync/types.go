@@ -186,21 +186,31 @@ type monarchAdapter struct {
 }
 
 func (a *monarchAdapter) UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error {
+	a.logAPICallIntent(ctx, id, "Transactions.Update", params)
 	start := time.Now()
 	updated, err := a.client.Transactions.Update(ctx, id, params)
-	a.logAPICall(ctx, id, "Transactions.Update", params, updated, err, time.Since(start))
+	a.logAPICallCompletion(ctx, id, "Transactions.Update", updated, err, time.Since(start))
 	return err
 }
 
 func (a *monarchAdapter) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {
+	a.logAPICallIntent(ctx, id, "Transactions.UpdateSplits", splits)
 	start := time.Now()
 	err := a.client.Transactions.UpdateSplits(ctx, id, splits)
 	response := map[string]any{"ok": err == nil, "split_count": len(splits)}
-	a.logAPICall(ctx, id, "Transactions.UpdateSplits", splits, response, err, time.Since(start))
+	a.logAPICallCompletion(ctx, id, "Transactions.UpdateSplits", response, err, time.Since(start))
 	return err
 }
 
-func (a *monarchAdapter) logAPICall(ctx context.Context, transactionID, method string, request, response any, callErr error, duration time.Duration) {
+func (a *monarchAdapter) logAPICallIntent(ctx context.Context, transactionID, method string, request any) {
+	a.logAPICallPhase(ctx, transactionID, method, "intent", request, nil, nil, 0)
+}
+
+func (a *monarchAdapter) logAPICallCompletion(ctx context.Context, transactionID, method string, response any, callErr error, duration time.Duration) {
+	a.logAPICallPhase(ctx, transactionID, method, "completed", nil, response, callErr, duration)
+}
+
+func (a *monarchAdapter) logAPICallPhase(ctx context.Context, transactionID, method, phase string, request, response any, callErr error, duration time.Duration) {
 	if a == nil || a.storage == nil {
 		return
 	}
@@ -216,6 +226,7 @@ func (a *monarchAdapter) logAPICall(ctx context.Context, transactionID, method s
 		RunID:         a.runID,
 		OrderID:       auditOrderID(ctx),
 		TransactionID: transactionID,
+		Phase:         phase,
 		Method:        method,
 		RequestJSON:   string(requestJSON),
 		ResponseJSON:  string(responseJSON),

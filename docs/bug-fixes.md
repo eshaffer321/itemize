@@ -40,6 +40,14 @@ Added append-only `processing_attempts`, `order_transactions`, match diagnostics
 - `go test ./internal/infrastructure/storage ./internal/application/sync/handlers ./internal/application/sync -run 'TestStorage_SaveRecord_DoesNotDowngradeSuccessWithFailure|TestStorage_SaveRecord_AppendsAttemptHistory|TestStorage_OrderTransactions_MultipleRowsPerOrder|TestSimpleHandler_ProcessOrder_ReconcilesAlreadySplitTransactions|TestMonarchAdapter_LogAPICallIncludesOrderAndTransaction' -count=1` passes.
 - `go test ./...` passes.
 
+**Follow-up Audit Hardening:**
+Added provider fetch snapshots and pre-call Monarch mutation intent logs so future investigations can distinguish "we intended to write this" from "the write completed" and can inspect the provider/Monarch fetch payloads that led to a decision.
+
+**Follow-up Verification:**
+- `TestStorage_ProviderFetchLog_RoundTrip` verifies provider fetch logs are durable.
+- `TestOrchestrator_fetchOrders_LogsProviderFetch` verifies provider order fetches are logged by the orchestrator.
+- `TestMonarchAdapter_LogAPICallRecordsIntentAndCompletion` verifies mutation intent and completion are recorded separately.
+
 ---
 
 ### 2026-07-02: Dependabot PR tests failed because Codecov upload required a token
