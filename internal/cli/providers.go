@@ -122,6 +122,25 @@ func ResolveAmazonAccount(cfg *config.Config, flagAccount string, extraArgs []st
 	return "", nil
 }
 
+// ResolveAmazonSetupAccount requires the account being created to be explicit.
+// Setup must not silently reuse an environment or config default because doing
+// so could overwrite a different account's persistent browser profile.
+func ResolveAmazonSetupAccount(flagAccount string, extraArgs []string) (string, error) {
+	if len(extraArgs) > 1 {
+		return "", fmt.Errorf("unexpected arguments: %s; use -account %s", strings.Join(extraArgs, " "), extraArgs[0])
+	}
+	if len(extraArgs) == 1 {
+		if flagAccount != "" {
+			return "", fmt.Errorf("use either -account or a positional account, not both")
+		}
+		return extraArgs[0], nil
+	}
+	if flagAccount == "" {
+		return "", fmt.Errorf("amazon setup requires -account <name>")
+	}
+	return flagAccount, nil
+}
+
 // ListAmazonAccounts returns the names of saved amazon-go cookie accounts found
 // under ~/.amazon-go (files named cookies-<account>.json).
 func ListAmazonAccounts(cfg *config.Config) ([]string, error) {

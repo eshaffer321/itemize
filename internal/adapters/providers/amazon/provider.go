@@ -240,9 +240,9 @@ func (p *Provider) loginCommand() string {
 		accountArg = " -account " + p.profile
 	}
 	if p.cookieFile != "" {
-		return fmt.Sprintf("run 'itemize amazon -import-browser-profile <profile-dir> -cookie-file %q' to authenticate", p.cookieFile)
+		return fmt.Sprintf("run 'itemize amazon setup -account <name> -cookie-file %q' to authenticate", p.cookieFile)
 	}
-	return fmt.Sprintf("run 'itemize amazon -import-browser-profile <profile-dir>%s' to authenticate", accountArg)
+	return fmt.Sprintf("run 'itemize amazon setup%s' to authenticate", accountArg)
 }
 
 func (p *Provider) authCheckError(err error) error {

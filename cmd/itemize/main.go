@@ -51,15 +51,18 @@ func main() {
 
 	// Provider sync commands
 	providerName := command
+	amazonSetup := providerName == "amazon" && len(os.Args) > 2 && os.Args[2] == "setup"
 	// Shift args for flag parsing
-	if providerName == "amazon" && len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
+	if amazonSetup {
+		os.Args = append([]string{os.Args[0]}, os.Args[3:]...)
+	} else if providerName == "amazon" && len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
 		os.Args = append([]string{os.Args[0], "-account", os.Args[2]}, os.Args[3:]...)
 	} else {
 		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 	}
 
 	// Parse common flags
-	flags := cli.ParseSyncFlags()
+	flags := cli.ParseSyncFlags(providerName)
 
 	// Load config
 	cfg := config.LoadOrEnv()
@@ -74,7 +77,11 @@ func main() {
 
 	amazonAccount := ""
 	if providerName == "amazon" {
-		amazonAccount, err = cli.ResolveAmazonAccount(cfg, flags.Account, flags.ExtraArgs)
+		if amazonSetup {
+			amazonAccount, err = cli.ResolveAmazonSetupAccount(flags.Account, flags.ExtraArgs)
+		} else {
+			amazonAccount, err = cli.ResolveAmazonAccount(cfg, flags.Account, flags.ExtraArgs)
+		}
 		if err != nil {
 			log.Fatalf("Invalid Amazon account arguments: %v", err)
 		}
@@ -94,7 +101,7 @@ func main() {
 		}
 		if len(accounts) == 0 {
 			fmt.Println("No saved Amazon accounts found.")
-			fmt.Println("Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' to create one.")
+			fmt.Println("Run 'itemize amazon setup -account <name>' to create one.")
 			return
 		}
 		fmt.Println("Saved Amazon accounts:")
@@ -103,6 +110,22 @@ func main() {
 		}
 		fmt.Println()
 		fmt.Println("Use with: itemize amazon -account <name>")
+		return
+	}
+
+	if amazonSetup {
+		if flags.ImportBrowserProfile != "" {
+			log.Fatalf("amazon setup creates its own browser profile; omit -import-browser-profile")
+		}
+		if err := cli.RunAmazonSetup(cfg, cli.AmazonImportOptions{
+			Account:        amazonAccount,
+			CookieFile:     cfg.Providers.Amazon.CookieFile,
+			PlaywrightRoot: flags.PlaywrightRoot,
+			Headless:       flags.Headless,
+			SkipAuthCheck:  flags.SkipAuthCheck,
+		}); err != nil {
+			log.Fatalf("Amazon setup failed: %v", err)
+		}
 		return
 	}
 
@@ -205,6 +228,8 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  serve       Start the API server")
 	fmt.Println("  amazon      Sync Amazon orders")
+	fmt.Println("  amazon setup -account <name>")
+	fmt.Println("              Create an Amazon account and open Chromium for sign-in")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
 	fmt.Println("  version     Print version, commit, and build date (also: -version, --version)")
@@ -224,6 +249,8 @@ func printUsage() {
 	fmt.Println("  -cookie-file string")
 	fmt.Println("                  Explicit Amazon cookie file (amazon only)")
 	fmt.Println("  -list-accounts   List saved Amazon cookie accounts and exit (amazon only)")
+	fmt.Println()
+	fmt.Println("Advanced Amazon Authentication:")
 	fmt.Println("  -import-browser-profile string")
 	fmt.Println("                  Import Amazon cookies from a Chromium/Playwright profile and exit (amazon only)")
 	fmt.Println("  -playwright-root string")
