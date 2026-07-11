@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // handleResult processes the result from a provider handler and records success/error
@@ -15,7 +15,7 @@ import (
 func (o *Orchestrator) handleResult(order providers.Order, result *handlers.ProcessResult, err error, opts Options) (bool, bool, error) {
 	if err != nil {
 		o.logger.Error("Handler error", "order_id", order.GetID(), "error", err)
-		o.recordError(order, err.Error())
+		o.recordError(order, err.Error(), nil)
 		return false, false, err
 	}
 	if result.Skipped {
@@ -31,7 +31,7 @@ func (o *Orchestrator) handleResult(order providers.Order, result *handlers.Proc
 			return false, true, nil
 		}
 		o.logger.Warn("Order skipped", "order_id", order.GetID(), "reason", result.SkipReason)
-		o.recordError(order, result.SkipReason)
+		o.recordError(order, result.SkipReason, result)
 		return false, false, fmt.Errorf("skipped: %s", result.SkipReason)
 	}
 	if result.Processed {
@@ -52,6 +52,8 @@ func (o *Orchestrator) processOrder(
 	monarchCategories []*monarch.TransactionCategory,
 	opts Options,
 ) (bool, bool, error) {
+	ctx = withAuditContext(ctx, order.GetID(), opts.DryRun)
+
 	o.logger.Debug("Processing order",
 		"order_id", order.GetID(),
 		"order_date", order.GetDate().Format("2006-01-02"),
@@ -105,30 +107,9 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		"force", opts.Force,
 	)
 
-	// 1. Fetch orders from provider
-	orders, err := o.fetchOrders(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Fetch Monarch transactions (if clients configured)
-	if o.clients == nil {
-		return result, nil // Testing mode
-	}
-
-	providerTransactions, err := o.fetchMonarchTransactions(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. Get Monarch categories
-	catCategories, monarchCategories, err := o.fetchCategories(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. Start sync run tracking
+	// 1. Start sync run tracking before external fetches so fetch logs are tied to a run.
 	if o.storage != nil {
+		var err error
 		o.runID, err = o.storage.StartSyncRun(o.provider.DisplayName(), opts.LookbackDays, opts.DryRun)
 		if err != nil {
 			o.logger.Warn("Failed to start sync run tracking", "error", err)
@@ -136,10 +117,38 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		if o.consolidator != nil {
 			o.consolidator.SetRunID(o.runID)
 		}
+		if o.monarchAdapter != nil {
+			o.monarchAdapter.runID = o.runID
+		}
 		// Set up ledger storage for Walmart handler
 		if o.walmartHandler != nil {
 			o.walmartHandler.SetLedgerStorage(&ledgerStorageAdapter{repo: o.storage}, o.runID)
 		}
+	}
+
+	// 2. Fetch orders from provider
+	orders, err := o.fetchOrders(ctx, opts)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
+	}
+
+	// 3. Fetch Monarch transactions (if clients configured)
+	if o.clients == nil {
+		return result, nil // Testing mode
+	}
+
+	providerTransactions, err := o.fetchMonarchTransactions(ctx, opts)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
+	}
+
+	// 4. Get Monarch categories
+	catCategories, monarchCategories, err := o.fetchCategories(ctx)
+	if err != nil {
+		o.completeFailedRun(1)
+		return nil, err
 	}
 
 	// 5. Process orders
@@ -183,4 +192,13 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func (o *Orchestrator) completeFailedRun(errorCount int) {
+	if o.storage == nil || o.runID <= 0 {
+		return
+	}
+	if err := o.storage.CompleteSyncRun(o.runID, 0, 0, 0, errorCount); err != nil {
+		o.logger.Warn("Failed to complete failed sync run tracking", "error", err)
+	}
 }

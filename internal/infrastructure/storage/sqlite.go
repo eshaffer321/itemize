@@ -196,20 +196,99 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 	itemsJSON, _ := json.Marshal(record.Items)
 	splitsJSON, _ := json.Marshal(record.Splits)
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	attemptQuery := `
+	INSERT INTO processing_attempts
+	(run_id, order_id, provider, transaction_id, order_date, processed_at,
+	 order_total, order_subtotal, order_tax, order_tip, transaction_amount,
+	 split_count, status, error_message, item_count, match_confidence,
+	 dry_run, items_json, splits_json, multi_delivery_data,
+	 monarch_notes, category_id, category_name, order_fees_json, raw_order_json,
+	 match_diagnostics_json)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	if _, err := tx.Exec(attemptQuery,
+		nullInt64(record.RunID),
+		record.OrderID,
+		record.Provider,
+		nullString(record.TransactionID),
+		record.OrderDate,
+		record.ProcessedAt,
+		record.OrderTotal,
+		record.OrderSubtotal,
+		record.OrderTax,
+		record.OrderTip,
+		record.TransactionAmount,
+		record.SplitCount,
+		record.Status,
+		nullString(record.ErrorMessage),
+		record.ItemCount,
+		record.MatchConfidence,
+		record.DryRun,
+		string(itemsJSON),
+		string(splitsJSON),
+		nullString(record.MultiDeliveryData),
+		nullString(record.MonarchNotes),
+		nullString(record.CategoryID),
+		nullString(record.CategoryName),
+		nullString(record.OrderFeesJSON),
+		nullString(record.RawOrderJSON),
+		nullString(record.MatchDiagnosticsJSON),
+	); err != nil {
+		return err
+	}
+
 	query := `
-	INSERT OR REPLACE INTO processing_records
+	INSERT INTO processing_records
 	(order_id, provider, transaction_id, order_date, processed_at,
 	 order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	 split_count, status, error_message, item_count, match_confidence,
 	 dry_run, items_json, splits_json, multi_delivery_data,
-	 monarch_notes, category_id, category_name, order_fees_json, raw_order_json)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	 monarch_notes, category_id, category_name, order_fees_json, raw_order_json,
+	 match_diagnostics_json)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(order_id) DO UPDATE SET
+	 provider = excluded.provider,
+	 transaction_id = excluded.transaction_id,
+	 order_date = excluded.order_date,
+	 processed_at = excluded.processed_at,
+	 order_total = excluded.order_total,
+	 order_subtotal = excluded.order_subtotal,
+	 order_tax = excluded.order_tax,
+	 order_tip = excluded.order_tip,
+	 transaction_amount = excluded.transaction_amount,
+	 split_count = excluded.split_count,
+	 status = excluded.status,
+	 error_message = excluded.error_message,
+	 item_count = excluded.item_count,
+	 match_confidence = excluded.match_confidence,
+	 dry_run = excluded.dry_run,
+	 items_json = excluded.items_json,
+	 splits_json = excluded.splits_json,
+	 multi_delivery_data = excluded.multi_delivery_data,
+	 monarch_notes = excluded.monarch_notes,
+	 category_id = excluded.category_id,
+	 category_name = excluded.category_name,
+	 order_fees_json = excluded.order_fees_json,
+	 raw_order_json = excluded.raw_order_json,
+	 match_diagnostics_json = excluded.match_diagnostics_json
+	WHERE NOT (
+		processing_records.status = 'success'
+		AND processing_records.dry_run = 0
+		AND excluded.status != 'success'
+	)
 	`
 
-	_, err := s.db.Exec(query,
+	if _, err := tx.Exec(query,
 		record.OrderID,
 		record.Provider,
-		record.TransactionID,
+		nullString(record.TransactionID),
 		record.OrderDate,
 		record.ProcessedAt,
 		record.OrderTotal,
@@ -231,9 +310,12 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 		nullString(record.CategoryName),
 		nullString(record.OrderFeesJSON),
 		nullString(record.RawOrderJSON),
-	)
+		nullString(record.MatchDiagnosticsJSON),
+	); err != nil {
+		return err
+	}
 
-	return err
+	return tx.Commit()
 }
 
 // GetRecord retrieves an enhanced record by order ID
@@ -243,7 +325,8 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 	       split_count, status, error_message, item_count, match_confidence,
 	       dry_run, items_json, splits_json, multi_delivery_data,
-	       monarch_notes, category_id, category_name, order_fees_json, raw_order_json
+	       monarch_notes, category_id, category_name, order_fees_json, raw_order_json,
+	       match_diagnostics_json
 	FROM processing_records WHERE order_id = ?
 	`
 
@@ -259,6 +342,7 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		categoryName      sql.NullString
 		orderFeesJSON     sql.NullString
 		rawOrderJSON      sql.NullString
+		matchDiagnostics  sql.NullString
 	)
 	err := s.db.QueryRow(query, orderID).Scan(
 		&record.ID,
@@ -286,6 +370,7 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 		&categoryName,
 		&orderFeesJSON,
 		&rawOrderJSON,
+		&matchDiagnostics,
 	)
 
 	if err != nil {
@@ -326,6 +411,9 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	if rawOrderJSON.Valid {
 		record.RawOrderJSON = rawOrderJSON.String
 	}
+	if matchDiagnostics.Valid {
+		record.MatchDiagnosticsJSON = matchDiagnostics.String
+	}
 
 	// Unmarshal JSON fields (errors ignored as these are optional enrichment fields)
 	if record.ItemsJSON != "" {
@@ -336,6 +424,188 @@ func (s *Storage) GetRecord(orderID string) (*ProcessingRecord, error) {
 	}
 
 	return record, nil
+}
+
+// GetAttemptsByOrderID retrieves append-only attempts for an order.
+func (s *Storage) GetAttemptsByOrderID(orderID string) ([]ProcessingAttempt, error) {
+	query := `
+	SELECT id, COALESCE(run_id, 0), order_id, provider, transaction_id, order_date, processed_at,
+	       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
+	       split_count, status, error_message, item_count, match_confidence,
+	       dry_run, items_json, splits_json, multi_delivery_data,
+	       monarch_notes, category_id, category_name, order_fees_json, raw_order_json,
+	       match_diagnostics_json, created_at
+	FROM processing_attempts
+	WHERE order_id = ?
+	ORDER BY id ASC
+	`
+
+	rows, err := s.db.Query(query, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var attempts []ProcessingAttempt
+	for rows.Next() {
+		var attempt ProcessingAttempt
+		var (
+			transactionID     sql.NullString
+			errorMessage      sql.NullString
+			itemsJSON         sql.NullString
+			splitsJSON        sql.NullString
+			multiDeliveryData sql.NullString
+			monarchNotes      sql.NullString
+			categoryID        sql.NullString
+			categoryName      sql.NullString
+			orderFeesJSON     sql.NullString
+			rawOrderJSON      sql.NullString
+			matchDiagnostics  sql.NullString
+		)
+
+		if err := rows.Scan(
+			&attempt.ID,
+			&attempt.RunID,
+			&attempt.OrderID,
+			&attempt.Provider,
+			&transactionID,
+			&attempt.OrderDate,
+			&attempt.ProcessedAt,
+			&attempt.OrderTotal,
+			&attempt.OrderSubtotal,
+			&attempt.OrderTax,
+			&attempt.OrderTip,
+			&attempt.TransactionAmount,
+			&attempt.SplitCount,
+			&attempt.Status,
+			&errorMessage,
+			&attempt.ItemCount,
+			&attempt.MatchConfidence,
+			&attempt.DryRun,
+			&itemsJSON,
+			&splitsJSON,
+			&multiDeliveryData,
+			&monarchNotes,
+			&categoryID,
+			&categoryName,
+			&orderFeesJSON,
+			&rawOrderJSON,
+			&matchDiagnostics,
+			&attempt.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		if transactionID.Valid {
+			attempt.TransactionID = transactionID.String
+		}
+		if errorMessage.Valid {
+			attempt.ErrorMessage = errorMessage.String
+		}
+		if itemsJSON.Valid {
+			attempt.ItemsJSON = itemsJSON.String
+			_ = json.Unmarshal([]byte(attempt.ItemsJSON), &attempt.Items)
+		}
+		if splitsJSON.Valid {
+			attempt.SplitsJSON = splitsJSON.String
+			_ = json.Unmarshal([]byte(attempt.SplitsJSON), &attempt.Splits)
+		}
+		if multiDeliveryData.Valid {
+			attempt.MultiDeliveryData = multiDeliveryData.String
+		}
+		if monarchNotes.Valid {
+			attempt.MonarchNotes = monarchNotes.String
+		}
+		if categoryID.Valid {
+			attempt.CategoryID = categoryID.String
+		}
+		if categoryName.Valid {
+			attempt.CategoryName = categoryName.String
+		}
+		if orderFeesJSON.Valid {
+			attempt.OrderFeesJSON = orderFeesJSON.String
+		}
+		if rawOrderJSON.Valid {
+			attempt.RawOrderJSON = rawOrderJSON.String
+		}
+		if matchDiagnostics.Valid {
+			attempt.MatchDiagnosticsJSON = matchDiagnostics.String
+		}
+
+		attempts = append(attempts, attempt)
+	}
+
+	return attempts, rows.Err()
+}
+
+// SaveOrderTransaction records a Monarch transaction associated with an order.
+func (s *Storage) SaveOrderTransaction(txn *OrderTransaction) error {
+	if txn == nil {
+		return nil
+	}
+	query := `
+		INSERT INTO order_transactions
+		(run_id, order_id, transaction_id, role, amount, category_id, category_name, notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query,
+		nullInt64(txn.RunID),
+		txn.OrderID,
+		txn.TransactionID,
+		txn.Role,
+		txn.Amount,
+		nullString(txn.CategoryID),
+		nullString(txn.CategoryName),
+		nullString(txn.Notes),
+	)
+	return err
+}
+
+// GetOrderTransactions retrieves Monarch transaction associations for an order.
+func (s *Storage) GetOrderTransactions(orderID string) ([]OrderTransaction, error) {
+	query := `
+		SELECT id, COALESCE(run_id, 0), order_id, transaction_id, role, amount,
+		       category_id, category_name, notes, observed_at
+		FROM order_transactions
+		WHERE order_id = ?
+		ORDER BY id ASC
+	`
+	rows, err := s.db.Query(query, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var txns []OrderTransaction
+	for rows.Next() {
+		var txn OrderTransaction
+		var categoryID, categoryName, notes sql.NullString
+		if err := rows.Scan(
+			&txn.ID,
+			&txn.RunID,
+			&txn.OrderID,
+			&txn.TransactionID,
+			&txn.Role,
+			&txn.Amount,
+			&categoryID,
+			&categoryName,
+			&notes,
+			&txn.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		if categoryID.Valid {
+			txn.CategoryID = categoryID.String
+		}
+		if categoryName.Valid {
+			txn.CategoryName = categoryName.String
+		}
+		if notes.Valid {
+			txn.Notes = notes.String
+		}
+		txns = append(txns, txn)
+	}
+	return txns, rows.Err()
 }
 
 // GetStats returns enhanced statistics
@@ -443,9 +713,14 @@ func (s *Storage) CompleteSyncRun(runID int64, ordersFound, processed, skipped, 
 func (s *Storage) LogAPICall(call *APICall) error {
 	query := `
 		INSERT INTO api_calls
-		(run_id, order_id, method, request_json, response_json, error, duration_ms)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		(run_id, order_id, method, request_json, response_json, error, duration_ms, transaction_id, dry_run, phase)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	phase := call.Phase
+	if phase == "" {
+		phase = "completed"
+	}
 
 	_, err := s.db.Exec(query,
 		call.RunID,
@@ -455,6 +730,9 @@ func (s *Storage) LogAPICall(call *APICall) error {
 		call.ResponseJSON,
 		call.Error,
 		call.DurationMs,
+		nullString(call.TransactionID),
+		call.DryRun,
+		phase,
 	)
 
 	return err
@@ -463,7 +741,8 @@ func (s *Storage) LogAPICall(call *APICall) error {
 // GetAPICallsByOrderID retrieves all API calls for a specific order
 func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 	query := `
-		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp
+		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp,
+		       transaction_id, dry_run, phase
 		FROM api_calls
 		WHERE order_id = ?
 		ORDER BY timestamp ASC
@@ -479,6 +758,7 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 	for rows.Next() {
 		var call APICall
 		var timestamp string
+		var transactionID sql.NullString
 		err := rows.Scan(
 			&call.RunID,
 			&call.OrderID,
@@ -488,9 +768,15 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 			&call.Error,
 			&call.DurationMs,
 			&timestamp,
+			&transactionID,
+			&call.DryRun,
+			&call.Phase,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if transactionID.Valid {
+			call.TransactionID = transactionID.String
 		}
 		calls = append(calls, call)
 	}
@@ -501,7 +787,8 @@ func (s *Storage) GetAPICallsByOrderID(orderID string) ([]APICall, error) {
 // GetAPICallsByRunID retrieves all API calls for a specific sync run
 func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	query := `
-		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp
+		SELECT run_id, order_id, method, request_json, response_json, error, duration_ms, timestamp,
+		       transaction_id, dry_run, phase
 		FROM api_calls
 		WHERE run_id = ?
 		ORDER BY timestamp ASC
@@ -517,6 +804,7 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 	for rows.Next() {
 		var call APICall
 		var timestamp string
+		var transactionID sql.NullString
 		err := rows.Scan(
 			&call.RunID,
 			&call.OrderID,
@@ -526,14 +814,92 @@ func (s *Storage) GetAPICallsByRunID(runID int64) ([]APICall, error) {
 			&call.Error,
 			&call.DurationMs,
 			&timestamp,
+			&transactionID,
+			&call.DryRun,
+			&call.Phase,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if transactionID.Valid {
+			call.TransactionID = transactionID.String
 		}
 		calls = append(calls, call)
 	}
 
 	return calls, rows.Err()
+}
+
+// LogProviderFetch logs an external provider/Monarch fetch snapshot.
+func (s *Storage) LogProviderFetch(fetch *ProviderFetchLog) error {
+	if fetch == nil {
+		return nil
+	}
+	query := `
+		INSERT INTO provider_fetches
+		(run_id, provider, fetch_type, request_json, response_json, error, duration_ms, order_count, transaction_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err := s.db.Exec(query,
+		nullInt64(fetch.RunID),
+		fetch.Provider,
+		fetch.FetchType,
+		nullString(fetch.RequestJSON),
+		nullString(fetch.ResponseJSON),
+		nullString(fetch.Error),
+		fetch.DurationMs,
+		fetch.OrderCount,
+		fetch.TransactionCount,
+	)
+	return err
+}
+
+// GetProviderFetchesByRunID retrieves provider fetch logs for a sync run.
+func (s *Storage) GetProviderFetchesByRunID(runID int64) ([]ProviderFetchLog, error) {
+	query := `
+		SELECT id, COALESCE(run_id, 0), provider, fetch_type, request_json, response_json,
+		       error, duration_ms, order_count, transaction_count, created_at
+		FROM provider_fetches
+		WHERE run_id = ?
+		ORDER BY id ASC
+	`
+	rows, err := s.db.Query(query, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var fetches []ProviderFetchLog
+	for rows.Next() {
+		var fetch ProviderFetchLog
+		var requestJSON, responseJSON, errorText sql.NullString
+		if err := rows.Scan(
+			&fetch.ID,
+			&fetch.RunID,
+			&fetch.Provider,
+			&fetch.FetchType,
+			&requestJSON,
+			&responseJSON,
+			&errorText,
+			&fetch.DurationMs,
+			&fetch.OrderCount,
+			&fetch.TransactionCount,
+			&fetch.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if requestJSON.Valid {
+			fetch.RequestJSON = requestJSON.String
+		}
+		if responseJSON.Valid {
+			fetch.ResponseJSON = responseJSON.String
+		}
+		if errorText.Valid {
+			fetch.Error = errorText.String
+		}
+		fetches = append(fetches, fetch)
+	}
+	return fetches, rows.Err()
 }
 
 // ListOrders returns orders matching the given filters with pagination
@@ -598,7 +964,8 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 		       order_total, order_subtotal, order_tax, order_tip, transaction_amount,
 		       split_count, status, error_message, item_count, match_confidence,
 		       dry_run, items_json, splits_json, multi_delivery_data,
-		       monarch_notes, category_id, category_name, order_fees_json, raw_order_json
+		       monarch_notes, category_id, category_name, order_fees_json, raw_order_json,
+		       match_diagnostics_json
 		FROM processing_records
 		%s
 		ORDER BY %s %s
@@ -627,6 +994,7 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 			categoryName      sql.NullString
 			orderFeesJSON     sql.NullString
 			rawOrderJSON      sql.NullString
+			matchDiagnostics  sql.NullString
 		)
 		err := rows.Scan(
 			&record.ID,
@@ -654,6 +1022,7 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 			&categoryName,
 			&orderFeesJSON,
 			&rawOrderJSON,
+			&matchDiagnostics,
 		)
 		if err != nil {
 			return nil, err
@@ -689,6 +1058,9 @@ func (s *Storage) ListOrders(filters OrderFilters) (*OrderListResult, error) {
 		}
 		if rawOrderJSON.Valid {
 			record.RawOrderJSON = rawOrderJSON.String
+		}
+		if matchDiagnostics.Valid {
+			record.MatchDiagnosticsJSON = matchDiagnostics.String
 		}
 
 		// Unmarshal JSON fields

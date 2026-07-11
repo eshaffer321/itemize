@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // convertOrderItems converts provider order items to storage order items
@@ -50,9 +50,10 @@ func convertSplits(splits []*monarch.TransactionSplit) []storage.SplitDetail {
 // These handle persisting processing results and API call logs to storage.
 
 // recordError records a processing error to storage
-func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
+func (o *Orchestrator) recordError(order providers.Order, errorMsg string, result *handlers.ProcessResult) {
 	if o.storage != nil {
 		record := &storage.ProcessingRecord{
+			RunID:         o.runID,
 			OrderID:       order.GetID(),
 			Provider:      order.GetProviderName(),
 			OrderDate:     order.GetDate(),
@@ -66,6 +67,13 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 			ErrorMessage:  errorMsg,
 			Items:         convertOrderItems(order.GetItems()),
 		}
+		if result != nil {
+			record.MatchDiagnosticsJSON = result.MatchDiagnosticsJSON
+			record.CategoryID = result.CategoryID
+			record.CategoryName = result.CategoryName
+			record.MonarchNotes = result.MonarchNotes
+		}
+		o.populateRecordAudit(order, record)
 		if err := o.storage.SaveRecord(record); err != nil {
 			o.logger.Error("Failed to save error record", "order_id", order.GetID(), "error", err)
 		}
@@ -77,6 +85,7 @@ func (o *Orchestrator) recordError(order providers.Order, errorMsg string) {
 func (o *Orchestrator) recordPending(order providers.Order, reason string) {
 	if o.storage != nil {
 		record := &storage.ProcessingRecord{
+			RunID:         o.runID,
 			OrderID:       order.GetID(),
 			Provider:      order.GetProviderName(),
 			OrderDate:     order.GetDate(),
@@ -90,6 +99,7 @@ func (o *Orchestrator) recordPending(order providers.Order, reason string) {
 			ErrorMessage:  reason,
 			Items:         convertOrderItems(order.GetItems()),
 		}
+		o.populateRecordAudit(order, record)
 		if err := o.storage.SaveRecord(record); err != nil {
 			o.logger.Error("Failed to save pending record", "order_id", order.GetID(), "error", err)
 		}
@@ -108,6 +118,7 @@ func (o *Orchestrator) recordSuccessWithResult(
 ) {
 	if o.storage != nil {
 		record := &storage.ProcessingRecord{
+			RunID:           o.runID,
 			OrderID:         order.GetID(),
 			Provider:        order.GetProviderName(),
 			OrderDate:       order.GetDate(),
@@ -146,22 +157,67 @@ func (o *Orchestrator) recordSuccessWithResult(
 			record.CategoryID = result.CategoryID
 			record.CategoryName = result.CategoryName
 			record.MonarchNotes = result.MonarchNotes
-		}
-
-		// Serialize raw order data for audit trail
-		if rawData := order.GetRawData(); rawData != nil {
-			if rawJSON, err := json.Marshal(rawData); err == nil {
-				record.RawOrderJSON = string(rawJSON)
+			record.MatchDiagnosticsJSON = result.MatchDiagnosticsJSON
+			if len(result.ReconciledTransactions) > 0 {
+				record.SplitCount = len(result.ReconciledTransactions)
 			}
 		}
 
-		// Extract fees breakdown if available (provider-specific)
-		if feesData := extractFeesBreakdown(order); feesData != "" {
-			record.OrderFeesJSON = feesData
-		}
+		o.populateRecordAudit(order, record)
 
 		if err := o.storage.SaveRecord(record); err != nil {
 			o.logger.Error("Failed to save success record", "order_id", order.GetID(), "error", err)
+		}
+		o.recordOrderTransactions(order, record, result)
+	}
+}
+
+func (o *Orchestrator) populateRecordAudit(order providers.Order, record *storage.ProcessingRecord) {
+	if rawData := order.GetRawData(); rawData != nil {
+		if rawJSON, err := json.Marshal(rawData); err == nil {
+			record.RawOrderJSON = string(rawJSON)
+		}
+	}
+
+	if feesData := extractFeesBreakdown(order); feesData != "" {
+		record.OrderFeesJSON = feesData
+	}
+}
+
+func (o *Orchestrator) recordOrderTransactions(order providers.Order, record *storage.ProcessingRecord, result *handlers.ProcessResult) {
+	if o.storage == nil || result == nil {
+		return
+	}
+	if len(result.ReconciledTransactions) > 0 {
+		for _, txn := range result.ReconciledTransactions {
+			if txn == nil {
+				continue
+			}
+			if err := o.storage.SaveOrderTransaction(&storage.OrderTransaction{
+				RunID:         o.runID,
+				OrderID:       order.GetID(),
+				TransactionID: txn.ID,
+				Role:          "reconciled",
+				Amount:        txn.Amount,
+				Notes:         txn.Notes,
+			}); err != nil {
+				o.logger.Error("Failed to save reconciled order transaction", "order_id", order.GetID(), "transaction_id", txn.ID, "error", err)
+			}
+		}
+		return
+	}
+	if result.Transaction != nil {
+		if err := o.storage.SaveOrderTransaction(&storage.OrderTransaction{
+			RunID:         o.runID,
+			OrderID:       order.GetID(),
+			TransactionID: result.Transaction.ID,
+			Role:          "matched",
+			Amount:        result.Transaction.Amount,
+			CategoryID:    record.CategoryID,
+			CategoryName:  record.CategoryName,
+			Notes:         record.MonarchNotes,
+		}); err != nil {
+			o.logger.Error("Failed to save order transaction", "order_id", order.GetID(), "transaction_id", result.Transaction.ID, "error", err)
 		}
 	}
 }

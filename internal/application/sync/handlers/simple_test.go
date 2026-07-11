@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -183,6 +183,55 @@ func TestSimpleHandler_ProcessOrder_NoMatch_Skipped(t *testing.T) {
 	assert.False(t, result.Processed)
 	assert.True(t, result.Skipped)
 	assert.Contains(t, result.SkipReason, "no matching transaction")
+}
+
+func TestSimpleHandler_ProcessOrder_ReconcilesAlreadySplitTransactions(t *testing.T) {
+	splitter := &simpleTestSplitter{}
+	monarchClient := &simpleTestMonarch{}
+	handler := createTestSimpleHandler(t, splitter, monarchClient)
+
+	orderDate := time.Now()
+	order := &simpleTestOrder{
+		id:           "ORDER-RECONCILE",
+		date:         orderDate,
+		total:        307.79,
+		subtotal:     290.37,
+		tax:          17.42,
+		providerName: "Costco",
+		items: []providers.OrderItem{
+			&simpleTestItem{name: "CANTALOUPE", price: 6.99, quantity: 1},
+			&simpleTestItem{name: "HYDRORAIL", price: 99.97, quantity: 1},
+			&simpleTestItem{name: "KSDIAPER SZ5", price: 39.99, quantity: 1},
+			&simpleTestItem{name: "HOTO SCRUB", price: 29.99, quantity: 1},
+		},
+	}
+
+	transactions := []*monarch.Transaction{
+		{ID: "txn-grocery", Amount: -127.64, Date: simpleToMonarchDate(orderDate), Notes: "Groceries:\n- CANTALOUPE $6.99"},
+		{ID: "txn-home", Amount: -105.97, Date: simpleToMonarchDate(orderDate), Notes: "Home Spending:\n- HYDRORAIL $99.97"},
+		{ID: "txn-kids", Amount: -42.39, Date: simpleToMonarchDate(orderDate), Notes: "Kid Needs:\n- KSDIAPER SZ5 $39.99"},
+		{ID: "txn-house", Amount: -31.79, Date: simpleToMonarchDate(orderDate), Notes: "Household Supplies:\n- HOTO SCRUB $29.99"},
+	}
+
+	usedTxnIDs := make(map[string]bool)
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		transactions,
+		usedTxnIDs,
+		nil,
+		nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.False(t, result.Skipped)
+	require.Len(t, result.ReconciledTransactions, 4)
+	assert.False(t, monarchClient.updateCalled)
+	assert.False(t, monarchClient.updateSplitsCaled)
+	assert.True(t, usedTxnIDs["txn-grocery"])
+	assert.NotEmpty(t, result.MatchDiagnosticsJSON)
 }
 
 func TestSimpleHandler_ProcessOrder_TransactionAlreadyHasSplits_Skipped(t *testing.T) {

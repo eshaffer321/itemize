@@ -2,15 +2,16 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"strings"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // SimpleHandler processes orders for simple providers like Costco
@@ -57,6 +58,23 @@ func (h *SimpleHandler) ProcessOrder(
 	}
 
 	if matchResult == nil {
+		diagnostics := buildSimpleMatchDiagnostics(order, monarchTxns, usedTxnIDs)
+		result.MatchDiagnosticsJSON = diagnostics
+		if reconciled := h.findAlreadySplitTransactions(order, monarchTxns, usedTxnIDs); len(reconciled) > 0 {
+			for _, tx := range reconciled {
+				usedTxnIDs[tx.ID] = true
+			}
+			result.Processed = true
+			result.Transaction = reconciled[0]
+			result.ReconciledTransactions = reconciled
+			result.MonarchNotes = "Reconciled already-split Monarch transactions"
+			h.logWarn("Order already appears split in Monarch",
+				"order_id", order.GetID(),
+				"transaction_count", len(reconciled),
+				"expected_amount", order.GetTotal())
+			return result, nil
+		}
+
 		result.Skipped = true
 		result.SkipReason = "no matching transaction found"
 		h.logWarn("No matching transaction found", "order_id", order.GetID())
@@ -194,6 +212,109 @@ func (h *SimpleHandler) applyMultiCategorySplits(
 	result.Transaction = transaction
 	result.Processed = true
 	return result, nil
+}
+
+type simpleMatchCandidate struct {
+	ID         string  `json:"id"`
+	Date       string  `json:"date"`
+	Amount     float64 `json:"amount"`
+	AmountDiff float64 `json:"amount_diff"`
+	DateDiff   float64 `json:"date_diff_days"`
+	Used       bool    `json:"used"`
+	HasSplits  bool    `json:"has_splits"`
+	Reason     string  `json:"reason"`
+}
+
+type simpleMatchDiagnostics struct {
+	OrderID        string                 `json:"order_id"`
+	OrderDate      string                 `json:"order_date"`
+	ExpectedAmount float64                `json:"expected_amount"`
+	CandidateCount int                    `json:"candidate_count"`
+	Candidates     []simpleMatchCandidate `json:"candidates"`
+}
+
+func buildSimpleMatchDiagnostics(order providers.Order, txns []*monarch.Transaction, usedTxnIDs map[string]bool) string {
+	const dateTolerance = 5.0
+	const amountTolerance = 0.01
+
+	diagnostics := simpleMatchDiagnostics{
+		OrderID:        order.GetID(),
+		OrderDate:      order.GetDate().Format("2006-01-02"),
+		ExpectedAmount: order.GetTotal(),
+		CandidateCount: len(txns),
+		Candidates:     make([]simpleMatchCandidate, 0, len(txns)),
+	}
+
+	for _, tx := range txns {
+		dateDiff := math.Abs(tx.Date.Time.Sub(order.GetDate()).Hours() / 24)
+		amountDiff := math.Abs(math.Abs(tx.Amount) - math.Abs(order.GetTotal()))
+		candidate := simpleMatchCandidate{
+			ID:         tx.ID,
+			Date:       tx.Date.Format("2006-01-02"),
+			Amount:     tx.Amount,
+			AmountDiff: amountDiff,
+			DateDiff:   dateDiff,
+			Used:       usedTxnIDs[tx.ID],
+			HasSplits:  tx.HasSplits,
+			Reason:     "candidate",
+		}
+		switch {
+		case candidate.Used:
+			candidate.Reason = "already_used"
+		case tx.Amount > 0 && order.GetTotal() > 0:
+			candidate.Reason = "wrong_sign"
+		case dateDiff > dateTolerance:
+			candidate.Reason = "date_out_of_range"
+		case amountDiff > amountTolerance:
+			candidate.Reason = "amount_mismatch"
+		}
+		diagnostics.Candidates = append(diagnostics.Candidates, candidate)
+	}
+
+	data, err := json.Marshal(diagnostics)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (h *SimpleHandler) findAlreadySplitTransactions(order providers.Order, txns []*monarch.Transaction, usedTxnIDs map[string]bool) []*monarch.Transaction {
+	matches, err := h.matcher.FindSubsetByTotal(order, txns, usedTxnIDs)
+	if err != nil || len(matches) < 2 {
+		return nil
+	}
+	if !notesMatchOrderItems(matches, order.GetItems()) {
+		return nil
+	}
+	return matches
+}
+
+func notesMatchOrderItems(txns []*monarch.Transaction, items []providers.OrderItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+
+	notes := strings.Builder{}
+	for _, tx := range txns {
+		notes.WriteString(" ")
+		notes.WriteString(strings.ToUpper(tx.Notes))
+	}
+	joinedNotes := notes.String()
+	if strings.TrimSpace(joinedNotes) == "" {
+		return false
+	}
+
+	matches := 0
+	for _, item := range items {
+		name := strings.ToUpper(strings.TrimSpace(item.GetName()))
+		if len(name) < 4 {
+			continue
+		}
+		if strings.Contains(joinedNotes, name) {
+			matches++
+		}
+	}
+	return matches >= 1
 }
 
 // Nil-safe logging helpers

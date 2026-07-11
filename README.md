@@ -46,6 +46,18 @@ cd itemize
 go build -o itemize ./cmd/itemize/
 ```
 
+#### Contributor checks
+
+Install local tools and hooks before committing:
+
+```bash
+make install-tools
+make install-hooks
+```
+
+The pre-commit hook runs formatting checks, `golangci-lint`, `go vet`, and `go test ./...`.
+To bypass once in an emergency, run `ITEMIZE_SKIP_PRECOMMIT=1 git commit ...`.
+
 ### Configure
 
 Set environment variables:

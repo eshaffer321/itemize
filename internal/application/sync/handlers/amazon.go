@@ -98,6 +98,10 @@ type ProcessResult struct {
 	CategoryID   string // Category ID assigned (for single-category updates)
 	CategoryName string // Human-readable category name
 	MonarchNotes string // Notes sent to Monarch
+
+	// Debug/reconciliation audit fields
+	MatchDiagnosticsJSON   string
+	ReconciledTransactions []*monarch.Transaction
 }
 
 // AmazonHandler processes Amazon orders with pro-rata allocation

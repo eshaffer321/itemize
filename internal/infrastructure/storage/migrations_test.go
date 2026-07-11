@@ -14,7 +14,7 @@ import (
 // expectedMigrationCount is the number of migrations we expect to have
 // Update this when adding new migrations
 // Note: goose adds a version 0 entry when initializing, so total count is migrations + 1
-const expectedMigrationCount = 8
+const expectedMigrationCount = 10
 const gooseVersionCount = expectedMigrationCount + 1 // includes goose's version 0 entry
 
 // TestMigrations_FreshDatabase tests running migrations on a fresh database
@@ -92,6 +92,27 @@ func TestMigrations_Schema(t *testing.T) {
 	// Test goose_db_version table exists (goose's migration tracking)
 	err = store.db.QueryRow("SELECT COUNT(*) FROM goose_db_version").Scan(new(int))
 	assert.NoError(t, err, "goose_db_version table should exist")
+
+	// Test processing_attempts table exists (append-only audit trail)
+	err = store.db.QueryRow("SELECT COUNT(*) FROM processing_attempts").Scan(new(int))
+	assert.NoError(t, err, "processing_attempts table should exist")
+
+	// Test order_transactions table exists (one order can touch multiple Monarch transactions)
+	err = store.db.QueryRow("SELECT COUNT(*) FROM order_transactions").Scan(new(int))
+	assert.NoError(t, err, "order_transactions table should exist")
+
+	// Test diagnostic columns exist
+	err = store.db.QueryRow("SELECT match_diagnostics_json FROM processing_records LIMIT 0").Scan()
+	assert.True(t, err == nil || err == sql.ErrNoRows, "processing_records.match_diagnostics_json should exist")
+
+	err = store.db.QueryRow("SELECT transaction_id, dry_run FROM api_calls LIMIT 0").Scan()
+	assert.True(t, err == nil || err == sql.ErrNoRows, "api_calls mutation diagnostic columns should exist")
+
+	err = store.db.QueryRow("SELECT phase FROM api_calls LIMIT 0").Scan()
+	assert.True(t, err == nil || err == sql.ErrNoRows, "api_calls.phase should exist")
+
+	err = store.db.QueryRow("SELECT COUNT(*) FROM provider_fetches").Scan(new(int))
+	assert.NoError(t, err, "provider_fetches table should exist")
 }
 
 // TestMigrations_ForeignKeyConstraints tests that foreign keys are enforced
