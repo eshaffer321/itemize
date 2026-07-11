@@ -100,6 +100,28 @@ func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (provid
 	return amazonprovider.NewProvider(amazonLogger, providerCfg), nil
 }
 
+// ResolveAmazonAccount returns the explicit Amazon cookie account for this run.
+// A single positional account is accepted for the common `itemize amazon wife`
+// shape, but ambiguous mixes are rejected so arguments are never ignored.
+func ResolveAmazonAccount(cfg *config.Config, flagAccount string, extraArgs []string) (string, error) {
+	if len(extraArgs) > 1 {
+		return "", fmt.Errorf("unexpected arguments: %s; use -account %s", strings.Join(extraArgs, " "), extraArgs[0])
+	}
+	if len(extraArgs) == 1 {
+		if flagAccount != "" {
+			return "", fmt.Errorf("use either -account or a positional account, not both")
+		}
+		return extraArgs[0], nil
+	}
+	if flagAccount != "" {
+		return flagAccount, nil
+	}
+	if cfg != nil {
+		return cfg.Providers.Amazon.AccountName, nil
+	}
+	return "", nil
+}
+
 // ListAmazonAccounts returns the names of saved amazon-go cookie accounts found
 // under ~/.amazon-go (files named cookies-<account>.json).
 func ListAmazonAccounts(cfg *config.Config) ([]string, error) {

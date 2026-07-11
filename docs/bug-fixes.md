@@ -12,6 +12,30 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-08: Amazon auth recovery leaked amazon-go and ignored positional accounts
+
+**Description:**
+Running `./itemize amazon amazon-wife` looked like it selected the `amazon-wife` cookie account, but the extra positional argument was silently ignored and the sync used the default Amazon account. When cookies were expired, the recovery message then told users to run `amazon-go import-browser-profile`, a command that is not available in a fresh itemize checkout or binary install.
+
+**Test Case:**
+```go
+// internal/cli/providers_test.go: TestResolveAmazonAccount_UsesSinglePositionalAccount
+// internal/adapters/providers/amazon/provider_test.go: TestProvider_FetchOrdersReturnsHealthCheckError
+// Expected: positional Amazon account is honored, ambiguous extras are rejected,
+// and auth failures point at `itemize amazon -import-browser-profile`.
+```
+
+**Fix Applied:**
+Added an itemize-native Amazon cookie import path:
+`itemize amazon -import-browser-profile <profile-dir> [-account <name>]`.
+The CLI now resolves a single positional Amazon account as shorthand for `-account`, rejects ambiguous extra arguments, and lets `-cookie-file` override `AMAZON_COOKIE_FILE` so suggested recovery commands are runnable.
+
+**Verification:**
+- `go test ./internal/adapters/providers/amazon ./internal/cli` passes.
+- `go test ./...` passes.
+
+---
+
 ### 2026-07-08: Costco split success could be overwritten by later no-match failure
 
 **Description:**
@@ -111,7 +135,7 @@ While swapping Amazon from the npm scraper to `amazon-go`, a dry-run over 365 da
 The provider fetch path trusted `FetchOrders` directly. The Go client can return no orders when a cookie jar is stale unless auth is checked first, which hides the stale-session problem from the CLI.
 
 **Fix Applied:**
-The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant `amazon-go import-browser-profile` command. Itemize now consumes `amazon-go v0.3.0`, which includes the parser/auth detection fix for the `Amazon Sign-In` title variant.
+The Amazon provider now calls `HealthCheck()` before order fetches and wraps failures with the relevant browser-profile import command. Itemize now consumes `amazon-go v0.3.0`, which includes the parser/auth detection fix for the `Amazon Sign-In` title variant.
 
 **Verification:**
 - `TestProvider_FetchOrdersReturnsHealthCheckError` passes.

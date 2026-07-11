@@ -10,14 +10,20 @@ import (
 
 // SyncFlags are common flags for all sync commands
 type SyncFlags struct {
-	DryRun       bool
-	LookbackDays int
-	MaxOrders    int
-	Force        bool
-	Verbose      bool
-	OrderID      string
-	Account      string
-	ListAccounts bool
+	DryRun               bool
+	LookbackDays         int
+	MaxOrders            int
+	Force                bool
+	Verbose              bool
+	OrderID              string
+	Account              string
+	CookieFile           string
+	ListAccounts         bool
+	ImportBrowserProfile string
+	PlaywrightRoot       string
+	Headless             bool
+	SkipAuthCheck        bool
+	ExtraArgs            []string
 }
 
 // ParseSyncFlags parses common sync flags from command line
@@ -30,7 +36,12 @@ func ParseSyncFlags() SyncFlags {
 	flag.BoolVar(&flags.Verbose, "verbose", false, "Verbose output")
 	flag.StringVar(&flags.OrderID, "order-id", "", "Process only this specific order ID (limits blast radius)")
 	flag.StringVar(&flags.Account, "account", "", "Amazon cookie account name (overrides AMAZON_ACCOUNT_NAME; run -list-accounts to see saved accounts)")
+	flag.StringVar(&flags.CookieFile, "cookie-file", "", "Explicit Amazon cookie file (overrides AMAZON_COOKIE_FILE)")
 	flag.BoolVar(&flags.ListAccounts, "list-accounts", false, "List saved Amazon cookie accounts and exit")
+	flag.StringVar(&flags.ImportBrowserProfile, "import-browser-profile", "", "Import Amazon cookies from this Chromium/Playwright browser profile and exit")
+	flag.StringVar(&flags.PlaywrightRoot, "playwright-root", "", "Directory containing node_modules/playwright for Amazon cookie import")
+	flag.BoolVar(&flags.Headless, "headless", false, "Run Amazon browser profile import headlessly")
+	flag.BoolVar(&flags.SkipAuthCheck, "skip-auth-check", false, "Skip Amazon auth validation after importing cookies")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: itemize <command> [flags]")
@@ -47,11 +58,12 @@ func ParseSyncFlags() SyncFlags {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Provider-Specific Environment Variables:")
 		fmt.Fprintln(os.Stderr, "  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
-		fmt.Fprintln(os.Stderr, "                             Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' first")
+		fmt.Fprintln(os.Stderr, "                             Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' first")
 		fmt.Fprintln(os.Stderr, "  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
 	}
 
 	flag.Parse()
+	flags.ExtraArgs = flag.Args()
 	return flags
 }
 
