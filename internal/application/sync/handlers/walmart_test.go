@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -108,11 +108,15 @@ func (m *walmartTestMonarch) UpdateSplits(ctx context.Context, id string, splits
 
 // walmartTestConsolidator implements TransactionConsolidator
 type walmartTestConsolidator struct {
-	result *ConsolidationResult
-	err    error
+	result               *ConsolidationResult
+	err                  error
+	receivedTransactions []*monarch.Transaction
+	receivedOrderTotal   float64
 }
 
 func (m *walmartTestConsolidator) ConsolidateTransactions(ctx context.Context, transactions []*monarch.Transaction, order providers.Order, dryRun bool) (*ConsolidationResult, error) {
+	m.receivedTransactions = transactions
+	m.receivedOrderTotal = order.GetTotal()
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -266,7 +270,7 @@ func TestWalmartHandler_ProcessOrder_GiftCard_UsesLedgerAmount(t *testing.T) {
 	}
 
 	txns := []*monarch.Transaction{
-		{ID: "txn-gc", Amount: -70.00, Date: walmartToMonarchDate(orderDate)}, // Matches ledger amount
+		{ID: "txn-gc", Amount: -70.00, Date: walmartToMonarchDate(orderDate)},     // Matches ledger amount
 		{ID: "txn-other", Amount: -100.00, Date: walmartToMonarchDate(orderDate)}, // Would match order total
 	}
 
@@ -364,6 +368,91 @@ func TestWalmartHandler_ProcessOrder_MultiDelivery_Success(t *testing.T) {
 	assert.True(t, result.Processed)
 	assert.True(t, usedTxnIDs["txn-1"])
 	assert.True(t, usedTxnIDs["txn-2"])
+}
+
+func TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateTransaction(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, nil, monarchClient)
+
+	orderDate := time.Date(2026, 7, 6, 6, 25, 25, 0, time.FixedZone("MDT", -6*60*60))
+	order := &walmartTestOrder{
+		id:             "200015335172701",
+		date:           orderDate,
+		total:          51.15,
+		subtotal:       47.00,
+		tax:            4.15,
+		items:          []providers.OrderItem{&walmartTestItem{name: "Item", price: 47.00, quantity: 1}},
+		charges:        []float64{42.16, 8.99},
+		isMultiDeliver: true,
+	}
+
+	txns := []*monarch.Transaction{
+		{ID: "txn-aggregate", Amount: -51.15, Date: walmartToMonarchDate(orderDate)},
+	}
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		usedTxnIDs,
+		nil, nil,
+		true,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.False(t, result.Skipped)
+	assert.Equal(t, "txn-aggregate", result.Transaction.ID)
+	assert.True(t, usedTxnIDs["txn-aggregate"])
+}
+
+func TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateSubset(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	consolidator := &walmartTestConsolidator{
+		result: &ConsolidationResult{
+			ConsolidatedTransaction: &monarch.Transaction{ID: "txn-75-60", Amount: -75.61},
+		},
+	}
+	handler := createTestWalmartHandler(t, splitter, consolidator, monarchClient)
+
+	orderDate := time.Date(2026, 7, 1, 8, 37, 37, 0, time.FixedZone("MDT", -6*60*60))
+	order := &walmartTestOrder{
+		id:             "200015072601480",
+		date:           orderDate,
+		total:          75.61,
+		subtotal:       70.00,
+		tax:            5.61,
+		items:          []providers.OrderItem{&walmartTestItem{name: "Item", price: 70.00, quantity: 1}},
+		charges:        []float64{0.01, 4.08, 71.52},
+		isMultiDeliver: true,
+	}
+
+	txns := []*monarch.Transaction{
+		{ID: "txn-75-60", Amount: -75.60, Date: walmartToMonarchDate(orderDate)},
+		{ID: "txn-0-01", Amount: -0.01, Date: walmartToMonarchDate(orderDate)},
+	}
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		usedTxnIDs,
+		nil, nil,
+		true,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	assert.False(t, result.Skipped)
+	assert.Equal(t, "txn-75-60", result.Transaction.ID)
+	assert.True(t, usedTxnIDs["txn-75-60"])
+	assert.True(t, usedTxnIDs["txn-0-01"])
+	require.Len(t, consolidator.receivedTransactions, 2)
+	assert.Equal(t, 75.61, consolidator.receivedOrderTotal)
 }
 
 func TestWalmartHandler_ProcessOrder_MultiDelivery_MissingTransaction(t *testing.T) {

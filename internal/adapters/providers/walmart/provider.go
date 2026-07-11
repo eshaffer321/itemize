@@ -64,9 +64,15 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 		return nil, fmt.Errorf("failed to fetch walmart orders: %w", err)
 	}
 
+	orderSummaries, duplicates := dedupeOrderSummariesByID(resp.Data.OrderHistoryV2.OrderGroups)
+	for _, orderID := range duplicates {
+		p.logger.Warn("duplicate order summary returned by Walmart; using first occurrence",
+			slog.String("order_id", orderID))
+	}
+
 	// Convert OrderSummary to full Orders
 	var providerOrders []providers.Order
-	for _, summary := range resp.Data.OrderHistoryV2.OrderGroups {
+	for _, summary := range orderSummaries {
 		// Check for context cancellation before each order fetch
 		if err := ctx.Err(); err != nil {
 			return providerOrders, fmt.Errorf("cancelled during order fetch: %w", err)
@@ -118,6 +124,27 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	p.logger.Info("fetched orders", slog.Int("total", len(providerOrders)))
 
 	return providerOrders, nil
+}
+
+func dedupeOrderSummariesByID(orderSummaries []walmartclient.OrderSummary) ([]walmartclient.OrderSummary, []string) {
+	if len(orderSummaries) == 0 {
+		return nil, nil
+	}
+
+	deduped := make([]walmartclient.OrderSummary, 0, len(orderSummaries))
+	seen := make(map[string]bool, len(orderSummaries))
+	var duplicates []string
+
+	for _, summary := range orderSummaries {
+		if seen[summary.OrderID] {
+			duplicates = append(duplicates, summary.OrderID)
+			continue
+		}
+		seen[summary.OrderID] = true
+		deduped = append(deduped, summary)
+	}
+
+	return deduped, duplicates
 }
 
 // GetOrderDetails fetches full details for a specific order

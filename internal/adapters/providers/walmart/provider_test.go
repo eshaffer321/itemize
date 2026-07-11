@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +67,21 @@ func TestProvider_FetchOrders_WithMaxOrders(t *testing.T) {
 
 	// TODO: Create mock client that returns multiple orders
 	// Then verify MaxOrders limits the result
+}
+
+func TestDedupeOrderSummariesByID(t *testing.T) {
+	orders := []walmartclient.OrderSummary{
+		{OrderID: "duplicate", FulfillmentType: "DFS", ItemCount: 2},
+		{OrderID: "unique", FulfillmentType: "IN_STORE", ItemCount: 1},
+		{OrderID: "duplicate", FulfillmentType: "DFS", ItemCount: 2},
+	}
+
+	deduped, duplicates := dedupeOrderSummariesByID(orders)
+
+	require.Len(t, deduped, 2)
+	assert.Equal(t, "duplicate", deduped[0].OrderID)
+	assert.Equal(t, "unique", deduped[1].OrderID)
+	assert.Equal(t, []string{"duplicate"}, duplicates)
 }
 
 // TestProvider_GetOrderDetails tests fetching order details

@@ -12,6 +12,48 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-11: Walmart ledger charge lines did not always match Monarch posting groups
+
+**Description:**
+Two Walmart orders were repeatedly skipped even though their card transactions had posted in Monarch. Walmart's order ledger reported multiple `FINAL_CHARGES`, but Monarch/Plaid posted the same card activity as a combined transaction or as a different grouping. The strict Walmart multi-delivery path required every ledger charge line to have its own Monarch transaction, so it skipped posted orders as if transactions were missing.
+
+The same sync also processed byte-identical duplicate Walmart order summaries, producing duplicate ledger snapshots and duplicate errors for the same order IDs.
+
+**Test Case:**
+```go
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateTransaction
+// Ledger charges $42.16 + $8.99 should match a single Monarch transaction for $51.15.
+
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateSubset
+// Ledger charges $0.01 + $4.08 + $71.52 should match Monarch transactions $0.01 + $75.60.
+
+// internal/adapters/providers/walmart/provider_test.go:
+// TestDedupeOrderSummariesByID
+// Duplicate Walmart order summaries should be collapsed before fetching/processing details.
+
+// internal/domain/matcher/subset_test.go:
+// TestSubsetSummingTo_PrefersExactTotalOverSmallerToleratedSubset
+// An exact $9.99 + $0.01 subset must beat a single $9.99 transaction for a $10.00 target.
+```
+
+**Root Cause:**
+The Walmart handler assumed `FINAL_CHARGES` ledger lines were always one-to-one with Monarch/Plaid transactions. In practice, the ledger lines are Walmart-side final charge entries, while the bank feed can post the same total as one card transaction or a different subset grouping. The Walmart purchase-history response can also include duplicate summaries for the same `orderId`. The subset matcher also returned the first valid, smallest subset, which could select a one-cent-off singleton before considering a later exact aggregate.
+
+**Fix Applied:**
+The Walmart multi-delivery path still tries exact per-charge matching first. If that fails, it now falls back to matching Monarch purchase transaction(s) whose absolute amounts sum to the ledger charge total. A single aggregate match is split directly; multiple aggregate matches are consolidated using the ledger charge total, then split. The subset matcher now ranks valid candidates by amount difference before transaction count, so exact totals beat tolerated near-matches. Walmart order summaries are deduped by `orderId` before fetching full order details.
+
+**Verification:**
+- New regression tests fail before the fix and pass after.
+- `go test ./internal/application/sync/handlers ./internal/adapters/providers/walmart -run 'TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBack|TestDedupeOrderSummariesByID' -count=1` passes.
+- `go test ./...` passes.
+- `go build -o itemize ./cmd/itemize/` passes.
+- A live read-only Monarch query confirmed the affected transactions were posted, unsplit, and grouped as `$51.15` and `$75.60 + $0.01`, with no hidden `$42.16`, `$8.99`, `$71.52`, or `$4.08` transactions.
+- Temp-DB live dry-runs for `200015335172701` and `200015072601480` both completed with `Processed=1 Skipped=0 Errors=0`. The fetch logs showed Walmart still returned 9 order summaries, deduped to 7 fetched orders.
+
+---
+
 ### 2026-07-08: Amazon auth recovery leaked amazon-go and ignored positional accounts
 
 **Description:**
