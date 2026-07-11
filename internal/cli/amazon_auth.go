@@ -49,6 +49,8 @@ func PrepareAmazonSetup(account string) (string, error) {
 	if err := os.MkdirAll(profileDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create Amazon browser profile %q: %w", profileDir, err)
 	}
+	// #nosec G302 -- profileDir is a directory containing browser state; owner-only
+	// traversal is intentional and more restrictive than the directory default.
 	if err := os.Chmod(profileDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to secure Amazon browser profile %q: %w", profileDir, err)
 	}
