@@ -37,3 +37,38 @@ func TestListAmazonAccounts_MissingDirReturnsEmptyNotError(t *testing.T) {
 	require.NoError(t, err, "an amazon-go cookie dir that was never created is a normal first-run state, not an error")
 	assert.Empty(t, accounts)
 }
+
+func TestResolveAmazonAccount_UsesSinglePositionalAccount(t *testing.T) {
+	cfg := &config.Config{}
+	account, err := ResolveAmazonAccount(cfg, "", []string{"amazon-wife"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "amazon-wife", account)
+}
+
+func TestResolveAmazonAccount_RejectsUnexpectedExtraArgs(t *testing.T) {
+	cfg := &config.Config{}
+	_, err := ResolveAmazonAccount(cfg, "", []string{"amazon-wife", "extra"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected arguments")
+	assert.Contains(t, err.Error(), "-account amazon-wife")
+}
+
+func TestResolveAmazonAccount_FlagBeatsConfig(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Providers.Amazon.AccountName = "from-config"
+
+	account, err := ResolveAmazonAccount(cfg, "from-flag", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", account)
+}
+
+func TestResolveAmazonAccount_RejectsPositionalAccountWhenFlagSet(t *testing.T) {
+	cfg := &config.Config{}
+	_, err := ResolveAmazonAccount(cfg, "from-flag", []string{"from-positional"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use either -account or a positional account")
+}

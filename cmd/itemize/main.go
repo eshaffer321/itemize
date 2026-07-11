@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/eshaffer321/itemize/internal/adapters/clients"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
@@ -51,18 +52,41 @@ func main() {
 	// Provider sync commands
 	providerName := command
 	// Shift args for flag parsing
-	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+	if providerName == "amazon" && len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
+		os.Args = append([]string{os.Args[0], "-account", os.Args[2]}, os.Args[3:]...)
+	} else {
+		os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+	}
 
 	// Parse common flags
 	flags := cli.ParseSyncFlags()
 
 	// Load config
 	cfg := config.LoadOrEnv()
+	if flags.CookieFile != "" {
+		cfg.Providers.Amazon.CookieFile = flags.CookieFile
+	}
+
+	var err error
+	if providerName != "amazon" && len(flags.ExtraArgs) > 0 {
+		log.Fatalf("Unexpected arguments for %s: %v", providerName, flags.ExtraArgs)
+	}
+
+	amazonAccount := ""
+	if providerName == "amazon" {
+		amazonAccount, err = cli.ResolveAmazonAccount(cfg, flags.Account, flags.ExtraArgs)
+		if err != nil {
+			log.Fatalf("Invalid Amazon account arguments: %v", err)
+		}
+	}
 
 	if flags.ListAccounts {
 		if providerName != "amazon" {
 			fmt.Printf("-list-accounts is only supported for the amazon provider\n")
 			os.Exit(1)
+		}
+		if len(flags.ExtraArgs) > 0 {
+			log.Fatalf("-list-accounts does not accept account arguments; use -account when syncing")
 		}
 		accounts, err := cli.ListAmazonAccounts(cfg)
 		if err != nil {
@@ -70,7 +94,7 @@ func main() {
 		}
 		if len(accounts) == 0 {
 			fmt.Println("No saved Amazon accounts found.")
-			fmt.Println("Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' to create one.")
+			fmt.Println("Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' to create one.")
 			return
 		}
 		fmt.Println("Saved Amazon accounts:")
@@ -79,6 +103,25 @@ func main() {
 		}
 		fmt.Println()
 		fmt.Println("Use with: itemize amazon -account <name>")
+		return
+	}
+
+	if flags.ImportBrowserProfile != "" {
+		if providerName != "amazon" {
+			fmt.Printf("-import-browser-profile is only supported for the amazon provider\n")
+			os.Exit(1)
+		}
+		if err := cli.RunAmazonBrowserProfileImport(cfg, cli.AmazonImportOptions{
+			ProfileDir:     flags.ImportBrowserProfile,
+			Account:        amazonAccount,
+			CookieFile:     cfg.Providers.Amazon.CookieFile,
+			PlaywrightRoot: flags.PlaywrightRoot,
+			Headless:       flags.Headless,
+			SkipAuthCheck:  flags.SkipAuthCheck,
+		}); err != nil {
+			telemetry.CaptureError(err, providerName, "amazon_auth")
+			log.Fatalf("Amazon authentication failed: %v", err)
+		}
 		return
 	}
 
@@ -106,7 +149,7 @@ func main() {
 	case "walmart":
 		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
 	case "amazon":
-		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose, flags.Account)
+		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose, amazonAccount)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -128,10 +171,7 @@ func main() {
 	// obvious which profile is in use without digging through env vars)
 	resolvedAccount := ""
 	if providerName == "amazon" {
-		resolvedAccount = flags.Account
-		if resolvedAccount == "" {
-			resolvedAccount = cfg.Providers.Amazon.AccountName
-		}
+		resolvedAccount = amazonAccount
 		if resolvedAccount == "" {
 			resolvedAccount = "default"
 		}
@@ -180,7 +220,15 @@ func printUsage() {
 	fmt.Println("  -verbose         Verbose output")
 	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
 	fmt.Println("  -account string  Amazon cookie account name (amazon only)")
+	fmt.Println("  -cookie-file string")
+	fmt.Println("                  Explicit Amazon cookie file (amazon only)")
 	fmt.Println("  -list-accounts   List saved Amazon cookie accounts and exit (amazon only)")
+	fmt.Println("  -import-browser-profile string")
+	fmt.Println("                  Import Amazon cookies from a Chromium/Playwright profile and exit (amazon only)")
+	fmt.Println("  -playwright-root string")
+	fmt.Println("                  Directory containing node_modules/playwright for Amazon cookie import")
+	fmt.Println("  -headless        Run Amazon browser profile import headlessly")
+	fmt.Println("  -skip-auth-check Skip Amazon auth validation after importing cookies")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  MONARCH_TOKEN              Monarch API token (required)")
@@ -191,6 +239,6 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Provider-Specific Environment Variables:")
 	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
-	fmt.Println("                             Run 'amazon-go import-browser-profile -profile-dir <profile-dir> -account <name>' first")
+	fmt.Println("                             Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' first")
 	fmt.Println("  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
 }

@@ -123,20 +123,20 @@ Requires cookies in `~/.walmart-api/cookies.json`. See [walmart-client-go](https
 Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).
 
 ### Amazon
-Uses [amazon-go](https://github.com/eshaffer321/amazon-go) directly. Authenticate once by
+Uses [amazon-go](https://github.com/eshaffer321/amazon-go) as a library. Authenticate once by
 saving Amazon cookies from a browser profile that is already logged into Amazon:
 
 ```bash
-amazon-go import-browser-profile \
-  -profile-dir "$HOME/.itemize/amazon/amazon-erick" \
+./itemize amazon \
+  -import-browser-profile "$HOME/.itemize/amazon/amazon-erick" \
   -account erick
 ```
 
 If you set `AMAZON_ACCOUNT_NAME`, save cookies for the matching amazon-go account:
 
 ```bash
-amazon-go import-browser-profile \
-  -profile-dir "$HOME/.itemize/amazon/$AMAZON_ACCOUNT_NAME" \
+./itemize amazon \
+  -import-browser-profile "$HOME/.itemize/amazon/$AMAZON_ACCOUNT_NAME" \
   -account "$AMAZON_ACCOUNT_NAME"
 ```
 
@@ -149,6 +149,7 @@ an env var, or for cron jobs where the account name should be visible right in t
 ```bash
 ./itemize amazon -list-accounts        # see saved amazon-go cookie accounts
 ./itemize amazon -account amazon-wife  # sync a specific account
+./itemize amazon amazon-wife           # shorthand for the same account
 ```
 
 `AMAZON_ACCOUNT_NAME` still works and is used as the default when `-account` is omitted — cron
