@@ -18,7 +18,7 @@ Each bug fix entry should include:
 Walmart ledger credits were ignored, leaving the matching Monarch refund uncategorized. The typed Walmart client also discarded the `returnId` metadata that identifies the refunded item in the order response.
 
 **Fix Applied:**
-Match a supported single refund to its positive Monarch credit, make a supplemental order request to extract its `returnId` item, and categorize/note only that item. Ambiguous or multi-refund orders remain untouched.
+Match a supported single refund to its positive Monarch credit, use `walmart-client-go/v2 v2.1.0` to extract its typed `returnId` item from the existing order response, and categorize/note only that item. Ambiguous or multi-refund orders remain untouched.
 
 **Verification:**
 - Regression tests cover `returnId` extraction and item-only categorization.

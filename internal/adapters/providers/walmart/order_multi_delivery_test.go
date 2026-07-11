@@ -1,33 +1,34 @@
 package walmart
 
 import (
-	"context"
 	"testing"
 
-	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOrder_GetRefundItems_CachesFetchedItems(t *testing.T) {
-	calls := 0
-	order := &Order{
-		walmartOrder: &walmartclient.Order{ID: "REFUND-ITEMS"},
-		ctx:          context.Background(),
-		refundItemFetcher: func(context.Context, string, bool) ([]providers.OrderItem, error) {
-			calls++
-			return []providers.OrderItem{returnedItem{name: "Refunded item", price: 4.5, quantity: 1}}, nil
-		},
-	}
+func TestOrder_GetRefundItems_UsesClientReturnIDMetadata(t *testing.T) {
+	order := &Order{walmartOrder: &walmartclient.Order{
+		ID: "REFUND-ITEMS",
+		Groups: []walmartclient.OrderGroup{{
+			Categories: []walmartclient.OrderCategory{{
+				Items: []walmartclient.OrderItem{{
+					ID:          "item-1",
+					ReturnID:    "return-1",
+					Quantity:    1,
+					ProductInfo: &walmartclient.ProductInfo{Name: "Refunded item", USItemID: "sku-1"},
+					PriceInfo:   &walmartclient.ItemPrice{LinePrice: &walmartclient.Price{Value: 4.5}},
+				}},
+			}},
+		}},
+	}}
 
 	items, err := order.GetRefundItems()
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	items, err = order.GetRefundItems()
-	require.NoError(t, err)
-	require.Len(t, items, 1)
-	assert.Equal(t, 1, calls)
+	assert.Equal(t, "Refunded item", items[0].GetName())
+	assert.Equal(t, "sku-1", items[0].GetSKU())
 }
 
 // TestOrder_GetFinalCharges tests retrieving final charges from order ledger

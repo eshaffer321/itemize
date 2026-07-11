@@ -20,11 +20,7 @@ type Order struct {
 	// ledgerCache stores the order ledger to avoid duplicate API calls.
 	// Note: Assumes single-threaded access per Order instance.
 	// The sync orchestrator processes orders sequentially, so no mutex needed.
-	ledgerCache        *walmartclient.OrderLedger
-	isInStore          bool
-	refundItemFetcher  refundItemFetcher
-	refundItemsCache   []providers.OrderItem
-	refundItemsFetched bool
+	ledgerCache *walmartclient.OrderLedger
 }
 
 // GetID returns the order ID
@@ -272,18 +268,11 @@ func (o *Order) GetRefundCharges() ([]float64, error) {
 
 // GetRefundItems returns the item(s) that Walmart explicitly marked as refunded.
 func (o *Order) GetRefundItems() ([]providers.OrderItem, error) {
-	if o.refundItemsFetched {
-		return o.refundItemsCache, nil
+	refunded := o.walmartOrder.GetRefundedItems()
+	items := make([]providers.OrderItem, 0, len(refunded))
+	for _, item := range refunded {
+		items = append(items, &OrderItem{item: item})
 	}
-	o.refundItemsFetched = true
-	if o.refundItemFetcher == nil {
-		return nil, nil
-	}
-	items, err := o.refundItemFetcher(o.ctx, o.GetID(), o.isInStore)
-	if err != nil {
-		return nil, err
-	}
-	o.refundItemsCache = items
 	return items, nil
 }
 
