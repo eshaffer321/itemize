@@ -138,6 +138,16 @@ Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).
 Uses [amazon-go](https://github.com/eshaffer321/amazon-go) as a library. Authenticate once by
 saving Amazon cookies from a browser profile that is already logged into Amazon:
 
+The browser-profile import uses Playwright to open Chromium. If Playwright is not already
+installed globally or in this repo, install it once:
+
+```bash
+npm install playwright
+```
+
+If Playwright lives somewhere else, pass `-playwright-root <dir>` where `<dir>` contains
+`node_modules/playwright`.
+
 ```bash
 ./itemize amazon \
   -import-browser-profile "$HOME/.itemize/amazon/amazon-erick" \

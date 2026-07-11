@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	amazon "github.com/eshaffer321/amazon-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,6 +24,43 @@ func TestExplainAmazonCookieExportError_WhenBrowserCrashes(t *testing.T) {
 
 	assert.Contains(t, err.Error(), "chromium closed before itemize could read Amazon cookies")
 	assert.Contains(t, err.Error(), "-headless")
+}
+
+func TestSaveImportedAmazonCookies_DoesNotOverwriteDestinationWhenValidationFails(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-amazon-wife.json")
+	original := []byte(`{"cookies":[{"name":"original","value":"keep-me","domain":".amazon.com","path":"/"}],"updated_at":"2026-01-01T00:00:00Z"}`)
+	require.NoError(t, os.WriteFile(cookieFile, original, 0600))
+
+	err := saveImportedAmazonCookies([]*amazon.Cookie{
+		{Name: "session-id", Value: "missing-other-essential-cookies", Domain: ".amazon.com", Path: "/"},
+	}, AmazonImportOptions{CookieFile: cookieFile})
+
+	require.Error(t, err)
+	var authErr *amazonImportAuthCheckError
+	assert.ErrorAs(t, err, &authErr)
+	after, readErr := os.ReadFile(cookieFile)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, string(original), string(after))
+}
+
+func TestSaveImportedAmazonCookies_SavesDestinationWhenAuthCheckSkipped(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-amazon-wife.json")
+
+	err := saveImportedAmazonCookies([]*amazon.Cookie{
+		{Name: "session-id", Value: "sid", Domain: ".amazon.com", Path: "/"},
+		{Name: "session-token", Value: "token", Domain: ".amazon.com", Path: "/"},
+		{Name: "ubid-main", Value: "ubid", Domain: ".amazon.com", Path: "/"},
+		{Name: "at-main", Value: "at", Domain: ".amazon.com", Path: "/"},
+	}, AmazonImportOptions{CookieFile: cookieFile, SkipAuthCheck: true})
+
+	require.NoError(t, err)
+	data, err := os.ReadFile(cookieFile)
+	require.NoError(t, err)
+	var stored struct {
+		Cookies []amazon.Cookie `json:"cookies"`
+	}
+	require.NoError(t, json.Unmarshal(data, &stored))
+	assert.Len(t, stored.Cookies, 4)
 }
 
 func TestCleanStaleChromiumSingletons_RemovesMarkersForDeadPid(t *testing.T) {

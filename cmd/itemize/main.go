@@ -69,7 +69,7 @@ func main() {
 
 	var err error
 	if providerName != "amazon" && len(flags.ExtraArgs) > 0 {
-		log.Fatalf("Unexpected arguments for %s: %v", providerName, flags.ExtraArgs)
+		log.Fatalf("Unexpected positional arguments are only supported for the amazon provider")
 	}
 
 	amazonAccount := ""
@@ -119,7 +119,8 @@ func main() {
 			Headless:       flags.Headless,
 			SkipAuthCheck:  flags.SkipAuthCheck,
 		}); err != nil {
-			telemetry.CaptureError(err, providerName, "amazon_auth")
+			// Auth import failures can include local browser profile paths.
+			// Keep them on the user's terminal instead of sending telemetry.
 			log.Fatalf("Amazon authentication failed: %v", err)
 		}
 		return

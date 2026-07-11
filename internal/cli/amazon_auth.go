@@ -69,20 +69,12 @@ func RunAmazonBrowserProfileImport(cfg *config.Config, opts AmazonImportOptions)
 		return fmt.Errorf("no Amazon cookies were available in the browser profile")
 	}
 
-	client, err := newAmazonClient(opts.CookieFile, opts.Account)
-	if err != nil {
-		return fmt.Errorf("failed to create Amazon client: %w", err)
-	}
-	for _, c := range cookies {
-		client.CookieStore().Set(c)
-	}
-	if !opts.SkipAuthCheck {
-		if err := client.HealthCheck(); err != nil {
-			return fmt.Errorf("exported %d cookies from %q, but auth check failed: %w", len(cookies), resolvedProfileDir, err)
+	if err := saveImportedAmazonCookies(cookies, opts); err != nil {
+		var authErr *amazonImportAuthCheckError
+		if errors.As(err, &authErr) {
+			return fmt.Errorf("exported %d cookies from %q, but auth check failed: %w", len(cookies), resolvedProfileDir, authErr.err)
 		}
-	}
-	if err := client.SaveCookies(); err != nil {
-		return fmt.Errorf("failed to save cookies: %w", err)
+		return err
 	}
 
 	destination := opts.CookieFile
@@ -101,6 +93,60 @@ func RunAmazonBrowserProfileImport(cfg *config.Config, opts AmazonImportOptions)
 		}
 	}
 	return nil
+}
+
+type amazonImportAuthCheckError struct {
+	err error
+}
+
+func (e *amazonImportAuthCheckError) Error() string {
+	return e.err.Error()
+}
+
+func (e *amazonImportAuthCheckError) Unwrap() error {
+	return e.err
+}
+
+func saveImportedAmazonCookies(cookies []*amazon.Cookie, opts AmazonImportOptions) error {
+	if !opts.SkipAuthCheck {
+		if err := validateImportedAmazonCookies(cookies); err != nil {
+			return &amazonImportAuthCheckError{err: err}
+		}
+	}
+
+	client, err := newAmazonClient(opts.CookieFile, opts.Account)
+	if err != nil {
+		return fmt.Errorf("failed to create Amazon client: %w", err)
+	}
+	for _, c := range cookies {
+		client.CookieStore().Set(c)
+	}
+	if err := client.SaveCookies(); err != nil {
+		return fmt.Errorf("failed to save cookies: %w", err)
+	}
+	return nil
+}
+
+func validateImportedAmazonCookies(cookies []*amazon.Cookie) error {
+	tempFile, err := os.CreateTemp("", "itemize-amazon-auth-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary Amazon auth file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("failed to close temporary Amazon auth file: %w", err)
+	}
+	defer func() { _ = os.Remove(tempPath) }()
+
+	client, err := newAmazonClient(tempPath, "")
+	if err != nil {
+		return fmt.Errorf("failed to create Amazon validation client: %w", err)
+	}
+	for _, c := range cookies {
+		client.CookieStore().Set(c)
+	}
+	return client.HealthCheck()
 }
 
 type exportedAmazonCookies struct {
@@ -125,6 +171,9 @@ func exportAmazonCookiesWithPlaywright(playwrightRoot, profileDir string, headle
 	}
 	defer func() { _ = os.Remove(scriptPath) }()
 
+	// #nosec G204 -- exec.Command does not invoke a shell; arguments are passed
+	// directly to Node. scriptPath is a temporary file we just wrote, and the
+	// profile path is data consumed by the script.
 	cmd := exec.Command("node", scriptPath, profileDir, amazonOrdersURL, fmt.Sprintf("%t", headless))
 	cmd.Dir = playwrightRoot
 	out, err := cmd.Output()
@@ -360,6 +409,8 @@ func resolvePlaywrightRoot(explicit string) (string, error) {
 
 func npmRoot(args ...string) (string, error) {
 	cmdArgs := append([]string{"root"}, args...)
+	// #nosec G204 -- args are fixed internal values ("root", optionally "-g")
+	// used to locate Playwright; no shell is invoked.
 	out, err := exec.Command("npm", cmdArgs...).Output()
 	if err != nil {
 		return "", err
@@ -377,7 +428,7 @@ func fileExists(path string) bool {
 }
 
 func newAmazonClient(cookieFile, account string) (*amazon.Client, error) {
-	var opts []amazon.Option
+	opts := []amazon.Option{amazon.WithAutoSave(false)}
 	if cookieFile != "" {
 		opts = append(opts, amazon.WithCookieFile(cookieFile))
 	}
