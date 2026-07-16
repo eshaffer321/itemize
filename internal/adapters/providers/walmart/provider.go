@@ -2,6 +2,7 @@ package walmart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,9 +11,19 @@ import (
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 
+type walmartLedgerClient interface {
+	GetOrderLedger(context.Context, string) (*walmartclient.OrderLedger, error)
+}
+
+type walmartAPI interface {
+	walmartLedgerClient
+	GetPurchaseHistory(context.Context, walmartclient.PurchaseHistoryRequest) (*walmartclient.PurchaseHistoryResponse, error)
+	GetOrderWithGroup(context.Context, string, string, bool) (*walmartclient.Order, error)
+}
+
 // Provider implements the OrderProvider interface for Walmart
 type Provider struct {
-	client    *walmartclient.WalmartClient
+	client    walmartAPI
 	logger    *slog.Logger
 	rateLimit time.Duration
 }
@@ -20,6 +31,13 @@ type Provider struct {
 // NewProvider creates a new Walmart provider
 // Note: Caller is responsible for adding any scoping attributes (e.g., system="walmart")
 func NewProvider(client *walmartclient.WalmartClient, logger *slog.Logger) *Provider {
+	if client == nil {
+		return newProvider(nil, logger)
+	}
+	return newProvider(client, logger)
+}
+
+func newProvider(client walmartAPI, logger *slog.Logger) *Provider {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -69,6 +87,19 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 		p.logger.Warn("duplicate order summary returned by Walmart; using first occurrence",
 			slog.String("order_id", orderID))
 	}
+	completedSummaries := make([]walmartclient.OrderSummary, 0, len(orderSummaries))
+	for _, summary := range orderSummaries {
+		if summary.IsActive {
+			p.logger.Debug("skipping active Walmart order before detail fetch",
+				slog.String("order_id", summary.OrderID))
+			continue
+		}
+		completedSummaries = append(completedSummaries, summary)
+	}
+	orderSummaries = completedSummaries
+	if opts.MaxOrders > 0 && len(orderSummaries) > opts.MaxOrders {
+		orderSummaries = orderSummaries[:opts.MaxOrders]
+	}
 
 	// Convert OrderSummary to full Orders
 	var providerOrders []providers.Order
@@ -78,47 +109,25 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 			return providerOrders, fmt.Errorf("cancelled during order fetch: %w", err)
 		}
 
-		// Fetch full order details if requested
-		if opts.IncludeDetails {
-			isInStore := summary.FulfillmentType == "IN_STORE"
-			fullOrder, err := p.client.GetOrder(ctx, summary.OrderID, isInStore)
-			if err != nil {
-				p.logger.Warn("failed to fetch order details, skipping",
-					slog.String("order_id", summary.OrderID),
-					slog.String("error", err.Error()))
-				continue
+		// The domain order requires details even when IncludeDetails is false.
+		isInStore := summary.FulfillmentType == "IN_STORE"
+		fullOrder, err := p.client.GetOrderWithGroup(ctx, summary.OrderID, summary.GroupID, isInStore)
+		if err != nil {
+			if errors.Is(err, walmartclient.ErrBotChallenge) {
+				return providerOrders, fmt.Errorf("walmart session rejected while fetching order details: %w", err)
 			}
-
-			providerOrders = append(providerOrders, &Order{
-				walmartOrder: fullOrder,
-				client:       p.client,
-				logger:       p.logger,
-				ctx:          ctx,
-			})
-		} else {
-			// For basic listing, we'd need to create a minimal Order
-			// For now, always fetch details
-			isInStore := summary.FulfillmentType == "IN_STORE"
-			fullOrder, err := p.client.GetOrder(ctx, summary.OrderID, isInStore)
-			if err != nil {
-				p.logger.Warn("failed to fetch order details, skipping",
-					slog.String("order_id", summary.OrderID),
-					slog.String("error", err.Error()))
-				continue
-			}
-
-			providerOrders = append(providerOrders, &Order{
-				walmartOrder: fullOrder,
-				client:       p.client,
-				logger:       p.logger,
-				ctx:          ctx,
-			})
+			p.logger.Warn("failed to fetch order details, skipping",
+				slog.String("order_id", summary.OrderID),
+				slog.String("error", err.Error()))
+			continue
 		}
-	}
 
-	// Apply max orders limit if specified
-	if opts.MaxOrders > 0 && len(providerOrders) > opts.MaxOrders {
-		providerOrders = providerOrders[:opts.MaxOrders]
+		providerOrders = append(providerOrders, &Order{
+			walmartOrder: fullOrder,
+			client:       p.client,
+			logger:       p.logger,
+			ctx:          ctx,
+		})
 	}
 
 	p.logger.Info("fetched orders", slog.Int("total", len(providerOrders)))

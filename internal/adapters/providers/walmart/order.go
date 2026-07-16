@@ -13,7 +13,7 @@ import (
 // Order wraps a Walmart order and implements providers.Order interface
 type Order struct {
 	walmartOrder *walmartclient.Order
-	client       *walmartclient.WalmartClient
+	client       walmartLedgerClient
 	logger       *slog.Logger
 	ctx          context.Context
 
