@@ -40,6 +40,11 @@ func PrintSyncSummary(result *sync.Result, store storage.Repository, dryRun bool
 		result.ProcessedCount,
 		result.SkippedCount,
 		result.ErrorCount)
+	if result.RefundProcessedCount > 0 || result.RefundSkippedCount > 0 {
+		fmt.Printf("Amazon refunds: Categorized=%d Left untouched=%d\n",
+			result.RefundProcessedCount,
+			result.RefundSkippedCount)
+	}
 
 	// Print errors if any
 	if len(result.Errors) > 0 {
@@ -65,7 +70,7 @@ func PrintSyncSummary(result *sync.Result, store storage.Repository, dryRun bool
 		}
 	}
 
-	if !dryRun && result.ProcessedCount > 0 {
+	if !dryRun && (result.ProcessedCount > 0 || result.RefundProcessedCount > 0) {
 		fmt.Println("\nSync completed successfully.")
 	}
 }

@@ -52,8 +52,9 @@ func main() {
 	// Provider sync commands
 	providerName := command
 	amazonSetup := providerName == "amazon" && len(os.Args) > 2 && os.Args[2] == "setup"
+	amazonReturns := providerName == "amazon" && len(os.Args) > 2 && os.Args[2] == "returns"
 	// Shift args for flag parsing
-	if amazonSetup {
+	if amazonSetup || amazonReturns {
 		os.Args = append([]string{os.Args[0]}, os.Args[3:]...)
 	} else if providerName == "amazon" && len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
 		os.Args = append([]string{os.Args[0], "-account", os.Args[2]}, os.Args[3:]...)
@@ -125,6 +126,21 @@ func main() {
 			SkipAuthCheck:  flags.SkipAuthCheck,
 		}); err != nil {
 			log.Fatalf("Amazon setup failed: %v", err)
+		}
+		return
+	}
+
+	if amazonReturns {
+		provider, createErr := cli.NewAmazonProvider(cfg, flags.Verbose, amazonAccount)
+		if createErr != nil {
+			log.Fatalf("Failed to create Amazon provider: %v", createErr)
+		}
+		returns, fetchErr := provider.FetchReturns(context.Background())
+		if fetchErr != nil {
+			log.Fatalf("Failed to fetch Amazon returns: %v", fetchErr)
+		}
+		if printErr := cli.PrintAmazonReturns(os.Stdout, returns); printErr != nil {
+			log.Fatalf("Failed to print Amazon returns: %v", printErr)
 		}
 		return
 	}
@@ -230,6 +246,8 @@ func printUsage() {
 	fmt.Println("  amazon      Sync Amazon orders")
 	fmt.Println("  amazon setup -account <name>")
 	fmt.Println("              Create an Amazon account and open Chromium for sign-in")
+	fmt.Println("  amazon returns -account <name>")
+	fmt.Println("              Read Amazon's return/refund ledger as JSON")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
 	fmt.Println("  version     Print version, commit, and build date (also: -version, --version)")

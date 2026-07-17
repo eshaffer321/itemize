@@ -35,6 +35,43 @@ When the ledger is empty, Itemize now uses the receipt total only for an `IN_STO
 - A live run of the rebuilt v0.2.1 source reproduced all three completed in-store receipts being skipped with an empty ledger before the fix.
 - The fixed binary dry-ran all three affected receipts against live Walmart and Monarch data, matched `$9.88`, `$32.10`, and `$10.69` transactions, and finished with `Processed=3 Skipped=0 Errors=0` without writing to Monarch.
 
+---
+
+### 2026-07-17: Amazon refund credits remained in the temporary category
+
+**Description:**
+Amazon refund credits could be fetched from Monarch but Itemize did not have an authoritative source connecting a refund amount to its returned item. The Amazon provider claimed refund support while its normal payment-transaction endpoint supplied no usable refund entries, leaving positive credits in the temporary Amazon category.
+
+**Root Cause:**
+Amazon exposes return-created date, refund total, order ID, RMA, ASIN, item, and status in the Return Center rather than the normal order-payment ledger. The refund-issued date is on each return status page and its sentence is split across HTML elements. Monarch also stored the temporary category with repeated whitespace, which a literal category-name comparison rejected.
+
+**Fix Applied:**
+Itemize now reads the Return Center and status pages directly with saved account cookies, parses the explicit refund-issued date, and adapts a single-item return into a refund order. Normal Amazon sync matches only positive, non-pending, unsplit, temporary/uncategorized Monarch credits using amount and issued date. A unique credit is categorized from the returned item. Indistinguishable same-date/same-amount credits are updated only when Amazon record count equals Monarch credit count and every returned item independently resolves to the same category; their shared note explicitly says the bank feed cannot identify the individual credit-to-item mapping. Multi-item returns without an Amazon allocation and all other ambiguous cases remain untouched.
+
+**Verification:**
+- Issued-date extraction, quoted-cookie normalization, whitespace-normalized temporary categories, unique matching, ambiguity rejection, calendar-day lookback, and invariant-category groups have regression tests that failed before their fixes.
+- A full wife-account dry-run reported `Amazon refunds: Categorized=4 Left untouched=0` before production writes.
+- The production run categorized the `$11.36` credit as `Kid Needs`, the `$165.95` credit as `Kid Wants`, and both `$14.41` credits as `Kid Needs` with a truthful two-return group note.
+- A fresh Monarch query after the run confirmed all four transaction IDs, categories, and notes.
+
+---
+
+### 2026-07-16: Browser-exported Amazon cookie produced an invalid Cookie header warning
+
+**Description:**
+Amazon's browser profile can export a cookie whose value retains surrounding quotes. Go's HTTP client stripped those bytes while constructing the direct Return Center request and emitted a warning on every return-ledger fetch.
+
+**Test Case:**
+`TestNormalizeReturnCookieValueUnquotesBrowserCookie` reproduces the quoted browser-cookie value and requires the normalized HTTP cookie to retain the exact inner value.
+
+**Fix Applied:**
+The read-only Amazon return-history client now decodes a syntactically quoted cookie value before adding it to the request. Ordinary unquoted cookie values are unchanged.
+
+**Verification:**
+The regression test failed before the helper existed and passes after the fix. A live `itemize amazon returns -account wife` fetch completed without the invalid-cookie warning.
+
+---
+
 ### 2026-07-15: Walmart detail requests were rejected with HTTP 456
 
 **Description:**
@@ -402,6 +439,48 @@ Added a parallel `descMap` keyed by uppercased `ItemDescription01`. When the ite
 - New test `discount references parent by description instead of item number` passes.
 - All existing discount-netting tests continue to pass.
 - `go test ./... -race` green.
+
+---
+
+### 2026-07-17: Imported Amazon cookies lacked explicit request security attributes
+
+**Description:**
+The Amazon Return Center client correctly reused browser-exported cookies over HTTPS, but the imported `http.Cookie` values did not explicitly carry `Secure`, `HttpOnly`, or `SameSite` attributes. The security scan therefore rejected the release candidate.
+
+**Test Case:**
+`TestNormalizeReturnCookieValueSecuresAndUnquotesBrowserCookie` first reproduced the issue by asserting that a quoted browser cookie is both normalized and marked with conservative security attributes.
+
+**Root Cause:**
+The normalization helper only unquoted the stored value. Browser-export metadata is not guaranteed to include every Go security field even though this client sends the cookie only to Amazon over HTTPS.
+
+**Fix Applied:**
+The helper now marks imported cookies `Secure`, `HttpOnly`, and `SameSite=Lax` before adding them to Return Center requests. `http.Request.AddCookie` still serializes only the cookie name and value, so authentication behavior is unchanged.
+
+**Verification:**
+- The regression test failed before the fix and passes after it.
+- gosec v2.27.1 reports zero findings.
+- Return Center error-path and refund safety tests cover authentication, malformed data, ambiguity, grouping, and write failures.
+
+---
+
+### 2026-07-17: Indistinguishable Amazon refund groups were not deduplicated
+
+**Description:**
+Successfully categorized same-day, same-amount Amazon refund groups were counted but not saved to Itemize's processing ledger. Later syncs therefore reconsidered the same returns and warned that no temporary credits remained.
+
+**Test Case:**
+`TestProcessAmazonReturnsGroupsIndistinguishableCredits` first reproduced the issue by requiring both Amazon RMA IDs to be marked processed while verifying that no individual credit-to-item association was stored.
+
+**Root Cause:**
+The single-refund path called `recordSuccessWithResult`, but the group path only incremented `RefundProcessedCount`.
+
+**Fix Applied:**
+The group path now records each authoritative Amazon return as successfully processed. It deliberately removes the individual transaction from the audit result so the database does not claim a mapping that Amazon and the bank feed cannot prove.
+
+**Verification:**
+- The regression test failed before the fix and passes after it.
+- Both RMA IDs participate in normal deduplication.
+- No Monarch transaction association is stored for either indistinguishable item.
 
 ---
 
