@@ -167,10 +167,59 @@ func TestNewRefundOrderUsesIssuedDateAndSoleRefundItem(t *testing.T) {
 	assert.Equal(t, "amazon-refund:D8ExampleRRMA", order.GetID())
 	assert.Equal(t, issuedAt, order.GetDate())
 	assert.Equal(t, -11.36, order.GetTotal())
+	assert.Equal(t, 11.36, order.GetSubtotal())
+	assert.Zero(t, order.GetTax())
+	assert.Zero(t, order.GetTip())
+	assert.Zero(t, order.GetFees())
+	assert.Equal(t, "Amazon", order.GetProviderName())
+	assert.Equal(t, record, order.GetRawData())
+	assert.Equal(t, record, order.Record())
 	require.Len(t, order.GetItems(), 1)
-	assert.Equal(t, "Insulated Sporty Cup", order.GetItems()[0].GetName())
-	assert.Equal(t, 11.36, order.GetItems()[0].GetPrice())
-	assert.Equal(t, "B0EXAMPLE1", order.GetItems()[0].GetSKU())
+	item := order.GetItems()[0]
+	assert.Equal(t, "Insulated Sporty Cup", item.GetName())
+	assert.Equal(t, 11.36, item.GetPrice())
+	assert.Equal(t, 1.0, item.GetQuantity())
+	assert.Equal(t, 11.36, item.GetUnitPrice())
+	assert.Empty(t, item.GetDescription())
+	assert.Equal(t, "B0EXAMPLE1", item.GetSKU())
+	assert.Empty(t, item.GetCategory())
+
+	createdAt := time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC)
+	multiple := NewRefundOrder(ReturnRecord{
+		CreatedAt: createdAt,
+		Items: []ReturnedItem{
+			{ASIN: "one", Name: "One", Price: 3.25},
+			{ASIN: "two", Name: "Two", Price: 4.75},
+		},
+	})
+	assert.Equal(t, createdAt, multiple.GetDate())
+	assert.Equal(t, 3.25, multiple.GetItems()[0].GetPrice())
+}
+
+func TestReturnHistoryClientConstructionAndCookieResolution(t *testing.T) {
+	explicit := filepath.Join(t.TempDir(), "cookies.json")
+	provider := &Provider{cookieFile: explicit}
+
+	resolved, err := provider.resolvedCookieFile()
+	require.NoError(t, err)
+	assert.Equal(t, explicit, resolved)
+
+	client := newReturnHistoryClient(explicit)
+	assert.Equal(t, explicit, client.cookieFile)
+	assert.Equal(t, amazonReturnHistoryURL, client.historyURL)
+	assert.Equal(t, 30*time.Second, client.httpClient.Timeout)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	provider = &Provider{profile: "wife"}
+	resolved, err = provider.resolvedCookieFile()
+	require.NoError(t, err)
+	assert.Contains(t, resolved, "wife")
+
+	provider = &Provider{}
+	resolved, err = provider.resolvedCookieFile()
+	require.NoError(t, err)
+	assert.NotEmpty(t, resolved)
 }
 
 func TestReturnHistoryClient_RejectsAmazonSignInPage(t *testing.T) {
@@ -192,12 +241,75 @@ func TestReturnHistoryClient_RejectsAmazonSignInPage(t *testing.T) {
 	assert.Contains(t, err.Error(), "return-center authentication required")
 }
 
-func TestNormalizeReturnCookieValueUnquotesBrowserCookie(t *testing.T) {
+func TestNormalizeReturnCookieValueSecuresAndUnquotesBrowserCookie(t *testing.T) {
 	cookie := &http.Cookie{Name: "browser-cookie", Value: `"saved-session"`}
 
 	normalizeReturnCookieValue(cookie)
 
 	assert.Equal(t, "saved-session", cookie.Value)
+	assert.True(t, cookie.Secure)
+	assert.True(t, cookie.HttpOnly)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
+func TestReturnHistoryClientReportsRequestFailures(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies.json")
+	require.NoError(t, os.WriteFile(cookieFile, []byte(`{"cookies":[]}`), 0o600))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+
+	client := &returnHistoryClient{httpClient: server.Client(), cookieFile: cookieFile, historyURL: server.URL}
+	_, err := client.Fetch(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "return-history request failed")
+	assert.Contains(t, err.Error(), "status 503")
+
+	client.historyURL = "://bad-url"
+	_, _, err = client.fetchPage(context.Background(), client.historyURL, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create request")
+}
+
+func TestReturnHistoryClientRejectsSignInOnReturnDetail(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies.json")
+	require.NoError(t, os.WriteFile(cookieFile, []byte(`{"cookies":[]}`), 0o600))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/spr/returns/cart" {
+			_, _ = w.Write([]byte(`<html><input id="ap_email"><input id="ap_password"></html>`))
+			return
+		}
+		_, _ = w.Write([]byte(returnHistoryFixture))
+	}))
+	t.Cleanup(server.Close)
+
+	client := &returnHistoryClient{httpClient: server.Client(), cookieFile: cookieFile, historyURL: server.URL}
+	_, err := client.Fetch(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication required while reading RMA D8ExampleRRMA")
+}
+
+func TestReturnParsingRejectsIncompleteRecordsAndHandlesURLVariants(t *testing.T) {
+	returns, err := parseReturnHistory(strings.NewReader(`<div class="a-box-group a-spacing-extra-large">
+		<div>RETURN CREATED Not a date</div><div>ORDER # 112-1111111-2222222</div>
+		<div class="a-fixed-left-grid-col a-col-right"><a href="/gp/product/B0BADDATE">Item</a></div>
+	</div><div class="a-box-group a-spacing-extra-large"><div>RETURN CREATED Jul 1, 2026</div></div>`), nil)
+	require.NoError(t, err)
+	assert.Empty(t, returns)
+
+	assert.Equal(t, "https://example.com/detail", resolveReturnURL(nil, "https://example.com/detail"))
+	assert.Empty(t, resolveReturnURL(nil, "://bad-url"))
+	assert.Nil(t, responseURL(nil))
+	assert.False(t, isReturnSignInPage(nil, []byte("ordinary return page")))
+	assert.True(t, isReturnSignInPage(&url.URL{Path: "/ap/signin"}, nil))
+
+	normalizeReturnCookieValue(nil)
+	plain := &http.Cookie{Name: "plain", Value: "value"}
+	normalizeReturnCookieValue(plain)
+	assert.Equal(t, "value", plain.Value)
 }
 
 func jsonMarshal(value any) ([]byte, error) {

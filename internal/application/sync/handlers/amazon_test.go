@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -534,6 +535,86 @@ func TestAmazonHandler_ProcessRefundSkipsMultipleItemsWithoutAllocation(t *testi
 	assert.Contains(t, result.SkipReason, "multiple returned items")
 }
 
+func TestAmazonHandler_ProcessRefundValidatesAuthoritativeFields(t *testing.T) {
+	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		refund *amazonprovider.RefundOrder
+		reason string
+	}{
+		{name: "missing record", reason: "missing Amazon refund record"},
+		{name: "missing total", refund: amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{RefundIssuedAt: &issuedAt, RMAID: "DtotalRRMA", Items: []amazonprovider.ReturnedItem{{Name: "item"}}}), reason: "refund total"},
+		{name: "missing issued date", refund: amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{HasRefundTotal: true, RefundAmount: 9.99, RMAID: "DdateRRMA", Items: []amazonprovider.ReturnedItem{{Name: "item"}}}), reason: "refund-issued date"},
+		{name: "missing RMA", refund: amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{HasRefundTotal: true, RefundAmount: 9.99, RefundIssuedAt: &issuedAt, Items: []amazonprovider.ReturnedItem{{Name: "item"}}}), reason: "RMA ID"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := NewAmazonHandler(nil, nil, nil, nil, nil)
+			result, err := handler.ProcessRefund(context.Background(), test.refund, nil, map[string]bool{}, nil, nil, false)
+			require.NoError(t, err)
+			assert.True(t, result.Skipped)
+			assert.Contains(t, result.SkipReason, test.reason)
+		})
+	}
+}
+
+func TestAmazonHandler_ProcessRefundHandlesNoMatchAndCategorizationFailures(t *testing.T) {
+	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
+	refund := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+		RMAID: "DsafeRRMA", RefundAmount: 9.99, HasRefundTotal: true, RefundIssuedAt: &issuedAt,
+		Items: []amazonprovider.ReturnedItem{{ASIN: "B0SAFE", Name: "Safe item", Price: 9.99}},
+	})
+	transactionMatcher := matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5})
+
+	t.Run("no matching temporary credit", func(t *testing.T) {
+		handler := NewAmazonHandler(transactionMatcher, nil, &mockSplitter{}, &mockMonarch{}, nil)
+		result, err := handler.ProcessRefund(context.Background(), refund, nil, map[string]bool{}, nil, nil, false)
+		require.NoError(t, err)
+		assert.True(t, result.Skipped)
+		assert.Contains(t, result.SkipReason, "no unique temporary Amazon credit")
+	})
+
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{{ID: "credit", Amount: 9.99, Date: toMonarchDate(issuedAt), Category: temporary}}
+	t.Run("splitter error", func(t *testing.T) {
+		handler := NewAmazonHandler(transactionMatcher, nil, &mockSplitter{err: errors.New("categorizer unavailable")}, &mockMonarch{}, nil)
+		result, err := handler.ProcessRefund(context.Background(), refund, transactions, map[string]bool{}, nil, nil, false)
+		assert.Nil(t, result)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "split creation")
+	})
+
+	t.Run("invalid category", func(t *testing.T) {
+		handler := NewAmazonHandler(transactionMatcher, nil, &mockSplitter{}, &mockMonarch{}, nil)
+		result, err := handler.ProcessRefund(context.Background(), refund, transactions, map[string]bool{}, nil, nil, false)
+		require.NoError(t, err)
+		assert.True(t, result.Skipped)
+		assert.Contains(t, result.SkipReason, "valid Monarch category")
+	})
+}
+
+func TestAmazonHandler_ProcessRefundUpdatesSplitsAndReportsWriteFailure(t *testing.T) {
+	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
+	refund := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+		RMAID: "DsplitRRMA", RefundAmount: 20, HasRefundTotal: true, RefundIssuedAt: &issuedAt,
+		Items: []amazonprovider.ReturnedItem{{ASIN: "B0SPLIT", Name: "Split item", Price: 20}},
+	})
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{{ID: "credit", Amount: 20, Date: toMonarchDate(issuedAt), Category: temporary}}
+	monarchClient := &mockMonarch{updateSplitsErr: errors.New("write failed")}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}), nil,
+		&mockSplitter{splits: []*monarch.TransactionSplit{{Amount: 20}}}, monarchClient, nil,
+	)
+
+	result, err := handler.ProcessRefund(context.Background(), refund, transactions, map[string]bool{}, nil, nil, false)
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "split update")
+	assert.True(t, monarchClient.updateSplitsCalled)
+}
+
 func TestAmazonHandler_ProcessRefundGroupCategorizesWhenCategoryIsInvariant(t *testing.T) {
 	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
 	first := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
@@ -604,6 +685,56 @@ func TestAmazonHandler_ProcessRefundGroupSkipsDifferentCategories(t *testing.T) 
 	assert.Nil(t, results)
 	assert.Contains(t, skipReason, "different categories")
 	assert.False(t, monarchClient.updateCalled)
+}
+
+func TestAmazonHandler_ProcessRefundGroupValidatesAuthoritativeGrouping(t *testing.T) {
+	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
+	nextDay := issuedAt.AddDate(0, 0, 1)
+	valid := func(rma string, amount float64, date *time.Time) *amazonprovider.RefundOrder {
+		return amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+			RMAID: rma, RefundAmount: amount, HasRefundTotal: true, RefundIssuedAt: date,
+			Items: []amazonprovider.ReturnedItem{{ASIN: "B0VALID", Name: "Valid item", Price: amount}},
+		})
+	}
+	tests := []struct {
+		name    string
+		refunds []*amazonprovider.RefundOrder
+		reason  string
+	}{
+		{name: "too few records", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, &issuedAt)}, reason: "at least two"},
+		{name: "missing issued date", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, nil), valid("DtwoRRMA", 14.41, &issuedAt)}, reason: "refund-issued date"},
+		{name: "missing record", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, &issuedAt), nil}, reason: "missing Amazon refund record"},
+		{name: "incomplete detail", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, &issuedAt), amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{RefundAmount: 14.41, RefundIssuedAt: &issuedAt})}, reason: "authoritative single-item detail"},
+		{name: "different amount", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, &issuedAt), valid("DtwoRRMA", 14.42, &issuedAt)}, reason: "one amount and issued date"},
+		{name: "different date", refunds: []*amazonprovider.RefundOrder{valid("DoneRRMA", 14.41, &issuedAt), valid("DtwoRRMA", 14.41, &nextDay)}, reason: "one amount and issued date"},
+	}
+
+	handler := NewAmazonHandler(nil, nil, nil, nil, nil)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results, reason, err := handler.ProcessRefundGroup(context.Background(), test.refunds, nil, map[string]bool{}, nil, nil, true)
+			require.NoError(t, err)
+			assert.Nil(t, results)
+			assert.Contains(t, reason, test.reason)
+		})
+	}
+}
+
+func TestEligibleAmazonRefundTransactionsRejectsUnsafeCredits(t *testing.T) {
+	temporary := &monarch.TransactionCategory{ID: "temp", Name: " [TEMP]   Amazon "}
+	other := &monarch.TransactionCategory{ID: "other", Name: "Income"}
+	eligible := &monarch.Transaction{ID: "eligible", Amount: 10, Category: temporary}
+
+	got := eligibleAmazonRefundTransactions([]*monarch.Transaction{
+		nil,
+		{ID: "pending", Amount: 10, Pending: true, Category: temporary},
+		{ID: "debit", Amount: -10, Category: temporary},
+		{ID: "split", Amount: 10, HasSplits: true, Category: temporary},
+		{ID: "categorized", Amount: 10, Category: other},
+		eligible,
+	})
+
+	assert.Equal(t, []*monarch.Transaction{eligible}, got)
 }
 
 func TestAllocatedItem(t *testing.T) {

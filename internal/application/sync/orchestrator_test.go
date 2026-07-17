@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,12 @@ import (
 // MockProvider implements providers.OrderProvider for testing
 type MockProvider struct {
 	mock.Mock
+	returnRecords []amazonprovider.ReturnRecord
+	returnErr     error
+}
+
+func (m *MockProvider) FetchReturns(context.Context) ([]amazonprovider.ReturnRecord, error) {
+	return m.returnRecords, m.returnErr
 }
 
 func (m *MockProvider) Name() string {

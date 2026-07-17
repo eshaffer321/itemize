@@ -353,7 +353,16 @@ func resolveReturnURL(baseURL *url.URL, href string) string {
 }
 
 func normalizeReturnCookieValue(cookie *http.Cookie) {
-	if cookie == nil || len(cookie.Value) < 2 || cookie.Value[0] != '"' || cookie.Value[len(cookie.Value)-1] != '"' {
+	if cookie == nil {
+		return
+	}
+	// These cookies are only sent back to Amazon over HTTPS. Mark the imported
+	// browser values with conservative attributes before attaching them to a
+	// request; AddCookie serializes only the name and value.
+	cookie.Secure = true
+	cookie.HttpOnly = true
+	cookie.SameSite = http.SameSiteLaxMode
+	if len(cookie.Value) < 2 || cookie.Value[0] != '"' || cookie.Value[len(cookie.Value)-1] != '"' {
 		return
 	}
 	unquoted, err := strconv.Unquote(cookie.Value)

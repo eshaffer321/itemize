@@ -442,6 +442,27 @@ Added a parallel `descMap` keyed by uppercased `ItemDescription01`. When the ite
 
 ---
 
+### 2026-07-17: Imported Amazon cookies lacked explicit request security attributes
+
+**Description:**
+The Amazon Return Center client correctly reused browser-exported cookies over HTTPS, but the imported `http.Cookie` values did not explicitly carry `Secure`, `HttpOnly`, or `SameSite` attributes. The security scan therefore rejected the release candidate.
+
+**Test Case:**
+`TestNormalizeReturnCookieValueSecuresAndUnquotesBrowserCookie` first reproduced the issue by asserting that a quoted browser cookie is both normalized and marked with conservative security attributes.
+
+**Root Cause:**
+The normalization helper only unquoted the stored value. Browser-export metadata is not guaranteed to include every Go security field even though this client sends the cookie only to Amazon over HTTPS.
+
+**Fix Applied:**
+The helper now marks imported cookies `Secure`, `HttpOnly`, and `SameSite=Lax` before adding them to Return Center requests. `http.Request.AddCookie` still serializes only the cookie name and value, so authentication behavior is unchanged.
+
+**Verification:**
+- The regression test failed before the fix and passes after it.
+- gosec v2.27.1 reports zero findings.
+- Return Center error-path and refund safety tests cover authentication, malformed data, ambiguity, grouping, and write failures.
+
+---
+
 ### 2025-09-01: No bugs discovered yet
 The project was developed using strict TDD methodology from the start, preventing bugs through test-first development.
 
