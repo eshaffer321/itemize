@@ -463,6 +463,27 @@ The helper now marks imported cookies `Secure`, `HttpOnly`, and `SameSite=Lax` b
 
 ---
 
+### 2026-07-17: Indistinguishable Amazon refund groups were not deduplicated
+
+**Description:**
+Successfully categorized same-day, same-amount Amazon refund groups were counted but not saved to Itemize's processing ledger. Later syncs therefore reconsidered the same returns and warned that no temporary credits remained.
+
+**Test Case:**
+`TestProcessAmazonReturnsGroupsIndistinguishableCredits` first reproduced the issue by requiring both Amazon RMA IDs to be marked processed while verifying that no individual credit-to-item association was stored.
+
+**Root Cause:**
+The single-refund path called `recordSuccessWithResult`, but the group path only incremented `RefundProcessedCount`.
+
+**Fix Applied:**
+The group path now records each authoritative Amazon return as successfully processed. It deliberately removes the individual transaction from the audit result so the database does not claim a mapping that Amazon and the bank feed cannot prove.
+
+**Verification:**
+- The regression test failed before the fix and passes after it.
+- Both RMA IDs participate in normal deduplication.
+- No Monarch transaction association is stored for either indistinguishable item.
+
+---
+
 ### 2025-09-01: No bugs discovered yet
 The project was developed using strict TDD methodology from the start, preventing bugs through test-first development.
 

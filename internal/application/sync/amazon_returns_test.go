@@ -13,6 +13,7 @@ import (
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
 	"github.com/eshaffer321/itemize/internal/domain/splitter"
+	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
 	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -99,13 +100,21 @@ func TestProcessAmazonReturnsGroupsIndistinguishableCredits(t *testing.T) {
 	orchestrator := &Orchestrator{
 		amazonHandler: handlers.NewAmazonHandler(transactionMatcher, nil, &mockSplitterAdapter{splitter: spl}, &processOrderTestMonarch{}, slog.Default()),
 		logger:        slog.Default(),
+		storage:       storage.NewMockRepository(),
 	}
 	result := &Result{}
 
-	orchestrator.processAmazonReturns(context.Background(), records, transactions, map[string]bool{}, []categorizer.Category{{ID: "kid-needs", Name: "Kid Needs"}}, nil, Options{DryRun: true, LookbackDays: 14}, now, result)
+	orchestrator.processAmazonReturns(context.Background(), records, transactions, map[string]bool{}, []categorizer.Category{{ID: "kid-needs", Name: "Kid Needs"}}, nil, Options{LookbackDays: 14}, now, result)
 
 	assert.Equal(t, 2, result.RefundProcessedCount)
 	assert.Equal(t, 0, result.RefundSkippedCount)
+	assert.True(t, orchestrator.storage.IsProcessed("amazon-refund:DfirstRRMA"))
+	assert.True(t, orchestrator.storage.IsProcessed("amazon-refund:DsecondRRMA"))
+	for _, refundID := range []string{"amazon-refund:DfirstRRMA", "amazon-refund:DsecondRRMA"} {
+		associations, err := orchestrator.storage.GetOrderTransactions(refundID)
+		require.NoError(t, err)
+		assert.Empty(t, associations, "the indistinguishable group must not assert a credit-to-item mapping")
+	}
 }
 
 func TestProcessAmazonReturnsLeavesUnmatchedRefundUntouched(t *testing.T) {

@@ -136,6 +136,15 @@ func (o *Orchestrator) processAmazonRefundGroup(
 		result.Errors = append(result.Errors, fmt.Errorf("amazon refund group %s returned %d results for %d records", groupKey, len(processed), len(records)))
 		return
 	}
+	for i, refund := range refunds {
+		// Record each authoritative return as complete for deduplication, but do
+		// not persist an individual Monarch transaction association: Amazon and
+		// the bank feed cannot identify which indistinguishable credit belongs
+		// to which returned item.
+		auditResult := *processed[i]
+		auditResult.Transaction = nil
+		o.recordSuccessWithResult(refund, nil, processed[i].Splits, 1, opts.DryRun, &auditResult, nil)
+	}
 	result.RefundProcessedCount += len(processed)
 }
 
