@@ -77,6 +77,7 @@ func ParseSyncFlags(providerName string) SyncFlags {
 func PrintAmazonUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
   itemize amazon setup -account <name>
+  itemize amazon returns -account <name>
   itemize amazon -account <name> [sync options]
 
 First-time setup:
@@ -85,6 +86,9 @@ First-time setup:
 
 Account management:
   -list-accounts           List saved Amazon accounts
+
+Direct Amazon data:
+  returns                  Print Amazon return/refund records as JSON; does not write to Monarch
 
 Sync options:
   -dry-run                 Preview without making Monarch changes
@@ -104,6 +108,7 @@ Advanced authentication:
 
 Examples:
   itemize amazon setup -account wife
+  itemize amazon returns -account wife
   itemize amazon -account wife -dry-run -days 14 -max 1
 `)
 }

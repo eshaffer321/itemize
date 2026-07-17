@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -256,6 +256,41 @@ func TestMatcher_EmptyTransactions(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Nil(t, result)
+}
+
+func TestMatcher_FindUniqueMatchRejectsEqualCandidates(t *testing.T) {
+	order := &mockOrder{
+		total: -14.41,
+		date:  time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC),
+	}
+	transactions := []*monarch.Transaction{
+		makeTransaction("refund-1", 14.41, order.date),
+		makeTransaction("refund-2", 14.41, order.date),
+	}
+	m := NewMatcher(Config{AmountTolerance: 0.01, DateTolerance: 5})
+
+	result, err := m.FindUniqueMatch(order, transactions, map[string]bool{})
+
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, ErrAmbiguousMatch)
+}
+
+func TestMatcher_FindUniqueMatchSelectsSoleClosestCandidate(t *testing.T) {
+	order := &mockOrder{
+		total: -11.36,
+		date:  time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC),
+	}
+	transactions := []*monarch.Transaction{
+		makeTransaction("closest", 11.36, order.date),
+		makeTransaction("later", 11.36, order.date.AddDate(0, 0, 2)),
+	}
+	m := NewMatcher(Config{AmountTolerance: 0.01, DateTolerance: 5})
+
+	result, err := m.FindUniqueMatch(order, transactions, map[string]bool{})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "closest", result.Transaction.ID)
 }
 
 func TestMatcher_CustomConfig(t *testing.T) {

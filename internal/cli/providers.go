@@ -78,7 +78,7 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 // NewAmazonProvider creates a new Amazon provider with a system-scoped logger.
 // account, if non-empty, overrides cfg.Providers.Amazon.AccountName (and thus
 // AMAZON_ACCOUNT_NAME) — it's the value of the -account flag.
-func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (providers.OrderProvider, error) {
+func NewAmazonProvider(cfg *config.Config, verbose bool, account string) (*amazonprovider.Provider, error) {
 	// Create an amazon-scoped logger with verbose flag
 	loggingCfg := cfg.Observability.Logging
 	if verbose {

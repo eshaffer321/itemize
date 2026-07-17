@@ -41,10 +41,12 @@ type Options struct {
 
 // Result holds sync results
 type Result struct {
-	ProcessedCount int
-	SkippedCount   int
-	ErrorCount     int
-	Errors         []error
+	ProcessedCount       int
+	SkippedCount         int
+	RefundProcessedCount int
+	RefundSkippedCount   int
+	ErrorCount           int
+	Errors               []error
 }
 
 // Orchestrator runs the sync process

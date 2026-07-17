@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/application/sync/handlers"
@@ -151,6 +152,13 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
+	amazonReturns, returnsErr := o.fetchAmazonReturns(ctx)
+	if returnsErr != nil {
+		result.ErrorCount++
+		result.Errors = append(result.Errors, returnsErr)
+		o.logger.Error("Amazon return ledger unavailable; continuing with order sync", "error", returnsErr)
+	}
+
 	// 5. Process orders
 	usedTransactionIDs := make(map[string]bool)
 
@@ -182,6 +190,10 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 		if skipped {
 			result.SkippedCount++
 		}
+	}
+
+	if returnsErr == nil && len(amazonReturns) > 0 {
+		o.processAmazonReturns(ctx, amazonReturns, providerTransactions, usedTransactionIDs, catCategories, monarchCategories, opts, time.Now(), result)
 	}
 
 	// 6. Complete sync run

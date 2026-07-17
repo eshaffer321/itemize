@@ -18,11 +18,16 @@
 package matcher
 
 import (
+	"errors"
 	"math"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
+
+// ErrAmbiguousMatch indicates that two or more transactions are equally good
+// matches and choosing one would require guessing.
+var ErrAmbiguousMatch = errors.New("ambiguous transaction match")
 
 // Matcher matches orders with Monarch transactions
 type Matcher struct {
@@ -114,4 +119,71 @@ func (m *Matcher) FindMatch(
 	}
 
 	return result, nil
+}
+
+// FindUniqueMatch returns a match only when one candidate is strictly better
+// than every other eligible transaction by amount difference, then date.
+func (m *Matcher) FindUniqueMatch(
+	order providers.Order,
+	transactions []*monarch.Transaction,
+	usedTransactionIDs map[string]bool,
+) (*MatchResult, error) {
+	orderAmount := order.GetTotal()
+	orderDate := order.GetDate()
+	isReturn := orderAmount < 0
+	orderAmount = math.Abs(orderAmount)
+
+	var best *monarch.Transaction
+	bestAmountDiff := math.Inf(1)
+	bestDateDiff := math.Inf(1)
+	bestCount := 0
+	const epsilon = 0.0000001
+
+	for _, tx := range transactions {
+		if tx == nil || usedTransactionIDs[tx.ID] {
+			continue
+		}
+		if isReturn && tx.Amount < 0 {
+			continue
+		}
+		if !isReturn && tx.Amount > 0 {
+			continue
+		}
+
+		amountDiff := math.Abs(orderAmount - math.Abs(tx.Amount))
+		if amountDiff > m.config.AmountTolerance+epsilon {
+			continue
+		}
+		dateDiff := math.Abs(tx.Date.Time.Sub(orderDate).Hours() / 24)
+		if dateDiff > float64(m.config.DateTolerance) {
+			continue
+		}
+
+		betterAmount := amountDiff < bestAmountDiff-epsilon
+		equalAmount := math.Abs(amountDiff-bestAmountDiff) <= epsilon
+		betterDate := dateDiff < bestDateDiff-epsilon
+		equalDate := math.Abs(dateDiff-bestDateDiff) <= epsilon
+		switch {
+		case betterAmount || (equalAmount && betterDate):
+			best = tx
+			bestAmountDiff = amountDiff
+			bestDateDiff = dateDiff
+			bestCount = 1
+		case equalAmount && equalDate:
+			bestCount++
+		}
+	}
+
+	if best == nil {
+		return nil, nil
+	}
+	if bestCount > 1 {
+		return nil, ErrAmbiguousMatch
+	}
+	return &MatchResult{
+		Transaction: best,
+		DateDiff:    bestDateDiff,
+		AmountDiff:  bestAmountDiff,
+		Confidence:  1.0,
+	}, nil
 }
