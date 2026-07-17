@@ -2,7 +2,13 @@ package amazon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +134,7 @@ func TestProvider_FetchOrdersUsesAmazonGoClientAndTransactions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []float64{44.91}, charges)
 	assert.Equal(t, []time.Time{txDate}, amazonOrder.GetTransactionDates())
+	assert.True(t, client.cookiesSaved)
 }
 
 func TestProvider_FetchOrdersKeepsOrderWhenTransactionsFail(t *testing.T) {
@@ -174,6 +181,52 @@ func TestProvider_FetchOrdersRewordsExpiredCookieError(t *testing.T) {
 	assert.NotContains(t, err.Error(), "cookies are expired")
 }
 
+func TestProvider_FailedHealthCheckDoesNotOverwriteSavedCookies(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
+	stored := amazongo.CookieFile{
+		Cookies: []*amazongo.Cookie{
+			{Name: "session-id", Value: "original-session-id", Domain: ".amazon.com", Path: "/"},
+			{Name: "session-token", Value: "original-session-token", Domain: ".amazon.com", Path: "/"},
+			{Name: "ubid-main", Value: "original-ubid", Domain: ".amazon.com", Path: "/"},
+			{Name: "at-main", Value: "original-at", Domain: ".amazon.com", Path: "/"},
+		},
+		UpdatedAt: time.Now(),
+	}
+	data, err := json.Marshal(stored)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cookieFile, data, 0o600))
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Set-Cookie": []string{"session-token=poisoned-by-sign-in; Path=/; Domain=.amazon.com"},
+			},
+			Body:    io.NopCloser(strings.NewReader(`<html><title>Amazon Sign-In</title><input id="ap_email"></html>`)),
+			Request: req,
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	provider := NewProvider(nil, &ProviderConfig{Profile: "wife", CookieFile: cookieFile})
+	_, err = provider.FetchOrders(context.Background(), providers.FetchOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "amazon auth check failed")
+
+	after, err := os.ReadFile(cookieFile)
+	require.NoError(t, err)
+	var saved amazongo.CookieFile
+	require.NoError(t, json.Unmarshal(after, &saved))
+	for _, cookie := range saved.Cookies {
+		if cookie.Name == "session-token" {
+			assert.Equal(t, "original-session-token", cookie.Value)
+			return
+		}
+	}
+	t.Fatal("saved session-token cookie not found")
+}
+
 func TestProvider_HealthCheckRewordsExpiredCookieError(t *testing.T) {
 	client := &fakeAmazonClient{healthErr: errors.New("authentication failed: cookies are expired, please re-import cookies from browser")}
 	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
@@ -209,6 +262,16 @@ func TestProvider_GetOrderDetailsFetchesOrderWithTransactions(t *testing.T) {
 	charges, err := order.(*Order).GetFinalCharges()
 	require.NoError(t, err)
 	assert.Equal(t, []float64{12.34}, charges)
+	assert.True(t, client.cookiesSaved)
+}
+
+func TestProvider_SaveCookiesTreatsPersistenceFailureAsRecoverable(t *testing.T) {
+	client := &fakeAmazonClient{saveCookiesErr: errors.New("read-only cookie file")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
+	provider.saveCookies(client)
+
+	assert.True(t, client.cookiesSaved)
 }
 
 func TestProvider_HealthCheckUsesAmazonGoClient(t *testing.T) {
@@ -259,6 +322,14 @@ type fakeAmazonClient struct {
 	fetchOrderWithTxErr   error
 	healthChecked         bool
 	healthErr             error
+	cookiesSaved          bool
+	saveCookiesErr        error
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func (f *fakeAmazonClient) FetchOrders(_ context.Context, opts amazongo.FetchOptions) ([]*amazongo.Order, error) {
@@ -269,6 +340,11 @@ func (f *fakeAmazonClient) FetchOrders(_ context.Context, opts amazongo.FetchOpt
 func (f *fakeAmazonClient) FetchOrderWithTransactions(_ context.Context, orderID string) (*amazongo.Order, []*amazongo.Transaction, error) {
 	f.detailOrderID = orderID
 	return f.detailOrder, f.detailTransactions, f.fetchOrderWithTxErr
+}
+
+func (f *fakeAmazonClient) SaveCookies() error {
+	f.cookiesSaved = true
+	return f.saveCookiesErr
 }
 
 func (f *fakeAmazonClient) FetchTransactions(_ context.Context, orderID string) ([]*amazongo.Transaction, error) {

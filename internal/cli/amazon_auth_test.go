@@ -43,6 +43,16 @@ func TestSaveImportedAmazonCookies_DoesNotOverwriteDestinationWhenValidationFail
 	assert.JSONEq(t, string(original), string(after))
 }
 
+func TestValidateImportedAmazonCookies_ReachesAuthCheck(t *testing.T) {
+	err := validateImportedAmazonCookies([]*amazon.Cookie{
+		{Name: "session-id", Value: "not-enough-cookies", Domain: ".amazon.com", Path: "/"},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing essential cookies")
+	assert.NotContains(t, err.Error(), "unexpected end of JSON input")
+}
+
 func TestSaveImportedAmazonCookies_SavesDestinationWhenAuthCheckSkipped(t *testing.T) {
 	cookieFile := filepath.Join(t.TempDir(), "cookies-amazon-wife.json")
 

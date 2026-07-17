@@ -65,6 +65,26 @@ Upgraded to `walmart-client-go/v2 v2.2.1`, which captures the live browser reque
 - A second live client sequence fetched purchase history and then a completed in-store order with 4 items, confirming path-scoped history cookies no longer poison detail requests.
 - `./itemize walmart -dry-run -days 14 -max 1 -verbose` skipped the active `PLACED` summary, issued exactly one completed-order detail request, exited successfully, and logged no HTTP 456 response.
 
+---
+
+### 2026-07-16: Amazon setup rejected fresh logins and failed auth checks corrupted saved cookies
+
+**Description:**
+`itemize amazon setup -account <name>` could open an authenticated Amazon browser profile but fail before saving its cookies with `unexpected end of JSON input`. A later sync with stale cookies then allowed `amazon-go` to auto-save cookies from Amazon's sign-in response before the health check reported the authentication failure, overwriting part of the previously saved cookie set.
+
+**Root Cause:**
+The setup validator created an empty temporary file and passed that existing file to `amazon-go`, whose cookie store attempted to parse it as JSON. The provider also used `amazon-go`'s default auto-save behavior during health checks, even though a sign-in response is not a successful cookie refresh.
+
+**Fix Applied:**
+The validator now removes the reserved temporary file before constructing its isolated validation client. The provider disables automatic cookie persistence and explicitly saves updated cookies only after successful order or order-detail fetches, leaving failed health checks read-only.
+
+**Verification:**
+- `TestValidateImportedAmazonCookies_ReachesAuthCheck` reproduces the empty-file parse failure.
+- `TestProvider_FailedHealthCheckDoesNotOverwriteSavedCookies` simulates an Amazon sign-in response that attempts to replace the session token.
+- Successful fetch and detail tests verify that legitimate cookie refreshes are still persisted.
+
+---
+
 ### 2026-07-10: Walmart refunds lacked item-level categorization
 
 **Description:**
