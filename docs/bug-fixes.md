@@ -12,6 +12,36 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-15: Walmart detail requests were rejected with HTTP 456
+
+**Description:**
+Walmart purchase history succeeded, but itemize then sent an obsolete request profile for every order-detail lookup. Walmart rejected those calls with HTTP 456, and itemize continued through the remaining history, repeating a session-level failure for orders it would later discard because of `-max`.
+
+**Test Case:**
+```go
+// internal/adapters/providers/walmart/provider_test.go:
+// TestProvider_FetchOrders_WithMaxOrders
+// Expected: -max truncates summaries before any detail requests.
+
+// TestProvider_FetchOrders_PassesPurchaseHistoryGroupID
+// Expected: the summary groupId is forwarded to getOrder.
+
+// TestProvider_FetchOrders_StopsOnBotChallenge
+// Expected: ErrBotChallenge stops the detail loop after one request.
+```
+
+**Root Cause:**
+Itemize used `walmart-client-go/v2 v2.1.0`, whose `getOrder` hash, GraphQL variables, user agent, Walmart platform version, and tracing headers no longer matched the web client. Cookie refresh merged snapshots, so expired WAF cookies could also survive. The itemize provider ignored each HTTP 456 as an order-specific failure, did not pass the purchase-history `groupId`, and applied `MaxOrders` only after fetching every detail response.
+
+**Fix Applied:**
+Upgraded to `walmart-client-go/v2 v2.2.1`, which captures the live browser request profile, replaces stale cookie snapshots, preserves response-cookie path scope, forwards group IDs, and exposes `ErrBotChallenge`. Itemize now removes active/unfinalized summaries and truncates the remaining deduplicated summaries before detail calls, calls `GetOrderWithGroup`, and returns immediately when Walmart challenges the browser session.
+
+**Verification:**
+- The four regression tests failed before their fixes and pass after them.
+- The walmart client performed a live read-only `getOrder` with the captured order/group ID and returned 17 items.
+- A second live client sequence fetched purchase history and then a completed in-store order with 4 items, confirming path-scoped history cookies no longer poison detail requests.
+- `./itemize walmart -dry-run -days 14 -max 1 -verbose` skipped the active `PLACED` summary, issued exactly one completed-order detail request, exited successfully, and logged no HTTP 456 response.
+
 ### 2026-07-10: Walmart refunds lacked item-level categorization
 
 **Description:**
