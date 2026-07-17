@@ -1,6 +1,8 @@
 package walmart
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
@@ -118,6 +120,84 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		_, err := order.GetFinalCharges()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "payment pending")
+	})
+
+	t.Run("completed in-store order falls back to its credit-card total when ledger is empty", func(t *testing.T) {
+		order := &Order{
+			walmartOrder: &walmartclient.Order{
+				ID:   "IN-STORE-123",
+				Type: "IN_STORE",
+				PriceDetails: &walmartclient.OrderPriceDetails{
+					GrandTotal: &walmartclient.PriceLineItem{Value: 9.88},
+				},
+				PaymentMethods: []walmartclient.OrderPaymentMethod{{PaymentType: "CREDITCARD"}},
+			},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID:        "IN-STORE-123",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{},
+			},
+			logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Equal(t, []float64{9.88}, charges)
+	})
+
+	t.Run("empty in-store ledger does not guess an ambiguous charge", func(t *testing.T) {
+		tests := []struct {
+			name           string
+			orderType      string
+			paymentMethods []walmartclient.OrderPaymentMethod
+			total          float64
+		}{
+			{
+				name:           "online order",
+				orderType:      "GLASS",
+				paymentMethods: []walmartclient.OrderPaymentMethod{{PaymentType: "CREDITCARD"}},
+				total:          9.88,
+			},
+			{
+				name:      "split tender",
+				orderType: "IN_STORE",
+				paymentMethods: []walmartclient.OrderPaymentMethod{
+					{PaymentType: "CREDITCARD"},
+					{PaymentType: "GIFTCARD"},
+				},
+				total: 9.88,
+			},
+			{
+				name:           "gift card only",
+				orderType:      "IN_STORE",
+				paymentMethods: []walmartclient.OrderPaymentMethod{{PaymentType: "GIFTCARD"}},
+				total:          9.88,
+			},
+			{
+				name:           "non-positive total",
+				orderType:      "IN_STORE",
+				paymentMethods: []walmartclient.OrderPaymentMethod{{PaymentType: "CREDITCARD"}},
+				total:          0,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				order := &Order{
+					walmartOrder: &walmartclient.Order{
+						ID:             "AMBIGUOUS-IN-STORE",
+						Type:           tt.orderType,
+						PaymentMethods: tt.paymentMethods,
+						PriceDetails: &walmartclient.OrderPriceDetails{
+							GrandTotal: &walmartclient.PriceLineItem{Value: tt.total},
+						},
+					},
+					ledgerCache: &walmartclient.OrderLedger{OrderID: "AMBIGUOUS-IN-STORE"},
+				}
+
+				_, err := order.GetFinalCharges()
+				require.ErrorContains(t, err, "payment pending")
+			})
+		}
 	})
 
 	t.Run("error - client not available", func(t *testing.T) {

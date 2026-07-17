@@ -12,6 +12,29 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-16: Completed Walmart in-store receipts were treated as payment pending
+
+**Description:**
+Walmart returned completed in-store receipts with a credit-card payment method and final total, but its separate order-ledger endpoint returned no payment methods for those receipts. Itemize treated every empty ledger as an uncharged online order and skipped the in-store purchases indefinitely as `payment pending`.
+
+**Test Case:**
+```go
+// internal/adapters/providers/walmart/order_multi_delivery_test.go:
+// TestOrder_GetFinalCharges/completed_in-store_order_falls_back_to_its_credit-card_total_when_ledger_is_empty
+// Expected: a completed IN_STORE order with one CREDITCARD payment returns its receipt total as the bank charge.
+```
+
+**Root Cause:**
+`GetFinalCharges()` assumed Walmart's order-ledger endpoint was populated for every fulfillment type. Live completed in-store orders retain their payment metadata on the order payload but have an empty ledger response.
+
+**Fix Applied:**
+When the ledger is empty, Itemize now uses the receipt total only for an `IN_STORE` order with exactly one `CREDITCARD` payment method and a positive total. Other empty-ledger orders keep the existing payment-pending behavior, avoiding unsafe guesses for split-tender or gift-card purchases.
+
+**Verification:**
+- The regression test failed before the fix with `order not yet charged (payment pending)` and passes after it.
+- A live run of the rebuilt v0.2.1 source reproduced all three completed in-store receipts being skipped with an empty ledger before the fix.
+- The fixed binary dry-ran all three affected receipts against live Walmart and Monarch data, matched `$9.88`, `$32.10`, and `$10.69` transactions, and finished with `Processed=3 Skipped=0 Errors=0` without writing to Monarch.
+
 ### 2026-07-15: Walmart detail requests were rejected with HTTP 456
 
 **Description:**
