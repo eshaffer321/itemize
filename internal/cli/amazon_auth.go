@@ -186,6 +186,9 @@ func validateImportedAmazonCookies(cookies []*amazon.Cookie) error {
 		return fmt.Errorf("failed to close temporary Amazon auth file: %w", err)
 	}
 	defer func() { _ = os.Remove(tempPath) }()
+	if err := os.Remove(tempPath); err != nil {
+		return fmt.Errorf("failed to prepare temporary Amazon auth path: %w", err)
+	}
 
 	client, err := newAmazonClient(tempPath, "")
 	if err != nil {

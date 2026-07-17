@@ -22,6 +22,7 @@ type amazonClient interface {
 	FetchOrderWithTransactions(ctx context.Context, orderID string) (*amazongo.Order, []*amazongo.Transaction, error)
 	FetchTransactions(ctx context.Context, orderID string) ([]*amazongo.Transaction, error)
 	HealthCheck() error
+	SaveCookies() error
 }
 
 // isValidProfile checks if an account name is safe to use as an Amazon cookie account.
@@ -136,6 +137,7 @@ func (p *Provider) FetchOrders(ctx context.Context, opts providers.FetchOptions)
 	}
 
 	p.logger.Info("processed orders", slog.Int("count", len(orders)))
+	p.saveCookies(client)
 
 	return orders, nil
 }
@@ -154,6 +156,7 @@ func (p *Provider) GetOrderDetails(ctx context.Context, orderID string) (provide
 	if amazonOrder == nil {
 		return nil, fmt.Errorf("amazon order %q not found", orderID)
 	}
+	p.saveCookies(client)
 
 	return NewOrder(convertGoOrder(amazonOrder, transactions), p.logger), nil
 }
@@ -218,6 +221,7 @@ func (p *Provider) getClient() (amazonClient, error) {
 	opts := []amazongo.Option{
 		amazongo.WithLogger(p.logger),
 		amazongo.WithRateLimit(p.rateLimit),
+		amazongo.WithAutoSave(false),
 	}
 	if p.profile != "" {
 		opts = append(opts, amazongo.WithAccount(p.profile))
@@ -232,6 +236,12 @@ func (p *Provider) getClient() (amazonClient, error) {
 	}
 	p.client = client
 	return client, nil
+}
+
+func (p *Provider) saveCookies(client amazonClient) {
+	if err := client.SaveCookies(); err != nil {
+		p.logger.Warn("failed to save Amazon cookies", slog.String("error", err.Error()))
+	}
 }
 
 func (p *Provider) loginCommand() string {
