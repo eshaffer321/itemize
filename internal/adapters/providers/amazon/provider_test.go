@@ -265,6 +265,15 @@ func TestProvider_GetOrderDetailsFetchesOrderWithTransactions(t *testing.T) {
 	assert.True(t, client.cookiesSaved)
 }
 
+func TestProvider_SaveCookiesTreatsPersistenceFailureAsRecoverable(t *testing.T) {
+	client := &fakeAmazonClient{saveCookiesErr: errors.New("read-only cookie file")}
+	provider := NewProviderWithClient(nil, &ProviderConfig{Profile: "wife"}, client)
+
+	provider.saveCookies(client)
+
+	assert.True(t, client.cookiesSaved)
+}
+
 func TestProvider_HealthCheckUsesAmazonGoClient(t *testing.T) {
 	client := &fakeAmazonClient{}
 	provider := NewProviderWithClient(nil, nil, client)
