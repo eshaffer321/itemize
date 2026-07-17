@@ -120,6 +120,27 @@ func TestOrder_GetFinalCharges(t *testing.T) {
 		assert.Contains(t, err.Error(), "payment pending")
 	})
 
+	t.Run("completed in-store order falls back to its credit-card total when ledger is empty", func(t *testing.T) {
+		order := &Order{
+			walmartOrder: &walmartclient.Order{
+				ID:   "IN-STORE-123",
+				Type: "IN_STORE",
+				PriceDetails: &walmartclient.OrderPriceDetails{
+					GrandTotal: &walmartclient.PriceLineItem{Value: 9.88},
+				},
+				PaymentMethods: []walmartclient.OrderPaymentMethod{{PaymentType: "CREDITCARD"}},
+			},
+			ledgerCache: &walmartclient.OrderLedger{
+				OrderID:        "IN-STORE-123",
+				PaymentMethods: []walmartclient.PaymentMethodCharges{},
+			},
+		}
+
+		charges, err := order.GetFinalCharges()
+		require.NoError(t, err)
+		assert.Equal(t, []float64{9.88}, charges)
+	})
+
 	t.Run("error - client not available", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST001"},

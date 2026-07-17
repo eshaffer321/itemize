@@ -202,6 +202,14 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 
 	// Extract and validate charges
 	if len(ledger.PaymentMethods) == 0 {
+		if charge, ok := o.inStoreCreditCardCharge(); ok {
+			if o.logger != nil {
+				o.logger.Debug("Using completed in-store order total because Walmart ledger is empty",
+					"order_id", o.GetID(),
+					"charge", charge)
+			}
+			return []float64{charge}, nil
+		}
 		return nil, fmt.Errorf("order not yet charged (payment pending)")
 	}
 
@@ -235,6 +243,22 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	}
 
 	return positiveCharges, nil
+}
+
+// inStoreCreditCardCharge returns the single bank charge represented by a
+// completed in-store receipt. Walmart does not populate the order-ledger API
+// for these receipts, so the receipt total is the authoritative charge when
+// its order payload identifies one credit-card payment method.
+func (o *Order) inStoreCreditCardCharge() (float64, bool) {
+	if o.walmartOrder.Type != "IN_STORE" || len(o.walmartOrder.PaymentMethods) != 1 {
+		return 0, false
+	}
+	if o.walmartOrder.PaymentMethods[0].PaymentType != "CREDITCARD" {
+		return 0, false
+	}
+
+	charge := o.GetTotal()
+	return charge, charge > 0
 }
 
 // GetRefundCharges returns credit-card refunds for this order as positive amounts.
