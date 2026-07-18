@@ -18,6 +18,26 @@ import (
 
 // fetchOrders fetches orders from the provider based on the given options
 func (o *Orchestrator) fetchOrders(ctx context.Context, opts Options) ([]providers.Order, error) {
+	if opts.OrderID != "" {
+		started := time.Now()
+		order, err := o.provider.GetOrderDetails(ctx, opts.OrderID)
+		orders := make([]providers.Order, 0, 1)
+		if order != nil {
+			orders = append(orders, order)
+		}
+		var response any
+		if o.storage != nil {
+			response = summarizeOrdersForFetchLog(orders)
+		}
+		o.logProviderFetch("order_details", map[string]any{
+			"order_id": opts.OrderID,
+		}, response, err, time.Since(started), len(orders), 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch order %s: %w", opts.OrderID, err)
+		}
+		return orders, nil
+	}
+
 	endDate := time.Now()
 	startDate := endDate.AddDate(0, 0, -opts.LookbackDays)
 

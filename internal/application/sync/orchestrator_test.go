@@ -474,6 +474,23 @@ func TestOrchestrator_fetchOrders(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_fetchOrdersUsesDirectLookupForOrderID(t *testing.T) {
+	mockProvider := new(MockProvider)
+	order := &MockOrder{}
+	mockProvider.On("GetOrderDetails", mock.Anything, "112-5922286-2695428").Return(order, nil)
+	orchestrator := NewOrchestrator(mockProvider, nil, nil, slog.Default())
+
+	orders, err := orchestrator.fetchOrders(context.Background(), Options{
+		LookbackDays: 30,
+		OrderID:      "112-5922286-2695428",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []providers.Order{order}, orders)
+	mockProvider.AssertNotCalled(t, "FetchOrders", mock.Anything, mock.Anything)
+	mockProvider.AssertExpectations(t)
+}
+
 func TestOrchestrator_fetchOrders_LogsProviderFetch(t *testing.T) {
 	mockProvider := new(MockProvider)
 	mockProvider.On("DisplayName").Return("Costco")
