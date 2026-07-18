@@ -491,6 +491,23 @@ func TestOrchestrator_fetchOrdersUsesDirectLookupForOrderID(t *testing.T) {
 	mockProvider.AssertExpectations(t)
 }
 
+func TestOrchestrator_fetchOrdersReturnsDirectLookupError(t *testing.T) {
+	mockProvider := new(MockProvider)
+	mockProvider.On("GetOrderDetails", mock.Anything, "112-5922286-2695428").
+		Return(nil, errors.New("session expired"))
+	orchestrator := NewOrchestrator(mockProvider, nil, nil, slog.Default())
+
+	orders, err := orchestrator.fetchOrders(context.Background(), Options{
+		LookbackDays: 30,
+		OrderID:      "112-5922286-2695428",
+	})
+
+	require.EqualError(t, err, "failed to fetch order 112-5922286-2695428: session expired")
+	assert.Nil(t, orders)
+	mockProvider.AssertNotCalled(t, "FetchOrders", mock.Anything, mock.Anything)
+	mockProvider.AssertExpectations(t)
+}
+
 func TestOrchestrator_fetchOrders_LogsProviderFetch(t *testing.T) {
 	mockProvider := new(MockProvider)
 	mockProvider.On("DisplayName").Return("Costco")
