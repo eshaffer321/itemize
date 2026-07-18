@@ -484,6 +484,26 @@ The group path now records each authoritative Amazon return as successfully proc
 
 ---
 
+### 2026-07-17: Amazon order-id runs fetched every order before filtering
+
+**Description:**
+An `itemize amazon -order-id ...` run still paginated the entire Amazon order history and fetched transaction details for every order. Targeted recovery runs took minutes and could cause Amazon to expire the session before reaching the requested order.
+
+**Test Case:**
+`TestOrchestrator_fetchOrdersUsesDirectLookupForOrderID` first reproduced the issue by requiring `GetOrderDetails` for the requested ID and proving `FetchOrders` was not called.
+
+**Root Cause:**
+The order-id filter was applied in the processing loop, after the bulk provider fetch had already completed.
+
+**Fix Applied:**
+The orchestrator now uses the provider's direct `GetOrderDetails` operation whenever `Options.OrderID` is set, while preserving provider-fetch audit logging.
+
+**Verification:**
+- The regression test failed before the fix and passes after it.
+- Existing bulk-fetch and provider-fetch audit tests remain green.
+
+---
+
 ### 2025-09-01: No bugs discovered yet
 The project was developed using strict TDD methodology from the start, preventing bugs through test-first development.
 
