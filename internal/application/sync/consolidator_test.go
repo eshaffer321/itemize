@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,22 +21,23 @@ type mockOrder struct {
 	total float64
 }
 
-func (m *mockOrder) GetID() string                       { return m.id }
-func (m *mockOrder) GetDate() time.Time                  { return m.date }
-func (m *mockOrder) GetTotal() float64                   { return m.total }
-func (m *mockOrder) GetSubtotal() float64                { return 0 }
-func (m *mockOrder) GetTax() float64                     { return 0 }
-func (m *mockOrder) GetTip() float64                     { return 0 }
-func (m *mockOrder) GetFees() float64                    { return 0 }
-func (m *mockOrder) GetItems() []providers.OrderItem     { return nil }
-func (m *mockOrder) GetProviderName() string             { return "test" }
-func (m *mockOrder) GetRawData() interface{}             { return nil }
+func (m *mockOrder) GetID() string                   { return m.id }
+func (m *mockOrder) GetDate() time.Time              { return m.date }
+func (m *mockOrder) GetTotal() float64               { return m.total }
+func (m *mockOrder) GetSubtotal() float64            { return 0 }
+func (m *mockOrder) GetTax() float64                 { return 0 }
+func (m *mockOrder) GetTip() float64                 { return 0 }
+func (m *mockOrder) GetFees() float64                { return 0 }
+func (m *mockOrder) GetItems() []providers.OrderItem { return nil }
+func (m *mockOrder) GetProviderName() string         { return "test" }
+func (m *mockOrder) GetRawData() interface{}         { return nil }
 
 // mockMonarchClient simulates the Monarch client for testing
 type mockMonarchClient struct {
 	updateCalled    int
 	deleteCalled    int
 	updateError     error
+	updateErrors    []error
 	deleteError     error
 	deleteFailAfter int // Fail after N deletes (for partial failure testing)
 }
@@ -98,6 +100,9 @@ func (m *mockMonarchClient) Create(ctx context.Context, params *monarch.CreateTr
 // Update updates a transaction
 func (m *mockMonarchClient) Update(ctx context.Context, id string, params *monarch.UpdateTransactionParams) (*monarch.Transaction, error) {
 	m.updateCalled++
+	if len(m.updateErrors) >= m.updateCalled && m.updateErrors[m.updateCalled-1] != nil {
+		return nil, m.updateErrors[m.updateCalled-1]
+	}
 	if m.updateError != nil {
 		return nil, m.updateError
 	}
@@ -262,6 +267,25 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		assert.Equal(t, 0, mockClient.deleteCalled, "Should not delete in dry-run")
 	})
 
+	t.Run("resumed consolidation preserves the original charge note", func(t *testing.T) {
+		mockClient := &mockMonarchClient{}
+		client := &monarch.Client{Transactions: mockClient}
+		consolidator := NewConsolidator(client, logger, nil, 0)
+		originalNote := "Multi-delivery order (2 charges: $6.06, $64.22)"
+
+		order := &mockOrder{id: "RESUME", total: 70.28}
+		transactions := []*monarch.Transaction{
+			{ID: "primary", Amount: -70.28, Notes: originalNote},
+			{ID: "extra", Amount: -64.22},
+		}
+
+		result, err := consolidator.ConsolidateTransactions(ctx, transactions, order, true)
+
+		require.NoError(t, err)
+		assert.Equal(t, originalNote, result.ConsolidatedTransaction.Notes)
+		assert.NotContains(t, result.ConsolidatedTransaction.Notes, "$70.28")
+	})
+
 	t.Run("handles positive transaction amounts (returns)", func(t *testing.T) {
 		mockClient := &mockMonarchClient{}
 		client := &monarch.Client{
@@ -347,6 +371,30 @@ func TestConsolidator_ConsolidateTransactions(t *testing.T) {
 		_, err := consolidator.ConsolidateTransactions(ctx, transactions, order, false)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update primary transaction")
+	})
+
+	t.Run("retries a transient primary update timeout", func(t *testing.T) {
+		mockClient := &mockMonarchClient{
+			updateErrors: []error{
+				&url.Error{Op: "Post", URL: "https://api.monarch.com/graphql", Err: context.DeadlineExceeded},
+				nil,
+			},
+		}
+		client := &monarch.Client{Transactions: mockClient}
+		consolidator := NewConsolidator(client, logger, nil, 0)
+
+		order := &mockOrder{id: "RETRY-UPDATE", total: 70.28}
+		transactions := []*monarch.Transaction{
+			{ID: "txn1", Amount: -6.06},
+			{ID: "txn2", Amount: -64.22},
+		}
+
+		result, err := consolidator.ConsolidateTransactions(ctx, transactions, order, false)
+
+		require.NoError(t, err)
+		assert.Equal(t, 2, mockClient.updateCalled)
+		assert.Equal(t, 1, mockClient.deleteCalled)
+		assert.Equal(t, -70.28, result.ConsolidatedTransaction.Amount)
 	})
 
 	t.Run("partial failure - some deletions fail", func(t *testing.T) {

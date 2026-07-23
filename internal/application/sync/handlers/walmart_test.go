@@ -609,6 +609,47 @@ func TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateTransacti
 	assert.True(t, usedTxnIDs["txn-aggregate"])
 }
 
+func TestWalmartHandler_ProcessOrder_MultiDelivery_ResumesInterruptedConsolidation(t *testing.T) {
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
+	monarchClient := &walmartTestMonarch{}
+	orderDate := time.Now()
+	consolidated := &monarch.Transaction{
+		ID:     "partially-consolidated",
+		Amount: -70.28,
+		Notes:  "Multi-delivery order (2 charges: $6.06, $64.22)",
+		Date:   walmartToMonarchDate(orderDate),
+	}
+	consolidator := &walmartTestConsolidator{
+		result: &ConsolidationResult{ConsolidatedTransaction: consolidated},
+	}
+	handler := createTestWalmartHandler(t, splitter, consolidator, monarchClient)
+
+	order := &walmartTestOrder{
+		id:       "INTERRUPTED-CONSOLIDATION",
+		date:     orderDate,
+		total:    70.28,
+		subtotal: 65.00,
+		tax:      5.28,
+		items:    []providers.OrderItem{&walmartTestItem{name: "Item", price: 65.00, quantity: 1}},
+		charges:  []float64{6.06, 64.22},
+	}
+	txns := []*monarch.Transaction{
+		consolidated,
+		{ID: "undeleted-extra", Amount: -64.22, Date: walmartToMonarchDate(orderDate)},
+	}
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(context.Background(), order, txns, usedTxnIDs, nil, nil, true)
+
+	require.NoError(t, err)
+	assert.True(t, result.Processed)
+	require.Len(t, consolidator.receivedTransactions, 2)
+	assert.Equal(t, "partially-consolidated", consolidator.receivedTransactions[0].ID)
+	assert.Equal(t, "undeleted-extra", consolidator.receivedTransactions[1].ID)
+	assert.True(t, usedTxnIDs["partially-consolidated"])
+	assert.True(t, usedTxnIDs["undeleted-extra"])
+}
+
 func TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateSubset(t *testing.T) {
 	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
 	monarchClient := &walmartTestMonarch{}

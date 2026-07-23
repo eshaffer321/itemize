@@ -70,7 +70,15 @@ func PrintSyncSummary(result *sync.Result, store storage.Repository, dryRun bool
 		}
 	}
 
-	if !dryRun && (result.ProcessedCount > 0 || result.RefundProcessedCount > 0) {
-		fmt.Println("\nSync completed successfully.")
+	if !dryRun {
+		if result.ErrorCount > 0 {
+			suffix := "errors"
+			if result.ErrorCount == 1 {
+				suffix = "error"
+			}
+			fmt.Printf("\nSync completed with %d %s.\n", result.ErrorCount, suffix)
+		} else if result.ProcessedCount > 0 || result.RefundProcessedCount > 0 {
+			fmt.Println("\nSync completed successfully.")
+		}
 	}
 }

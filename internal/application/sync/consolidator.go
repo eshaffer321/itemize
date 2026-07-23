@@ -3,15 +3,17 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"strings"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // Consolidator handles transaction consolidation for multi-delivery orders
@@ -159,6 +161,12 @@ func (c *Consolidator) updatePrimaryTransaction(
 ) (*monarch.Transaction, error) {
 	// Build consolidation note
 	note := c.buildConsolidationNote(allTransactions)
+	if math.Abs(math.Abs(primary.Amount)-math.Abs(order.GetTotal())) <= 0.01 &&
+		strings.HasPrefix(primary.Notes, "Multi-delivery order (") {
+		// A prior update may have reached Monarch even if its HTTP response timed
+		// out. Preserve the original charge audit note while deleting leftovers.
+		note = primary.Notes
+	}
 
 	// Calculate new amount (match sign of original transaction)
 	newAmount := order.GetTotal()
@@ -193,15 +201,27 @@ func (c *Consolidator) updatePrimaryTransaction(
 		Notes:  &note,
 	}
 
-	start := time.Now()
-	updated, err := c.client.Transactions.Update(ctx, primary.ID, params)
-	duration := time.Since(start).Milliseconds()
+	const maxAttempts = 2
+	var updated *monarch.Transaction
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		start := time.Now()
+		updated, err = c.client.Transactions.Update(ctx, primary.ID, params)
+		duration := time.Since(start).Milliseconds()
 
-	// Log API call
-	c.logAPICall(order.GetID(), "Transactions.Update", params, updated, err, duration)
+		// Log every attempt so timeout recovery remains auditable.
+		c.logAPICall(order.GetID(), "Transactions.Update", params, updated, err, duration)
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to update transaction %s: %w", primary.ID, err)
+		if err == nil {
+			break
+		}
+		if attempt == maxAttempts || !isRetryableMonarchError(ctx, err) {
+			return nil, fmt.Errorf("failed to update transaction %s: %w", primary.ID, err)
+		}
+		c.logger.Warn("Transient transaction update failed; retrying",
+			"transaction_id", primary.ID,
+			"attempt", attempt,
+			"error", err)
 	}
 
 	c.logger.Info("Updated primary transaction",
@@ -210,6 +230,18 @@ func (c *Consolidator) updatePrimaryTransaction(
 	)
 
 	return updated, nil
+}
+
+func isRetryableMonarchError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if monarch.IsRetryable(err) {
+		return true
+	}
+
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
 }
 
 // deleteExtraTransactions removes the extra transactions after consolidation
