@@ -12,6 +12,30 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-22: Reachable infinite-loop vulnerability in `golang.org/x/text`
+
+**Description:**
+The `govulncheck` gate on PR #76 reported GO-2026-5970, an infinite loop on invalid input in `golang.org/x/text`. Itemize resolved `v0.37.0`, and the scanner found a reachable path through the CLI's Sentry-backed telemetry dependencies.
+
+**Test Case:**
+```bash
+go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+# Before: reports reachable GO-2026-5970 and exits nonzero.
+# After: reports zero reachable vulnerabilities.
+```
+
+**Root Cause:**
+The module graph selected `golang.org/x/text v0.37.0`, which predates the upstream fix in `v0.39.0`.
+
+**Fix Applied:**
+Upgraded the indirect `golang.org/x/text` dependency to `v0.39.0`.
+
+**Verification:**
+- The same `govulncheck` command that failed in CI passes locally.
+- Full pre-commit and race suites pass.
+
+---
+
 ### 2026-07-22: Transient Walmart and Monarch timeouts caused avoidable order failures
 
 **Description:**
