@@ -8,6 +8,7 @@ require (
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.2.1
+	github.com/fnziman/homedepot-go v0.1.1
 	github.com/getsentry/sentry-go v0.36.0
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/pressly/goose/v3 v3.27.2
