@@ -1,6 +1,6 @@
 # Itemize
 
-CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch. Automatically splits transactions by category using AI.
+CLI tool that syncs purchases from Walmart, Costco, Amazon, and Home Depot with Monarch. Automatically splits transactions by category using AI.
 
 ## What it does
 
@@ -109,11 +109,13 @@ Override the model with `OPENAI_MODEL` or `ANTHROPIC_MODEL` per run.
 ./itemize walmart -dry-run -days 14
 ./itemize costco -dry-run -days 7
 ./itemize amazon -dry-run -days 7
+./itemize homedepot -dry-run -days 14
 
 # Apply changes
 ./itemize walmart -days 14
 ./itemize costco -days 7
 ./itemize amazon -days 7
+./itemize homedepot -days 14
 ```
 
 ### Flags
@@ -130,6 +132,9 @@ Override the model with `OPENAI_MODEL` or `ANTHROPIC_MODEL` per run.
 
 ### Walmart
 Requires cookies in `~/.walmart-api/cookies.json`. See [walmart-client-go](https://github.com/eshaffer321/walmart-client-go).
+
+### Home Depot
+Requires cookies in `~/.homedepot-api/cookies.json`. See [homedepot-go](https://github.com/fnziman/homedepot-go) for the exact cookie-export flow (paste a small DevTools snippet into the browser console while logged in to homedepot.com). Full walkthrough plus troubleshooting: [`docs/homedepot-specifics.md`](docs/homedepot-specifics.md).
 
 ### Costco
 Uses credentials saved by [costco-go](https://github.com/eshaffer321/costco-go).

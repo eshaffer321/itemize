@@ -29,6 +29,15 @@ providers:
     account_name: "${AMAZON_ACCOUNT_NAME}"
     cookie_file: "${AMAZON_COOKIE_FILE}"
 
+  homedepot:
+    enabled: true
+    rate_limit: 1s
+    lookback_days: 14
+    max_orders: 0
+    debug: false
+    # Optional override — empty means ~/.homedepot-api/cookies.json.
+    cookie_file: "${HOMEDEPOT_COOKIE_FILE}"
+
 # Monarch API configuration
 monarch:
   api_key: "${MONARCH_TOKEN}"
