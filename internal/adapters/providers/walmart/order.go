@@ -2,8 +2,10 @@ package walmart
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
@@ -314,13 +316,37 @@ func (o *Order) getLedger() (*walmartclient.OrderLedger, error) {
 		ctx = context.Background()
 	}
 
-	ledger, err := o.client.GetOrderLedger(ctx, o.GetID())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get order ledger: %w", err)
+	const maxAttempts = 2
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ledger, err := o.client.GetOrderLedger(ctx, o.GetID())
+		if err == nil {
+			o.ledgerCache = ledger
+			return ledger, nil
+		}
+
+		lastErr = err
+		if attempt == maxAttempts || !isRetryableLedgerError(ctx, err) {
+			break
+		}
+		if o.logger != nil {
+			o.logger.Warn("transient ledger request failed; retrying",
+				"order_id", o.GetID(),
+				"attempt", attempt,
+				"error", err)
+		}
 	}
 
-	o.ledgerCache = ledger
-	return ledger, nil
+	return nil, fmt.Errorf("failed to get order ledger: %w", lastErr)
+}
+
+func isRetryableLedgerError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
 }
 
 // IsMultiDelivery checks if order was split into multiple deliveries

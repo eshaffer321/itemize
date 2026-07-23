@@ -342,6 +342,7 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 			catCategories,
 			monarchCategories,
 			charges,
+			multiResult.Matches,
 			dryRun,
 		)
 		if aggregateErr != nil {
@@ -399,6 +400,7 @@ func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 	catCategories []categorizer.Category,
 	monarchCategories []*monarch.TransactionCategory,
 	charges []float64,
+	partialMatches []*matcher.MatchResult,
 	dryRun bool,
 ) (*ProcessResult, error) {
 	ledgerTotal := sumCharges(charges)
@@ -425,6 +427,25 @@ func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 	}
 
 	if len(matchedTxns) == 1 {
+		recoveryTxns := interruptedConsolidationTransactions(matchedTxns[0], partialMatches, charges, ledgerTotal)
+		if len(recoveryTxns) > 1 {
+			if h.consolidator == nil {
+				return nil, fmt.Errorf("interrupted consolidation found %d undeleted transactions but consolidator is not configured", len(recoveryTxns)-1)
+			}
+			for _, txn := range recoveryTxns[1:] {
+				usedTxnIDs[txn.ID] = true
+			}
+			h.logInfo("Resuming interrupted multi-delivery consolidation",
+				"order_id", order.GetID(),
+				"consolidated_id", matchedTxns[0].ID,
+				"undeleted_count", len(recoveryTxns)-1)
+			consolidationResult, err := h.consolidator.ConsolidateTransactions(ctx, recoveryTxns, matchOrder, dryRun)
+			if err != nil {
+				return nil, fmt.Errorf("interrupted consolidation recovery error: %w", err)
+			}
+			return h.categorizeAndApplySplits(ctx, order, consolidationResult.ConsolidatedTransaction, catCategories, monarchCategories, dryRun)
+		}
+
 		h.logInfo("Matched multi-delivery order by aggregate ledger total",
 			"order_id", order.GetID(),
 			"ledger_charge_count", len(charges),
@@ -449,6 +470,39 @@ func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 	}
 
 	return h.categorizeAndApplySplits(ctx, order, consolidationResult.ConsolidatedTransaction, catCategories, monarchCategories, dryRun)
+}
+
+func interruptedConsolidationTransactions(
+	primary *monarch.Transaction,
+	partialMatches []*matcher.MatchResult,
+	charges []float64,
+	ledgerTotal float64,
+) []*monarch.Transaction {
+	if primary == nil || math.Abs(math.Abs(primary.Amount)-math.Abs(ledgerTotal)) > 0.01 {
+		return nil
+	}
+	if primary.Notes != multiDeliveryConsolidationNote(charges) {
+		return nil
+	}
+
+	transactions := []*monarch.Transaction{primary}
+	seen := map[string]bool{primary.ID: true}
+	for _, match := range partialMatches {
+		if match == nil || match.Transaction == nil || seen[match.Transaction.ID] {
+			continue
+		}
+		seen[match.Transaction.ID] = true
+		transactions = append(transactions, match.Transaction)
+	}
+	return transactions
+}
+
+func multiDeliveryConsolidationNote(charges []float64) string {
+	formatted := make([]string, len(charges))
+	for i, charge := range charges {
+		formatted[i] = fmt.Sprintf("$%.2f", math.Abs(charge))
+	}
+	return fmt.Sprintf("Multi-delivery order (%d charges: %s)", len(charges), strings.Join(formatted, ", "))
 }
 
 func countFoundMatches(matches []*matcher.MatchResult) int {

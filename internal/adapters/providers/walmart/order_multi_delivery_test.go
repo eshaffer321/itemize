@@ -1,14 +1,29 @@
 package walmart
 
 import (
+	"context"
 	"io"
 	"log/slog"
+	"net/url"
 	"testing"
 
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type flakyLedgerClient struct {
+	calls  int
+	ledger *walmartclient.OrderLedger
+}
+
+func (c *flakyLedgerClient) GetOrderLedger(_ context.Context, _ string) (*walmartclient.OrderLedger, error) {
+	c.calls++
+	if c.calls == 1 {
+		return nil, &url.Error{Op: "Get", URL: "https://www.walmart.com/order-ledger", Err: context.DeadlineExceeded}
+	}
+	return c.ledger, nil
+}
 
 func TestOrder_GetRefundItems_UsesClientReturnIDMetadata(t *testing.T) {
 	order := &Order{walmartOrder: &walmartclient.Order{
@@ -35,6 +50,26 @@ func TestOrder_GetRefundItems_UsesClientReturnIDMetadata(t *testing.T) {
 
 // TestOrder_GetFinalCharges tests retrieving final charges from order ledger
 func TestOrder_GetFinalCharges(t *testing.T) {
+	t.Run("retries a transient ledger timeout", func(t *testing.T) {
+		client := &flakyLedgerClient{ledger: &walmartclient.OrderLedger{
+			OrderID: "RETRY-LEDGER",
+			PaymentMethods: []walmartclient.PaymentMethodCharges{{
+				PaymentType:  "CREDITCARD",
+				FinalCharges: []float64{6.06, 64.22},
+			}},
+		}}
+		order := &Order{
+			walmartOrder: &walmartclient.Order{ID: "RETRY-LEDGER"},
+			client:       client,
+		}
+
+		charges, err := order.GetFinalCharges()
+
+		require.NoError(t, err)
+		assert.Equal(t, []float64{6.06, 64.22}, charges)
+		assert.Equal(t, 2, client.calls)
+	})
+
 	t.Run("single delivery order", func(t *testing.T) {
 		order := &Order{
 			walmartOrder: &walmartclient.Order{ID: "TEST123"},

@@ -12,6 +12,42 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-22: Transient Walmart and Monarch timeouts caused avoidable order failures
+
+**Description:**
+A production Walmart sync hit one 30-second Monarch update timeout and one 30-second Walmart ledger timeout. The Monarch multi-delivery consolidation stopped after its first idempotent update attempt. The Walmart handler then triggered a second ledger request while checking refunds; that request succeeded, but the original charge lookup had already returned an error, so the order fell back to its summary total and failed to match. The CLI nevertheless ended with `Sync completed successfully.` while reporting two errors.
+
+**Test Case:**
+```go
+// internal/adapters/providers/walmart/order_multi_delivery_test.go:
+// TestOrder_GetFinalCharges/retries_a_transient_ledger_timeout
+
+// internal/application/sync/consolidator_test.go:
+// TestConsolidator_ConsolidateTransactions/retries_a_transient_primary_update_timeout
+// TestConsolidator_ConsolidateTransactions/resumed_consolidation_preserves_the_original_charge_note
+
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_ResumesInterruptedConsolidation
+
+// internal/cli/output_test.go:
+// TestPrintSyncSummaryDoesNotReportSuccessWhenOrdersFailed
+```
+
+**Root Cause:**
+The Walmart adapter relied on the upstream client's retry policy, which retries rate limits but not HTTP client timeouts. Consolidation made only one Monarch update attempt even though it sets the same amount and note on every attempt. Summary wording depended only on whether at least one order was processed, not whether any other order failed.
+
+**Fix Applied:**
+Walmart ledger reads and the idempotent Monarch consolidation update now retry once for network timeouts, while respecting caller cancellation and returning permanent errors immediately. Every Monarch update attempt remains in the API audit log. If an update reached Monarch but its response timed out, a later run recognizes the exact original consolidation note, finds any still-posted component transactions, preserves the note, and finishes deleting those extras before applying splits. Production summaries now say `Sync completed with N errors.` whenever the result contains errors and reserve the success message for error-free runs.
+
+**Verification:**
+- All five regression tests failed before the fix and pass after it.
+- `go test ./...` passes.
+- A rebuilt live dry-run recognized the interrupted `$70.28` consolidation and identified its still-posted `$64.22` component transaction.
+- The authorized production repair preserved the `$70.28` primary, deleted its `$64.22` leftover, and applied two splits. It also consolidated the `$75.66` order from `$6.16 + $9.51 + $58.99`, deleted both extras, and applied two splits.
+- Direct Monarch read-back returned both primary amounts, notes, and two splits each; all three deleted component IDs returned `ErrNotFound`.
+
+---
+
 ### 2026-07-16: Completed Walmart in-store receipts were treated as payment pending
 
 **Description:**
