@@ -93,6 +93,8 @@ func guidedSetupBrowserFingerprint(profile string) (*amazongo.BrowserFingerprint
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 	versionPath := filepath.Join(homeDir, ".itemize", "amazon", profile, "Last Version")
+	// #nosec G304 -- profile is restricted to a single safe path component,
+	// and versionPath remains inside Itemize's owner-controlled profile root.
 	data, err := os.ReadFile(versionPath)
 	if err != nil {
 		return nil, err
