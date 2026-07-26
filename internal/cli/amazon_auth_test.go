@@ -77,6 +77,24 @@ func TestSaveImportedAmazonCookies_SavesDestinationWhenAuthCheckSkipped(t *testi
 	assert.Len(t, stored.Cookies, 4)
 }
 
+func TestAmazonCookieDestination(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	explicit := filepath.Join(t.TempDir(), "explicit.json")
+	resolved, err := amazonCookieDestination(explicit, "ignored")
+	require.NoError(t, err)
+	assert.Equal(t, explicit, resolved)
+
+	resolved, err = amazonCookieDestination("", "wife")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".amazon-go", "cookies-wife.json"), resolved)
+
+	resolved, err = amazonCookieDestination("", "")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".amazon-go", "cookies.json"), resolved)
+}
+
 func TestSaveImportedAmazonCookies_ReplacesStaleDestinationSnapshot(t *testing.T) {
 	cookieFile := filepath.Join(t.TempDir(), "cookies-amazon-wife.json")
 	stale := amazon.CookieFile{
@@ -172,6 +190,18 @@ type cliRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f cliRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestWriteAmazonCookieExportScriptCapturesFullBrowserFingerprint(t *testing.T) {
+	scriptPath, err := writeAmazonCookieExportScript(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(scriptPath) })
+
+	script, err := os.ReadFile(scriptPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(script), "browserFingerprint")
+	assert.Contains(t, string(script), "sec_ch_ua_mobile")
+	assert.Contains(t, string(script), `"sec-ch-ua-mobile": "?0"`)
 }
 
 func TestCleanStaleChromiumSingletons_RemovesMarkersForDeadPid(t *testing.T) {

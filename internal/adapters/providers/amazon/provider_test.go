@@ -52,13 +52,17 @@ func TestProvider_MerchantSearchTerms(t *testing.T) {
 }
 
 func TestProvider_WithConfig(t *testing.T) {
+	fingerprint := &amazongo.BrowserFingerprint{UserAgent: "configured-browser"}
 	provider := NewProvider(nil, &ProviderConfig{
-		Profile:    "wife",
-		CookieFile: "/tmp/amazon-cookies.json",
+		Profile:            "wife",
+		CookieFile:         "/tmp/amazon-cookies.json",
+		BrowserFingerprint: fingerprint,
 	})
 
 	assert.Equal(t, "wife", provider.profile)
 	assert.Equal(t, "/tmp/amazon-cookies.json", provider.cookieFile)
+	require.NotNil(t, provider.fingerprint)
+	assert.Equal(t, *fingerprint, *provider.fingerprint)
 }
 
 func TestNewProvider_RejectsUnsafeProfile(t *testing.T) {
@@ -101,6 +105,61 @@ func TestProvider_UsesGuidedSetupBrowserVersionForHealthCheck(t *testing.T) {
 	assert.Equal(t, `"Chromium";v="143", "Not A(Brand";v="24"`, secCHUA)
 	assert.Equal(t, "?0", secCHUAMobile)
 	assert.Equal(t, `"macOS"`, secCHUAPlatform)
+}
+
+func TestProvider_ResolvesSavedBrowserFingerprint(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
+	saved := amazongo.BrowserFingerprint{
+		UserAgent:       "saved-browser",
+		SecCHUA:         `"Chromium";v="143"`,
+		SecCHUAMobile:   "?0",
+		SecCHUAPlatform: `"macOS"`,
+	}
+	store, err := amazongo.NewCookieStore(cookieFile)
+	require.NoError(t, err)
+	store.SetBrowserFingerprint(saved)
+	require.NoError(t, store.Save())
+
+	provider := NewProvider(nil, &ProviderConfig{Profile: "wife", CookieFile: cookieFile})
+	resolved, err := provider.resolveBrowserFingerprint(cookieFile)
+
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, saved, *resolved)
+}
+
+func TestProvider_ResolvesExplicitBrowserFingerprintBeforeSavedSession(t *testing.T) {
+	explicit := &amazongo.BrowserFingerprint{UserAgent: "explicit-browser"}
+	provider := NewProvider(nil, &ProviderConfig{BrowserFingerprint: explicit})
+
+	resolved, err := provider.resolveBrowserFingerprint(filepath.Join(t.TempDir(), "missing.json"))
+
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.Equal(t, *explicit, *resolved)
+	assert.NotSame(t, explicit, resolved)
+}
+
+func TestProvider_NoProfileOrSavedFingerprintUsesAmazonGoDefault(t *testing.T) {
+	provider := NewProvider(nil, nil)
+
+	resolved, err := provider.resolveBrowserFingerprint(filepath.Join(t.TempDir(), "missing.json"))
+
+	require.NoError(t, err)
+	assert.Nil(t, resolved)
+}
+
+func TestGuidedSetupBrowserFingerprintRejectsInvalidVersion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	profileDir := filepath.Join(home, ".itemize", "amazon", "wife")
+	require.NoError(t, os.MkdirAll(profileDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(profileDir, "Last Version"), []byte("../unsafe"), 0o600))
+
+	_, err := guidedSetupBrowserFingerprint("wife")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid Chromium version")
 }
 
 func TestProvider_IgnoresExpiredCookiesDuringHealthCheck(t *testing.T) {
