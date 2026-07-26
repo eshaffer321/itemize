@@ -66,6 +66,66 @@ func TestNewProvider_RejectsUnsafeProfile(t *testing.T) {
 	assert.Empty(t, provider.profile)
 }
 
+func TestProvider_UsesGuidedSetupBrowserVersionForHealthCheck(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	profileDir := filepath.Join(home, ".itemize", "amazon", "wife")
+	require.NoError(t, os.MkdirAll(profileDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(profileDir, "Last Version"), []byte("143.0.7499.4"), 0o600))
+
+	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
+	writeAmazonCookieFile(t, cookieFile, []*amazongo.Cookie{
+		{Name: "session-id", Value: "session", Domain: ".amazon.com", Path: "/"},
+		{Name: "session-token", Value: "token", Domain: ".amazon.com", Path: "/"},
+		{Name: "ubid-main", Value: "ubid", Domain: ".amazon.com", Path: "/"},
+		{Name: "at-main", Value: "at", Domain: ".amazon.com", Path: "/"},
+	})
+
+	var userAgent string
+	var secCHUA string
+	var secCHUAMobile string
+	var secCHUAPlatform string
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		userAgent = req.UserAgent()
+		secCHUA = req.Header.Get("Sec-CH-UA")
+		secCHUAMobile = req.Header.Get("Sec-CH-UA-Mobile")
+		secCHUAPlatform = req.Header.Get("Sec-CH-UA-Platform")
+		return amazonOrdersResponse(req), nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	provider := NewProvider(nil, &ProviderConfig{Profile: "wife", CookieFile: cookieFile})
+	require.NoError(t, provider.HealthCheck(context.Background()))
+	assert.Contains(t, userAgent, "Chrome/143.0.7499.4")
+	assert.Equal(t, `"Chromium";v="143", "Not A(Brand";v="24"`, secCHUA)
+	assert.Equal(t, "?0", secCHUAMobile)
+	assert.Equal(t, `"macOS"`, secCHUAPlatform)
+}
+
+func TestProvider_IgnoresExpiredCookiesDuringHealthCheck(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
+	writeAmazonCookieFile(t, cookieFile, []*amazongo.Cookie{
+		{Name: "session-id", Value: "session", Domain: ".amazon.com", Path: "/"},
+		{Name: "session-token", Value: "token", Domain: ".amazon.com", Path: "/"},
+		{Name: "ubid-main", Value: "ubid", Domain: ".amazon.com", Path: "/"},
+		{Name: "at-main", Value: "at", Domain: ".amazon.com", Path: "/"},
+		{Name: "ak_bmsc", Value: "expired-antibot", Domain: ".amazon.com", Path: "/", Expires: time.Now().Add(-time.Hour).Unix()},
+	})
+
+	var cookieHeader string
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cookieHeader = req.Header.Get("Cookie")
+		return amazonOrdersResponse(req), nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	provider := NewProvider(nil, &ProviderConfig{CookieFile: cookieFile})
+	require.NoError(t, provider.HealthCheck(context.Background()))
+	assert.NotContains(t, cookieHeader, "ak_bmsc=")
+}
+
 func TestProvider_FetchOrdersUsesAmazonGoClientAndTransactions(t *testing.T) {
 	orderDate := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	txDate := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
@@ -330,6 +390,22 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func amazonOrdersResponse(req *http.Request) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`<html><title>Your Orders</title></html>`)),
+		Request:    req,
+	}
+}
+
+func writeAmazonCookieFile(t *testing.T, path string, cookies []*amazongo.Cookie) {
+	t.Helper()
+	data, err := json.Marshal(amazongo.CookieFile{Cookies: cookies, UpdatedAt: time.Now()})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
 }
 
 func (f *fakeAmazonClient) FetchOrders(_ context.Context, opts amazongo.FetchOptions) ([]*amazongo.Order, error) {

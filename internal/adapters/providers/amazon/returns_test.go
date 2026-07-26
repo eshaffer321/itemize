@@ -222,6 +222,52 @@ func TestReturnHistoryClientConstructionAndCookieResolution(t *testing.T) {
 	assert.NotEmpty(t, resolved)
 }
 
+func TestReturnHistoryClient_UsesBrowserFingerprintAndSkipsExpiredCookies(t *testing.T) {
+	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
+	stored := amazongo.CookieFile{Cookies: []*amazongo.Cookie{
+		{Name: "session-id", Value: "active", Domain: ".amazon.com", Path: "/"},
+		{Name: "ak_bmsc", Value: "expired", Domain: ".amazon.com", Path: "/", Expires: time.Now().Add(-time.Hour).Unix()},
+	}}
+	data, err := jsonMarshal(stored)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(cookieFile, data, 0o600))
+
+	const browserUserAgent = "Mozilla/5.0 Chrome/143.0.7499.4 Safari/537.36"
+	var receivedUserAgent string
+	var receivedSecCHUA string
+	var receivedSecCHUAMobile string
+	var receivedSecCHUAPlatform string
+	var receivedCookies string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedUserAgent = r.UserAgent()
+		receivedSecCHUA = r.Header.Get("Sec-CH-UA")
+		receivedSecCHUAMobile = r.Header.Get("Sec-CH-UA-Mobile")
+		receivedSecCHUAPlatform = r.Header.Get("Sec-CH-UA-Platform")
+		receivedCookies = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte(`<html><title>Online Return Center</title><body></body></html>`))
+	}))
+	t.Cleanup(server.Close)
+
+	fingerprint := &amazongo.BrowserFingerprint{
+		UserAgent:       browserUserAgent,
+		SecCHUA:         `"Chromium";v="143", "Not A(Brand";v="24"`,
+		SecCHUAMobile:   "?0",
+		SecCHUAPlatform: `"macOS"`,
+	}
+	client := newReturnHistoryClient(cookieFile, fingerprint)
+	client.httpClient = server.Client()
+	client.historyURL = server.URL
+	_, err = client.Fetch(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, browserUserAgent, receivedUserAgent)
+	assert.Equal(t, fingerprint.SecCHUA, receivedSecCHUA)
+	assert.Equal(t, fingerprint.SecCHUAMobile, receivedSecCHUAMobile)
+	assert.Equal(t, fingerprint.SecCHUAPlatform, receivedSecCHUAPlatform)
+	assert.Contains(t, receivedCookies, "session-id=active")
+	assert.NotContains(t, receivedCookies, "ak_bmsc=")
+}
+
 func TestReturnHistoryClient_RejectsAmazonSignInPage(t *testing.T) {
 	cookieFile := filepath.Join(t.TempDir(), "cookies-wife.json")
 	stored := amazongo.CookieFile{Cookies: []*amazongo.Cookie{{Name: "session-id", Value: "expired", Domain: ".amazon.com", Path: "/"}}}

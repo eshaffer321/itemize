@@ -106,16 +106,23 @@ func (i refundOrderItem) GetSKU() string         { return i.item.ASIN }
 func (i refundOrderItem) GetCategory() string    { return "" }
 
 type returnHistoryClient struct {
-	httpClient *http.Client
-	cookieFile string
-	historyURL string
+	httpClient  *http.Client
+	cookieFile  string
+	historyURL  string
+	fingerprint *amazongo.BrowserFingerprint
 }
 
-func newReturnHistoryClient(cookieFile string) *returnHistoryClient {
+func newReturnHistoryClient(cookieFile string, fingerprints ...*amazongo.BrowserFingerprint) *returnHistoryClient {
+	var fingerprint *amazongo.BrowserFingerprint
+	if len(fingerprints) > 0 && fingerprints[0] != nil {
+		copied := *fingerprints[0]
+		fingerprint = &copied
+	}
 	return &returnHistoryClient{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		cookieFile: cookieFile,
-		historyURL: amazonReturnHistoryURL,
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		cookieFile:  cookieFile,
+		historyURL:  amazonReturnHistoryURL,
+		fingerprint: fingerprint,
 	}
 }
 
@@ -125,7 +132,11 @@ func (p *Provider) FetchReturns(ctx context.Context) ([]ReturnRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	returns, err := newReturnHistoryClient(cookieFile).Fetch(ctx)
+	fingerprint, err := p.resolveBrowserFingerprint(cookieFile)
+	if err != nil {
+		return nil, err
+	}
+	returns, err := newReturnHistoryClient(cookieFile, fingerprint).Fetch(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Amazon returns: %w", err)
 	}
@@ -159,6 +170,9 @@ func (c *returnHistoryClient) Fetch(ctx context.Context) ([]ReturnRecord, error)
 	cookies := store.ToHTTPCookies()
 	for _, cookie := range cookies {
 		normalizeReturnCookieValue(cookie)
+	}
+	if c.fingerprint == nil {
+		c.fingerprint = store.BrowserFingerprint()
 	}
 	body, finalURL, err := c.fetchPage(ctx, c.historyURL, cookies)
 	if err != nil {
@@ -203,7 +217,19 @@ func (c *returnHistoryClient) fetchPage(ctx context.Context, target string, cook
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("User-Agent", amazonReturnUserAgent)
+	userAgent := ""
+	if c.fingerprint != nil {
+		userAgent = c.fingerprint.UserAgent
+	}
+	if userAgent == "" {
+		userAgent = amazonReturnUserAgent
+	}
+	req.Header.Set("User-Agent", userAgent)
+	if c.fingerprint != nil {
+		setOptionalHeader(req.Header, "Sec-CH-UA", c.fingerprint.SecCHUA)
+		setOptionalHeader(req.Header, "Sec-CH-UA-Mobile", c.fingerprint.SecCHUAMobile)
+		setOptionalHeader(req.Header, "Sec-CH-UA-Platform", c.fingerprint.SecCHUAPlatform)
+	}
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
 	}
@@ -350,6 +376,12 @@ func resolveReturnURL(baseURL *url.URL, href string) string {
 		return parsed.String()
 	}
 	return baseURL.ResolveReference(parsed).String()
+}
+
+func setOptionalHeader(header http.Header, name, value string) {
+	if strings.TrimSpace(value) != "" {
+		header.Set(name, value)
+	}
 }
 
 func normalizeReturnCookieValue(cookie *http.Cookie) {
