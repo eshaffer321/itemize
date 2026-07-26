@@ -12,6 +12,41 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-25: Amazon sessions appeared to expire after every sync day
+
+**Description:**
+An Amazon account repeatedly failed its first sync with a sign-in redirect, then worked immediately after `itemize amazon setup -account <name>` reopened the same persistent browser profile. The saved authentication cookies were still present and their core expiration dates were months away.
+
+**Test Case:**
+```go
+// internal/adapters/providers/amazon/provider_test.go:
+// TestProvider_UsesGuidedSetupBrowserVersionForHealthCheck
+// TestProvider_IgnoresExpiredCookiesDuringHealthCheck
+
+// internal/adapters/providers/amazon/returns_test.go:
+// TestReturnHistoryClient_UsesBrowserFingerprintAndSkipsExpiredCookies
+
+// internal/cli/amazon_auth_test.go:
+// TestSaveImportedAmazonCookies_ReplacesStaleDestinationSnapshot
+// TestSaveImportedAmazonCookies_ValidatesAndPersistsBrowserFingerprintWithRefreshedCookies
+```
+
+**Root Cause:**
+The guided browser profile ran Chromium 143, but `amazon-go v0.3.0` identified every later HTTP request as Chrome 120 and omitted the browser's User-Agent Client Hints. Amazon intermittently redirected that mismatched fingerprint to sign-in even while accepting the same cookie values from the current browser identity. Setup appeared to refresh expired authentication only because its real browser visit restored session trust. Cookie import also merged the browser snapshot into the previous JSON file, retaining six cookies the browser had deleted or expired, and successful validation discarded response-refreshed session tokens.
+
+**Fix Applied:**
+The reusable session fix now lives in `amazon-go v0.4.0`: browser fingerprints are saved with their cookie snapshot and replayed on later requests, expired and inapplicable cookies are excluded, browser imports replace stale snapshots, and a failed auth check cannot poison the saved session. Itemize now captures and persists the complete browser fingerprint during setup, validates with that same identity, keeps response-refreshed cookies, and atomically replaces the destination file. Order, health-check, and Return Center requests all reuse the saved fingerprint; legacy guided profiles fall back to a fingerprint derived from their validated Chromium `Last Version` file.
+
+**Verification:**
+- All five Itemize regression tests failed against the previous implementation and pass after the fix.
+- `amazon-go v0.4.0` passed `make check`, its release workflow, and public Go module resolution.
+- `go test ./...` passes.
+- `go test ./... -race` passes.
+- The unchanged `main` binary reproduced the sign-in failure immediately before the rebuilt binary ran with the same account and saved session.
+- `itemize amazon -account wife -dry-run -days 14 -max 1 -verbose` with the fix fetched one order, its payment transaction, and 22 Return Center records, matched the `$18.02` Monarch transaction, and completed with `Processed=1 Skipped=0 Errors=0` without rerunning setup or writing to Monarch.
+
+---
+
 ### 2026-07-22: Reachable infinite-loop vulnerability in `golang.org/x/text`
 
 **Description:**

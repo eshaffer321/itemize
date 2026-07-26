@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 // validProfilePattern matches alphanumeric, dash, and underscore characters only.
 var validProfilePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var chromeVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+$`)
 
 type amazonClient interface {
 	FetchOrders(ctx context.Context, opts amazongo.FetchOptions) ([]*amazongo.Order, error)
@@ -35,17 +38,19 @@ func isValidProfile(profile string) bool {
 
 // Provider implements the OrderProvider interface for Amazon.
 type Provider struct {
-	logger     *slog.Logger
-	rateLimit  time.Duration
-	profile    string
-	cookieFile string
-	client     amazonClient
+	logger      *slog.Logger
+	rateLimit   time.Duration
+	profile     string
+	cookieFile  string
+	fingerprint *amazongo.BrowserFingerprint
+	client      amazonClient
 }
 
 // ProviderConfig holds configuration for the Amazon provider.
 type ProviderConfig struct {
-	Profile    string // Profile/account name for multi-account support
-	CookieFile string // Optional explicit amazon-go cookie file
+	Profile            string // Profile/account name for multi-account support
+	CookieFile         string // Optional explicit amazon-go cookie file
+	BrowserFingerprint *amazongo.BrowserFingerprint
 }
 
 // NewProvider creates a new Amazon provider.
@@ -56,6 +61,7 @@ func NewProvider(logger *slog.Logger, cfg *ProviderConfig) *Provider {
 
 	profile := ""
 	cookieFile := ""
+	var fingerprint *amazongo.BrowserFingerprint
 	if cfg != nil {
 		if cfg.Profile != "" {
 			if isValidProfile(cfg.Profile) {
@@ -66,14 +72,44 @@ func NewProvider(logger *slog.Logger, cfg *ProviderConfig) *Provider {
 			}
 		}
 		cookieFile = cfg.CookieFile
+		if cfg.BrowserFingerprint != nil {
+			copied := *cfg.BrowserFingerprint
+			fingerprint = &copied
+		}
 	}
 
 	return &Provider{
-		logger:     logger.With(slog.String("provider", "amazon")),
-		rateLimit:  time.Second,
-		profile:    profile,
-		cookieFile: cookieFile,
+		logger:      logger.With(slog.String("provider", "amazon")),
+		rateLimit:   time.Second,
+		profile:     profile,
+		cookieFile:  cookieFile,
+		fingerprint: fingerprint,
 	}
+}
+
+func guidedSetupBrowserFingerprint(profile string) (*amazongo.BrowserFingerprint, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	versionPath := filepath.Join(homeDir, ".itemize", "amazon", profile, "Last Version")
+	// #nosec G304 -- profile is restricted to a single safe path component,
+	// and versionPath remains inside Itemize's owner-controlled profile root.
+	data, err := os.ReadFile(versionPath)
+	if err != nil {
+		return nil, err
+	}
+	version := strings.TrimSpace(string(data))
+	if !chromeVersionPattern.MatchString(version) {
+		return nil, fmt.Errorf("invalid Chromium version %q in %s", version, versionPath)
+	}
+	majorVersion := strings.SplitN(version, ".", 2)[0]
+	return &amazongo.BrowserFingerprint{
+		UserAgent:       fmt.Sprintf("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Safari/537.36", version),
+		SecCHUA:         fmt.Sprintf(`"Chromium";v="%s", "Not A(Brand";v="24"`, majorVersion),
+		SecCHUAMobile:   "?0",
+		SecCHUAPlatform: `"macOS"`,
+	}, nil
 }
 
 // NewProviderWithClient creates a provider with an injected client for tests.
@@ -218,10 +254,22 @@ func (p *Provider) getClient() (amazonClient, error) {
 		return p.client, nil
 	}
 
+	cookieFile, err := p.resolvedCookieFile()
+	if err != nil {
+		return nil, err
+	}
+	fingerprint, err := p.resolveBrowserFingerprint(cookieFile)
+	if err != nil {
+		return nil, err
+	}
+
 	opts := []amazongo.Option{
 		amazongo.WithLogger(p.logger),
 		amazongo.WithRateLimit(p.rateLimit),
 		amazongo.WithAutoSave(false),
+	}
+	if fingerprint != nil {
+		opts = append(opts, amazongo.WithBrowserFingerprint(*fingerprint))
 	}
 	if p.profile != "" {
 		opts = append(opts, amazongo.WithAccount(p.profile))
@@ -236,6 +284,34 @@ func (p *Provider) getClient() (amazonClient, error) {
 	}
 	p.client = client
 	return client, nil
+}
+
+func (p *Provider) resolveBrowserFingerprint(cookieFile string) (*amazongo.BrowserFingerprint, error) {
+	if p.fingerprint != nil {
+		copied := *p.fingerprint
+		return &copied, nil
+	}
+
+	store, err := amazongo.NewCookieStore(cookieFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load Amazon session: %w", err)
+	}
+	if saved := store.BrowserFingerprint(); saved != nil {
+		return saved, nil
+	}
+	if p.profile == "" {
+		return nil, nil
+	}
+
+	fingerprint, err := guidedSetupBrowserFingerprint(p.profile)
+	if err == nil {
+		return fingerprint, nil
+	}
+	if !os.IsNotExist(err) {
+		p.logger.Warn("failed to read Amazon browser version; using amazon-go default fingerprint",
+			slog.String("error", err.Error()))
+	}
+	return nil, nil
 }
 
 func (p *Provider) saveCookies(client amazonClient) {

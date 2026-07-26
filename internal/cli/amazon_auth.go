@@ -22,13 +22,14 @@ const amazonOrdersURL = "https://www.amazon.com/gp/css/order-history?disableCsd=
 
 // AmazonImportOptions controls Amazon browser-profile cookie import.
 type AmazonImportOptions struct {
-	ProfileDir     string
-	Account        string
-	CookieFile     string
-	PlaywrightRoot string
-	Headless       bool
-	SkipAuthCheck  bool
-	Out            io.Writer
+	ProfileDir         string
+	Account            string
+	CookieFile         string
+	PlaywrightRoot     string
+	Headless           bool
+	SkipAuthCheck      bool
+	BrowserFingerprint amazon.BrowserFingerprint
+	Out                io.Writer
 }
 
 // PrepareAmazonSetup creates the persistent browser profile used for an Amazon
@@ -109,13 +110,14 @@ func RunAmazonBrowserProfileImport(cfg *config.Config, opts AmazonImportOptions)
 		return err
 	}
 
-	cookies, title, err := exportAmazonCookiesWithPlaywright(root, resolvedProfileDir, opts.Headless)
+	cookies, title, fingerprint, err := exportAmazonCookiesWithPlaywright(root, resolvedProfileDir, opts.Headless)
 	if err != nil {
 		return fmt.Errorf("failed to export cookies from browser profile: %w", explainAmazonCookieExportError(err))
 	}
 	if len(cookies) == 0 {
 		return fmt.Errorf("no Amazon cookies were available in the browser profile")
 	}
+	opts.BrowserFingerprint = fingerprint
 
 	if err := saveImportedAmazonCookies(cookies, opts); err != nil {
 		var authErr *amazonImportAuthCheckError
@@ -157,52 +159,123 @@ func (e *amazonImportAuthCheckError) Unwrap() error {
 
 func saveImportedAmazonCookies(cookies []*amazon.Cookie, opts AmazonImportOptions) error {
 	if !opts.SkipAuthCheck {
-		if err := validateImportedAmazonCookies(cookies); err != nil {
+		validatedCookies, err := validateAndRefreshImportedAmazonCookies(cookies, opts.BrowserFingerprint)
+		if err != nil {
 			return &amazonImportAuthCheckError{err: err}
 		}
+		cookies = validatedCookies
 	}
 
-	client, err := newAmazonClient(opts.CookieFile, opts.Account)
+	destination, err := amazonCookieDestination(opts.CookieFile, opts.Account)
 	if err != nil {
-		return fmt.Errorf("failed to create Amazon client: %w", err)
+		return err
 	}
-	for _, c := range cookies {
-		client.CookieStore().Set(c)
-	}
-	if err := client.SaveCookies(); err != nil {
+	if err := replaceAmazonCookieSnapshot(destination, cookies, opts.BrowserFingerprint); err != nil {
 		return fmt.Errorf("failed to save cookies: %w", err)
 	}
 	return nil
 }
 
-func validateImportedAmazonCookies(cookies []*amazon.Cookie) error {
-	tempFile, err := os.CreateTemp("", "itemize-amazon-auth-*.json")
+func amazonCookieDestination(cookieFile, account string) (string, error) {
+	if cookieFile != "" {
+		return cookieFile, nil
+	}
+	if account != "" {
+		path, err := amazon.CookiePathForAccount(account)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve Amazon account cookie file: %w", err)
+		}
+		return path, nil
+	}
+	path, err := amazon.DefaultCookiePath()
 	if err != nil {
-		return fmt.Errorf("failed to create temporary Amazon auth file: %w", err)
+		return "", fmt.Errorf("failed to resolve default Amazon cookie file: %w", err)
+	}
+	return path, nil
+}
+
+func replaceAmazonCookieSnapshot(destination string, cookies []*amazon.Cookie, fingerprint amazon.BrowserFingerprint) error {
+	dir := filepath.Dir(destination)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create Amazon cookie directory: %w", err)
+	}
+
+	tempFile, err := os.CreateTemp(dir, ".itemize-amazon-cookies-*.json")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary Amazon cookie file: %w", err)
 	}
 	tempPath := tempFile.Name()
 	if err := tempFile.Close(); err != nil {
 		_ = os.Remove(tempPath)
-		return fmt.Errorf("failed to close temporary Amazon auth file: %w", err)
+		return fmt.Errorf("failed to close temporary Amazon cookie file: %w", err)
 	}
 	defer func() { _ = os.Remove(tempPath) }()
 	if err := os.Remove(tempPath); err != nil {
-		return fmt.Errorf("failed to prepare temporary Amazon auth path: %w", err)
+		return fmt.Errorf("failed to prepare temporary Amazon cookie path: %w", err)
 	}
 
-	client, err := newAmazonClient(tempPath, "")
+	store, err := amazon.NewCookieStore(tempPath)
 	if err != nil {
-		return fmt.Errorf("failed to create Amazon validation client: %w", err)
+		return fmt.Errorf("failed to create isolated Amazon cookie store: %w", err)
 	}
-	for _, c := range cookies {
-		client.CookieStore().Set(c)
+	store.Replace(cookies)
+	store.SetBrowserFingerprint(fingerprint)
+	if err := store.Save(); err != nil {
+		return err
 	}
-	return client.HealthCheck()
+	if err := os.Chmod(tempPath, 0o600); err != nil {
+		return fmt.Errorf("failed to secure temporary Amazon cookie file: %w", err)
+	}
+	if err := os.Rename(tempPath, destination); err != nil {
+		return fmt.Errorf("failed to replace Amazon cookie file: %w", err)
+	}
+	return nil
+}
+
+func validateAndRefreshImportedAmazonCookies(cookies []*amazon.Cookie, fingerprint amazon.BrowserFingerprint) ([]*amazon.Cookie, error) {
+	tempFile, err := os.CreateTemp("", "itemize-amazon-auth-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary Amazon auth file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return nil, fmt.Errorf("failed to close temporary Amazon auth file: %w", err)
+	}
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := os.Remove(tempPath); err != nil {
+		return nil, fmt.Errorf("failed to prepare temporary Amazon auth path: %w", err)
+	}
+
+	client, err := newAmazonClient(tempPath, "", fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Amazon validation client: %w", err)
+	}
+	client.CookieStore().Replace(cookies)
+	client.CookieStore().SetBrowserFingerprint(fingerprint)
+	if err := client.HealthCheck(); err != nil {
+		return nil, err
+	}
+	if err := client.SaveCookies(); err != nil {
+		return nil, fmt.Errorf("failed to save refreshed Amazon cookies: %w", err)
+	}
+	// #nosec G304 -- tempPath was generated by os.CreateTemp above and is not
+	// influenced by user input.
+	data, err := os.ReadFile(tempPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read refreshed Amazon cookies: %w", err)
+	}
+	var refreshed amazon.CookieFile
+	if err := json.Unmarshal(data, &refreshed); err != nil {
+		return nil, fmt.Errorf("failed to parse refreshed Amazon cookies: %w", err)
+	}
+	return refreshed.Cookies, nil
 }
 
 type exportedAmazonCookies struct {
-	Title   string                  `json:"title"`
-	Cookies []exportedBrowserCookie `json:"cookies"`
+	Title              string                    `json:"title"`
+	BrowserFingerprint amazon.BrowserFingerprint `json:"browserFingerprint"`
+	Cookies            []exportedBrowserCookie   `json:"cookies"`
 }
 
 type exportedBrowserCookie struct {
@@ -215,10 +288,10 @@ type exportedBrowserCookie struct {
 	HttpOnly bool    `json:"httpOnly"`
 }
 
-func exportAmazonCookiesWithPlaywright(playwrightRoot, profileDir string, headless bool) ([]*amazon.Cookie, string, error) {
+func exportAmazonCookiesWithPlaywright(playwrightRoot, profileDir string, headless bool) ([]*amazon.Cookie, string, amazon.BrowserFingerprint, error) {
 	scriptPath, err := writeAmazonCookieExportScript(playwrightRoot)
 	if err != nil {
-		return nil, "", err
+		return nil, "", amazon.BrowserFingerprint{}, err
 	}
 	defer func() { _ = os.Remove(scriptPath) }()
 
@@ -230,14 +303,14 @@ func exportAmazonCookiesWithPlaywright(playwrightRoot, profileDir string, headle
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, "", fmt.Errorf("node/playwright failed: %s", strings.TrimSpace(string(exitErr.Stderr)))
+			return nil, "", amazon.BrowserFingerprint{}, fmt.Errorf("node/playwright failed: %s", strings.TrimSpace(string(exitErr.Stderr)))
 		}
-		return nil, "", err
+		return nil, "", amazon.BrowserFingerprint{}, err
 	}
 
 	var exported exportedAmazonCookies
 	if err := json.Unmarshal(out, &exported); err != nil {
-		return nil, "", fmt.Errorf("failed to parse Playwright cookie export: %w", err)
+		return nil, "", amazon.BrowserFingerprint{}, fmt.Errorf("failed to parse Playwright cookie export: %w", err)
 	}
 
 	cookies := make([]*amazon.Cookie, 0, len(exported.Cookies))
@@ -256,7 +329,7 @@ func exportAmazonCookiesWithPlaywright(playwrightRoot, profileDir string, headle
 		})
 	}
 
-	return cookies, exported.Title, nil
+	return cookies, exported.Title, exported.BrowserFingerprint, nil
 }
 
 func explainAmazonCookieExportError(err error) error {
@@ -333,12 +406,21 @@ async function main() {
     viewport: { width: 1280, height: 800 },
     locale: "en-US"
   };
+  let requestedFingerprint = null;
   if (headless) {
     const version = await chromiumVersion();
+    const majorVersion = version.split(".")[0];
     options.userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + version + " Safari/537.36";
     options.extraHTTPHeaders = {
-      "sec-ch-ua": "\"Chromium\";v=\"" + version.split(".")[0] + "\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua": "\"Chromium\";v=\"" + majorVersion + "\", \"Not A(Brand\";v=\"24\"",
+      "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": "\"macOS\""
+    };
+    requestedFingerprint = {
+      user_agent: options.userAgent,
+      sec_ch_ua: options.extraHTTPHeaders["sec-ch-ua"],
+      sec_ch_ua_mobile: options.extraHTTPHeaders["sec-ch-ua-mobile"],
+      sec_ch_ua_platform: options.extraHTTPHeaders["sec-ch-ua-platform"]
     };
   }
   const context = await chromium.launchPersistentContext(profileDir, options);
@@ -375,7 +457,23 @@ async function main() {
     }
     const cookies = await context.cookies(["https://www.amazon.com", ordersURL]);
     const amazonCookies = cookies.filter(c => ["amazon.com", ".amazon.com", "www.amazon.com", ".www.amazon.com"].includes(c.domain));
-    console.log(JSON.stringify({ title: await page.title(), cookies: amazonCookies }));
+    const detectedFingerprint = await page.evaluate(() => {
+      const data = navigator.userAgentData;
+      const secCHUA = data && data.brands
+        ? data.brands.map(entry => JSON.stringify(entry.brand) + ";v=" + JSON.stringify(entry.version)).join(", ")
+        : "";
+      return {
+        user_agent: navigator.userAgent,
+        sec_ch_ua: secCHUA,
+        sec_ch_ua_mobile: data ? (data.mobile ? "?1" : "?0") : "",
+        sec_ch_ua_platform: data ? JSON.stringify(data.platform) : ""
+      };
+    });
+    console.log(JSON.stringify({
+      title: await page.title(),
+      browserFingerprint: requestedFingerprint || detectedFingerprint,
+      cookies: amazonCookies
+    }));
   } finally {
     await context.close();
   }
@@ -478,13 +576,16 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func newAmazonClient(cookieFile, account string) (*amazon.Client, error) {
+func newAmazonClient(cookieFile, account string, fingerprints ...amazon.BrowserFingerprint) (*amazon.Client, error) {
 	opts := []amazon.Option{amazon.WithAutoSave(false)}
 	if cookieFile != "" {
 		opts = append(opts, amazon.WithCookieFile(cookieFile))
 	}
 	if account != "" {
 		opts = append(opts, amazon.WithAccount(account))
+	}
+	if len(fingerprints) > 0 && fingerprints[0] != (amazon.BrowserFingerprint{}) {
+		opts = append(opts, amazon.WithBrowserFingerprint(fingerprints[0]))
 	}
 	return amazon.NewClient(opts...)
 }

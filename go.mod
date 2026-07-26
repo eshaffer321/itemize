@@ -4,7 +4,7 @@ go 1.25.12
 
 require (
 	github.com/PuerkitoBio/goquery v1.8.1
-	github.com/eshaffer321/amazon-go v0.3.0
+	github.com/eshaffer321/amazon-go v0.4.0
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.2.1
