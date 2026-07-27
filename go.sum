@@ -16,6 +16,8 @@ github.com/eshaffer321/walmart-client-go/v2 v2.2.1 h1:FT6VAzEC6SNdQm7r2Mr26Q8/cR
 github.com/eshaffer321/walmart-client-go/v2 v2.2.1/go.mod h1:4PVK9TsqFscTZypC67dgCt/vnPxXdtaheJVM7HOnod0=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
 github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
+github.com/fnziman/homedepot-go v0.1.1 h1:f/mzZ8OWqmtsArj10eer+Ug1ZcKHjzw4rTZ/1HevvAM=
+github.com/fnziman/homedepot-go v0.1.1/go.mod h1:IqDKgBvKTq9+HiwpYas5ku2TtAS/7ThkYeM6Whr1zUE=
 github.com/getsentry/sentry-go v0.36.0 h1:UkCk0zV28PiGf+2YIONSSYiYhxwlERE5Li3JPpZqEns=
 github.com/getsentry/sentry-go v0.36.0/go.mod h1:p5Im24mJBeruET8Q4bbcMfCQ+F+Iadc4L48tB1apo2c=
 github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
