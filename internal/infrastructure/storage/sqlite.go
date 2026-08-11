@@ -281,7 +281,7 @@ func (s *Storage) SaveRecord(record *ProcessingRecord) error {
 	WHERE NOT (
 		processing_records.status = 'success'
 		AND processing_records.dry_run = 0
-		AND excluded.status != 'success'
+		AND excluded.status NOT IN ('success', 'provisional')
 	)
 	`
 

@@ -281,6 +281,51 @@ func TestAmazonHandler_ProcessOrder_MissingTransactions(t *testing.T) {
 	assert.Contains(t, result.SkipReason, "could not find all transactions")
 }
 
+func TestAmazonHandler_ProcessOrder_DoesNotConsolidatePendingMultiChargeTransactions(t *testing.T) {
+	orderDate := time.Now()
+	order := &mockAmazonOrder{
+		id:            "test-pending-multi-charge",
+		date:          orderDate,
+		total:         50.00,
+		items:         []providers.OrderItem{&mockItem{name: "Item", price: 50.00}},
+		bankCharges:   []float64{30.00, 20.00},
+		nonBankAmount: 0,
+	}
+	monarchTxns := []*monarch.Transaction{
+		{ID: "pending-1", Amount: -30.00, Date: toMonarchDate(orderDate), Pending: true},
+		{ID: "pending-2", Amount: -20.00, Date: toMonarchDate(orderDate), Pending: true},
+	}
+	splitter := &mockSplitter{
+		categoryID: "household",
+		notes:      "Household Supplies:\n- Item $50.00",
+	}
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		&mockConsolidator{},
+		splitter,
+		monarchClient,
+		nil,
+	)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		monarchTxns,
+		make(map[string]bool),
+		nil,
+		nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Equal(t, "payment pending", result.SkipReason)
+	assert.Nil(t, splitter.lastOrder, "pending feed rows must not be consolidated or categorized")
+	assert.False(t, monarchClient.updateCalled)
+	assert.False(t, monarchClient.updateSplitsCalled)
+}
+
 func TestAmazonHandler_ProcessOrder_DryRun(t *testing.T) {
 	order := &mockAmazonOrder{
 		id:            "test-dry-run",

@@ -140,6 +140,12 @@ func (o *Orchestrator) recordSuccessWithResult(
 		if transaction != nil {
 			record.TransactionID = transaction.ID
 			record.TransactionAmount = transaction.Amount
+			if transaction.Pending && !dryRun {
+				// Pending feed rows can be replaced with a new transaction ID
+				// when they post. Keep the cached categorization provisional so
+				// a later sync resolves and verifies the posted transaction.
+				record.Status = "provisional"
+			}
 		}
 		if dryRun {
 			record.Status = "dry-run"

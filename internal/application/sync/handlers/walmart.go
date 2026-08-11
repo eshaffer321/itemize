@@ -370,6 +370,14 @@ func (h *WalmartHandler) processMultiDeliveryOrder(
 		matchedTxns = append(matchedTxns, match.Transaction)
 		usedTxnIDs[match.Transaction.ID] = true
 	}
+	if hasPendingTransaction(matchedTxns) {
+		result.Skipped = true
+		result.SkipReason = "payment pending"
+		h.logInfo("Waiting for all Walmart charges to post before consolidation",
+			"order_id", order.GetID(),
+			"transaction_count", len(matchedTxns))
+		return result, nil
+	}
 
 	h.logInfo("Matched all transactions for multi-delivery order",
 		"order_id", order.GetID(),
@@ -429,6 +437,9 @@ func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 	if len(matchedTxns) == 1 {
 		recoveryTxns := interruptedConsolidationTransactions(matchedTxns[0], partialMatches, charges, ledgerTotal)
 		if len(recoveryTxns) > 1 {
+			if hasPendingTransaction(recoveryTxns) {
+				return &ProcessResult{Skipped: true, SkipReason: "payment pending"}, nil
+			}
 			if h.consolidator == nil {
 				return nil, fmt.Errorf("interrupted consolidation found %d undeleted transactions but consolidator is not configured", len(recoveryTxns)-1)
 			}
@@ -456,6 +467,9 @@ func (h *WalmartHandler) processMultiDeliveryAggregateFallback(
 
 	if h.consolidator == nil {
 		return nil, fmt.Errorf("aggregate match found %d transactions but consolidator is not configured", len(matchedTxns))
+	}
+	if hasPendingTransaction(matchedTxns) {
+		return &ProcessResult{Skipped: true, SkipReason: "payment pending"}, nil
 	}
 
 	h.logInfo("Matched multi-delivery order by aggregate transaction subset",
@@ -521,6 +535,15 @@ func sumCharges(charges []float64) float64 {
 		total += charge
 	}
 	return math.Round(total*100) / 100
+}
+
+func hasPendingTransaction(transactions []*monarch.Transaction) bool {
+	for _, transaction := range transactions {
+		if transaction != nil && transaction.Pending {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *WalmartHandler) processRefundOnlyOrder(ctx context.Context, order WalmartOrder, monarchTxns []*monarch.Transaction, usedTxnIDs map[string]bool, catCategories []categorizer.Category, monarchCategories []*monarch.TransactionCategory, refundCharges []float64, refundItems []providers.OrderItem, dryRun bool) (*ProcessResult, error) {

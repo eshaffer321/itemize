@@ -60,9 +60,12 @@ type Orchestrator struct {
 	walmartHandler *handlers.WalmartHandler
 	simpleHandler  *handlers.SimpleHandler
 	monarchAdapter *monarchAdapter
-	storage        storage.Repository // Interface instead of concrete type
-	logger         *slog.Logger
-	runID          int64 // Current sync run ID for API logging
+	// reconciliationClient resolves pending transaction IDs to their posted
+	// replacements and reapplies cached categorization without another LLM call.
+	reconciliationClient transactionReconciliationClient
+	storage              storage.Repository // Interface instead of concrete type
+	logger               *slog.Logger
+	runID                int64 // Current sync run ID for API logging
 }
 
 // NewOrchestrator creates a new sync orchestrator
@@ -136,17 +139,18 @@ func NewOrchestrator(
 	}
 
 	return &Orchestrator{
-		provider:       provider,
-		clients:        clients,
-		splitter:       spl,
-		matcher:        transactionMatcher,
-		consolidator:   consolidator,
-		amazonHandler:  amazonHandler,
-		walmartHandler: walmartHandler,
-		simpleHandler:  simpleHandler,
-		monarchAdapter: mAdapter,
-		storage:        store,
-		logger:         logger,
+		provider:             provider,
+		clients:              clients,
+		splitter:             spl,
+		matcher:              transactionMatcher,
+		consolidator:         consolidator,
+		amazonHandler:        amazonHandler,
+		walmartHandler:       walmartHandler,
+		simpleHandler:        simpleHandler,
+		monarchAdapter:       mAdapter,
+		reconciliationClient: mAdapter,
+		storage:              store,
+		logger:               logger,
 	}
 }
 
@@ -193,6 +197,20 @@ func (a *monarchAdapter) UpdateTransaction(ctx context.Context, id string, param
 	updated, err := a.client.Transactions.Update(ctx, id, params)
 	a.logAPICallCompletion(ctx, id, "Transactions.Update", updated, err, time.Since(start))
 	return err
+}
+
+func (a *monarchAdapter) GetTransaction(ctx context.Context, id string) (*monarch.TransactionDetails, error) {
+	start := time.Now()
+	transaction, err := a.client.Transactions.Get(ctx, id)
+	a.logAPICallCompletion(ctx, id, "Transactions.Get", transaction, err, time.Since(start))
+	return transaction, err
+}
+
+func (a *monarchAdapter) GetSplits(ctx context.Context, id string) ([]*monarch.TransactionSplit, error) {
+	start := time.Now()
+	splits, err := a.client.Transactions.GetSplits(ctx, id)
+	a.logAPICallCompletion(ctx, id, "Transactions.GetSplits", splits, err, time.Since(start))
+	return splits, err
 }
 
 func (a *monarchAdapter) UpdateSplits(ctx context.Context, id string, splits []*monarch.TransactionSplit) error {

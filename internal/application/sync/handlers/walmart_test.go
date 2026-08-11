@@ -571,6 +571,50 @@ func TestWalmartHandler_ProcessOrder_MultiDelivery_Success(t *testing.T) {
 	assert.True(t, usedTxnIDs["txn-2"])
 }
 
+func TestWalmartHandler_ProcessOrder_MultiDelivery_DoesNotConsolidatePendingTransactions(t *testing.T) {
+	orderDate := time.Now()
+	order := &walmartTestOrder{
+		id:             "ORDER-MULTI-PENDING",
+		date:           orderDate,
+		total:          100.00,
+		subtotal:       95.00,
+		tax:            5.00,
+		items:          []providers.OrderItem{&walmartTestItem{name: "Item", price: 95.00, quantity: 1}},
+		charges:        []float64{60.00, 40.00},
+		isMultiDeliver: true,
+	}
+	txns := []*monarch.Transaction{
+		{ID: "pending-1", Amount: -60.00, Date: walmartToMonarchDate(orderDate), Pending: true},
+		{ID: "pending-2", Amount: -40.00, Date: walmartToMonarchDate(orderDate), Pending: true},
+	}
+	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries:\n- Item $100.00"}
+	consolidator := &walmartTestConsolidator{
+		result: &ConsolidationResult{
+			ConsolidatedTransaction: &monarch.Transaction{ID: "consolidated", Amount: -100},
+		},
+	}
+	monarchClient := &walmartTestMonarch{}
+	handler := createTestWalmartHandler(t, splitter, consolidator, monarchClient)
+
+	result, err := handler.ProcessOrder(
+		context.Background(),
+		order,
+		txns,
+		make(map[string]bool),
+		nil,
+		nil,
+		false,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Equal(t, "payment pending", result.SkipReason)
+	assert.Empty(t, consolidator.receivedTransactions)
+	assert.Empty(t, splitter.calls)
+	assert.False(t, monarchClient.updateCalled)
+	assert.False(t, monarchClient.updateSplitsCaled)
+}
+
 func TestWalmartHandler_ProcessOrder_MultiDelivery_FallsBackToAggregateTransaction(t *testing.T) {
 	splitter := &walmartTestSplitter{categoryID: "groceries", notes: "Groceries"}
 	monarchClient := &walmartTestMonarch{}

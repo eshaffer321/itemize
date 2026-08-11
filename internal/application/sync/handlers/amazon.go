@@ -290,6 +290,20 @@ func (h *AmazonHandler) ProcessOrder(
 		}
 	}
 
+	// Never consolidate multiple pending bank-feed rows. Pending transactions
+	// can be replaced when they post, so deleting or merging them would create
+	// unstable transaction history that cannot be reconciled by a single stored
+	// transaction ID. Single pending charges remain safe to categorize
+	// provisionally and are reconciled by the orchestrator after posting.
+	if len(matchedTxns) > 1 && hasPendingTransaction(matchedTxns) {
+		result.Skipped = true
+		result.SkipReason = "payment pending"
+		h.logInfo("Waiting for all Amazon charges to post before consolidation",
+			"order_id", order.GetID(),
+			"transaction_count", len(matchedTxns))
+		return result, nil
+	}
+
 	// Step 5: Consolidate multi-transaction matches
 	if consolidatedTxn == nil {
 		if len(matchedTxns) > 1 {
