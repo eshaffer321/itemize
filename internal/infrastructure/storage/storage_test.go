@@ -453,6 +453,40 @@ func TestStorage_IsProcessed(t *testing.T) {
 	assert.True(t, store.IsProcessed("ORDER-SUCCESS"), "Success should count as processed")
 }
 
+func TestStorage_SaveRecord_AllowsSuccessToBecomeProvisional(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{
+		OrderID:       "ORDER-LEGACY-PENDING",
+		Provider:      "amazon",
+		TransactionID: "pending-txn",
+		OrderDate:     time.Now(),
+		ProcessedAt:   time.Now(),
+		Status:        "success",
+	}))
+	require.True(t, store.IsProcessed("ORDER-LEGACY-PENDING"))
+
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{
+		OrderID:       "ORDER-LEGACY-PENDING",
+		Provider:      "amazon",
+		TransactionID: "pending-txn",
+		OrderDate:     time.Now(),
+		ProcessedAt:   time.Now(),
+		Status:        "provisional",
+	}))
+
+	record, err := store.GetRecord("ORDER-LEGACY-PENDING")
+	require.NoError(t, err)
+	require.NotNil(t, record)
+	assert.Equal(t, "provisional", record.Status)
+	assert.False(t, store.IsProcessed("ORDER-LEGACY-PENDING"))
+}
+
 // =============================================================================
 // API Query Method Tests
 // =============================================================================

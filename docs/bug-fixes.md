@@ -12,6 +12,51 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-07-30: Pending purchase categorization disappeared when transactions posted
+
+**Description:**
+Amazon purchases showed the AI-selected item notes but remained in `[TEMP] Amazon`, and multi-category purchases lost their splits. SQLite showed that Monarch had accepted the original category and split mutations successfully.
+
+**Test Case:**
+```go
+// internal/application/sync/reconciliation_test.go:
+// TestRecordSuccessWithResult_PendingTransactionIsProvisional
+// TestProcessOrder_ReconcilesRedirectedSingleCategoryFromCachedRecord
+// TestProcessOrder_ReconcilesRedirectedSplitsFromCachedRecord
+// TestProcessOrder_LegacySuccessStillPendingBecomesProvisional
+// TestProcessOrder_FinalizesProvisionalWhenPostedStateAlreadyMatches
+// TestProcessOrder_UsesUniquePostedFallbackWhenRedirectIsMissing
+// TestProcessOrder_AmbiguousPostedFallbackMakesNoWrite
+// TestProcessOrder_DoesNotOverwriteSameIDFinalManualCategory
+// TestProcessOrder_RepairsSameIDTemporaryCategoryButNotOtherCategories
+// TestProcessOrder_ReconciliationDryRunMakesNoWrites
+
+// internal/application/sync/handlers/amazon_test.go:
+// TestAmazonHandler_ProcessOrder_DoesNotConsolidatePendingMultiChargeTransactions
+
+// internal/application/sync/handlers/walmart_test.go:
+// TestWalmartHandler_ProcessOrder_MultiDelivery_DoesNotConsolidatePendingTransactions
+
+// internal/infrastructure/storage/storage_test.go:
+// TestStorage_SaveRecord_AllowsSuccessToBecomeProvisional
+```
+
+**Root Cause:**
+Itemize treated pending Monarch rows as durable transaction identities. When the bank feed posted an Amazon charge, Monarch replaced its pending ID with a new posted ID. Notes sometimes migrated, but categories and splits did not. Order-level dedup then skipped the Amazon order forever because SQLite already contained `status='success'`. The update mutation audit was also misleading: that GraphQL selection does not request `pending`, so the decoded Go transaction serialized its zero value `false` even though the transaction-list snapshot from the same run recorded `pending=true`.
+
+**Fix Applied:**
+Pending single-charge mutations are now cached as `provisional`, not final successes. Later syncs first use the current transaction-list snapshot and then Monarch's `redirectPosted` lookup to resolve the stored pending ID to its posted replacement. Itemize compares the posted state with the exact category, notes, or splits saved in SQLite, reapplies only missing state without another LLM call, records the replacement ID, and promotes the order to `success`. A missing redirect falls back only to a unique posted amount/date match, with an exact cached-note match as a disambiguator; ambiguous candidates remain untouched. Final same-ID transactions with a non-temporary category are treated as possible manual edits and are not overwritten. Legacy successes that are still pending are converted to provisional records. Multi-charge Amazon and Walmart rows are never consolidated while any source transaction is pending.
+
+**Verification:**
+- The pending-to-posted regression and storage-transition tests failed before their fixes and pass afterward.
+- Focused application, handler, and SQLite storage suites pass.
+- `go test ./...` passes.
+- `go test ./... -race` passes.
+- `go build -o /tmp/itemize-reconciliation-check ./cmd/itemize/` passes.
+- A live `-account wife -dry-run -order-id 112-6349422-6177822 -verbose` resolved pending transaction `250478322775591224` to posted replacement `250663215190083762`, detected that the cached `Auto Maintenance` state needed reapplication, and completed with `Processed=1 Skipped=0 Errors=0` without writing to Monarch or repeating categorization.
+
+---
+
 ### 2026-07-25: Amazon sessions appeared to expire after every sync day
 
 **Description:**

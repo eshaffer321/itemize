@@ -62,10 +62,31 @@ func (o *Orchestrator) processOrder(
 		"item_count", len(order.GetItems()),
 	)
 
-	// Check if already processed
-	if !opts.Force && o.storage != nil && o.storage.IsProcessed(order.GetID()) {
-		o.logger.Debug("Skipping already processed order", "order_id", order.GetID())
-		return false, true, nil
+	// A pending transaction may be replaced by a different posted transaction
+	// ID. Resolve and verify the stored Monarch state before applying the
+	// order-level deduplication guard.
+	if !opts.Force && o.storage != nil {
+		record, err := o.storage.GetRecord(order.GetID())
+		if err != nil {
+			return false, false, fmt.Errorf("load processing record: %w", err)
+		}
+		if record != nil {
+			handled, processed, skipped, reconcileErr := o.reconcileStoredOrder(
+				ctx,
+				order,
+				record,
+				providerTransactions,
+				usedTransactionIDs,
+				opts.DryRun,
+			)
+			if handled {
+				return processed, skipped, reconcileErr
+			}
+		}
+		if o.storage.IsProcessed(order.GetID()) {
+			o.logger.Debug("Skipping already processed order", "order_id", order.GetID())
+			return false, true, nil
+		}
 	}
 
 	// Use Amazon handler for Amazon orders (uses pro-rata allocation)

@@ -81,7 +81,11 @@ func (m *MockRepository) SaveRecord(record *ProcessingRecord) error {
 	// Deep copy to avoid test mutations
 	copied := *record
 	m.attempts[record.OrderID] = append(m.attempts[record.OrderID], ProcessingAttempt{ProcessingRecord: copied})
-	if existing, ok := m.records[record.OrderID]; ok && existing.Status == "success" && !existing.DryRun && record.Status != "success" {
+	if existing, ok := m.records[record.OrderID]; ok &&
+		existing.Status == "success" &&
+		!existing.DryRun &&
+		record.Status != "success" &&
+		record.Status != "provisional" {
 		return nil
 	}
 	m.records[record.OrderID] = &copied
