@@ -204,6 +204,62 @@ func TestMonarchAdapter_LogAPICallRecordsIntentAndCompletion(t *testing.T) {
 	assert.Contains(t, calls[1].ResponseJSON, "txn-intent")
 }
 
+func TestMonarchAdapter_UpdateTransactionRetriesRetryableError(t *testing.T) {
+	store := storage.NewMockRepository()
+	transactions := &mockMonarchClient{
+		updateErrors: []error{
+			monarch.WrapError(monarch.ErrServerError, "SERVER_ERROR", "server error: 502 (Bad Gateway)"),
+			nil,
+		},
+	}
+	adapter := &monarchAdapter{
+		client:  &monarch.Client{Transactions: transactions},
+		storage: store,
+		runID:   100,
+	}
+
+	amount := -24.38
+	notes := "Personal Care/Toiletries"
+	err := adapter.UpdateTransaction(
+		withAuditContext(context.Background(), "ORDER-RETRY", false),
+		"txn-retry",
+		&monarch.UpdateTransactionParams{Amount: &amount, Notes: &notes},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, transactions.updateCalled)
+
+	calls, callErr := store.GetAPICallsByOrderID("ORDER-RETRY")
+	require.NoError(t, callErr)
+	require.Len(t, calls, 4)
+	assert.Equal(t, "intent", calls[0].Phase)
+	assert.Equal(t, "completed", calls[1].Phase)
+	assert.Contains(t, calls[1].Error, "502")
+	assert.Equal(t, "intent", calls[2].Phase)
+	assert.Equal(t, "completed", calls[3].Phase)
+	assert.Empty(t, calls[3].Error)
+}
+
+func TestMonarchAdapter_UpdateTransactionDoesNotRetryPermanentError(t *testing.T) {
+	transactions := &mockMonarchClient{
+		updateError: monarch.NewError("INVALID_REQUEST", "invalid category"),
+	}
+	adapter := &monarchAdapter{
+		client: &monarch.Client{Transactions: transactions},
+	}
+
+	amount := -24.38
+	notes := "Personal Care/Toiletries"
+	err := adapter.UpdateTransaction(
+		context.Background(),
+		"txn-permanent",
+		&monarch.UpdateTransactionParams{Amount: &amount, Notes: &notes},
+	)
+
+	require.Error(t, err)
+	assert.Equal(t, 1, transactions.updateCalled)
+}
+
 // =============================================================================
 // Test: Generic Order Matching (Costco-like providers)
 // =============================================================================

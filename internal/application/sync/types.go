@@ -192,11 +192,26 @@ type monarchAdapter struct {
 }
 
 func (a *monarchAdapter) UpdateTransaction(ctx context.Context, id string, params *monarch.UpdateTransactionParams) error {
-	a.logAPICallIntent(ctx, id, "Transactions.Update", params)
-	start := time.Now()
-	updated, err := a.client.Transactions.Update(ctx, id, params)
-	a.logAPICallCompletion(ctx, id, "Transactions.Update", updated, err, time.Since(start))
-	return err
+	const maxAttempts = 2
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		a.logAPICallIntent(ctx, id, "Transactions.Update", params)
+		start := time.Now()
+		updated, err := a.client.Transactions.Update(ctx, id, params)
+		a.logAPICallCompletion(ctx, id, "Transactions.Update", updated, err, time.Since(start))
+		if err == nil {
+			return nil
+		}
+		if attempt == maxAttempts || !isRetryableMonarchError(ctx, err) {
+			return err
+		}
+		if a.logger != nil {
+			a.logger.Warn("Transient transaction update failed; retrying",
+				"transaction_id", id,
+				"attempt", attempt,
+				"error", err)
+		}
+	}
+	return nil
 }
 
 func (a *monarchAdapter) GetTransaction(ctx context.Context, id string) (*monarch.TransactionDetails, error) {
