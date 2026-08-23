@@ -12,6 +12,20 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-08-23: CI and release builds used a vulnerable Go patch release
+
+**Description:**
+The pull-request vulnerability scan failed with five reachable standard-library vulnerabilities because CI and release builds were pinned to Go 1.25.12. All five are fixed in Go 1.25.13.
+
+**Fix Applied:**
+Raised the module, CI, and release workflow toolchain to Go 1.25.13 so tests and published binaries use the patched standard library.
+
+**Verification:**
+- `govulncheck` reports the affected standard-library symbols as fixed with Go 1.25.13.
+- CI and GoReleaser now select Go 1.25.13.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-08-23: Direct Monarch transaction updates did not retry transient failures
 
 **Description:**

@@ -215,6 +215,7 @@ func TestMonarchAdapter_UpdateTransactionRetriesRetryableError(t *testing.T) {
 	adapter := &monarchAdapter{
 		client:  &monarch.Client{Transactions: transactions},
 		storage: store,
+		logger:  slog.New(slog.NewTextHandler(os.Stderr, nil)),
 		runID:   100,
 	}
 
