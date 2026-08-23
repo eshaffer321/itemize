@@ -1,6 +1,6 @@
 module github.com/eshaffer321/itemize
 
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0

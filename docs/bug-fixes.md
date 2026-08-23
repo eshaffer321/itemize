@@ -12,6 +12,46 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-08-23: CI and release builds used a vulnerable Go patch release
+
+**Description:**
+The pull-request vulnerability scan failed with five reachable standard-library vulnerabilities because CI and release builds were pinned to Go 1.25.12. All five are fixed in Go 1.25.13.
+
+**Fix Applied:**
+Raised the module, CI, and release workflow toolchain to Go 1.25.13 so tests and published binaries use the patched standard library.
+
+**Verification:**
+- `govulncheck` reports the affected standard-library symbols as fixed with Go 1.25.13.
+- CI and GoReleaser now select Go 1.25.13.
+
+**Commit:** Included in the pull request for this fix.
+
+### 2026-08-23: Direct Monarch transaction updates did not retry transient failures
+
+**Description:**
+An Amazon order matched and categorized successfully, but its final Monarch category-and-notes update received a `502 Bad Gateway`. Itemize recorded the order as failed after one request, leaving the posted transaction in its temporary Amazon category. Multi-delivery consolidation already retried transient Monarch update failures, but direct updates used by provider handlers and reconciliation did not.
+
+**Test Case:**
+```go
+// internal/application/sync/process_order_test.go:
+// TestMonarchAdapter_UpdateTransactionRetriesRetryableError
+// TestMonarchAdapter_UpdateTransactionDoesNotRetryPermanentError
+```
+
+**Root Cause:**
+The shared `monarchAdapter.UpdateTransaction` method made exactly one API call. Although `monarch-go` classifies 5xx responses as retryable, the adapter never consulted that classification, and Itemize intentionally does not enable blanket client-level retries for every GraphQL operation.
+
+**Fix Applied:**
+The shared Itemize transaction-update adapter now retries the same idempotent update once when Monarch reports a retryable error or the network request times out. Caller cancellation and permanent errors return immediately. Each attempt records its own intent and completion in the API audit trail.
+
+**Verification:**
+- The retry regression test failed before the fix and passes afterward.
+- A retryable 502 results in two update attempts and four audit records (intent/completion for each attempt).
+- A permanent Monarch validation error results in one update attempt.
+- `go test ./...` passes.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-07-30: Pending purchase categorization disappeared when transactions posted
 
 **Description:**

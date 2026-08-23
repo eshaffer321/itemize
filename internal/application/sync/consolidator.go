@@ -3,11 +3,9 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"strings"
 	"time"
 
@@ -230,18 +228,6 @@ func (c *Consolidator) updatePrimaryTransaction(
 	)
 
 	return updated, nil
-}
-
-func isRetryableMonarchError(ctx context.Context, err error) bool {
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-		return false
-	}
-	if monarch.IsRetryable(err) {
-		return true
-	}
-
-	var networkErr net.Error
-	return errors.As(err, &networkErr) && networkErr.Timeout()
 }
 
 // deleteExtraTransactions removes the extra transactions after consolidation
