@@ -96,7 +96,7 @@ func NewCategorizer(client ChatClient, cache Cache, model string) *Categorizer {
 	}
 }
 
-const DefaultModel = "gpt-5.4-nano"
+const DefaultModel = "gpt-5.6-luna"
 
 // CategorizeItems categorizes a list of items using available categories
 func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {

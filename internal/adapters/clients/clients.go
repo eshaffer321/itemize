@@ -5,17 +5,17 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	anthropicclient "github.com/eshaffer321/itemize/internal/adapters/clients/anthropic"
 	openaiclient "github.com/eshaffer321/itemize/internal/adapters/clients/openai"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/infrastructure/config"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 const (
 	providerOpenAI        = "openai"
 	providerAnthropic     = "anthropic"
-	defaultAnthropicModel = "claude-haiku-4-5-20251001"
+	defaultAnthropicModel = "claude-haiku-4-5"
 )
 
 type Clients struct {

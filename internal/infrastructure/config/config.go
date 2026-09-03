@@ -186,11 +186,11 @@ func LoadFromEnv() *Config {
 		},
 		OpenAI: OpenAIConfig{
 			APIKey: os.Getenv("OPENAI_API_KEY"),
-			Model:  getEnv("OPENAI_MODEL", "gpt-5.4-nano"),
+			Model:  getEnv("OPENAI_MODEL", "gpt-5.6-luna"),
 		},
 		Anthropic: AnthropicConfig{
 			APIKey: firstNonEmpty(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("CLAUDE_API_KEY")),
-			Model:  getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+			Model:  getEnv("ANTHROPIC_MODEL", "claude-haiku-4-5"),
 		},
 		Categorizer: CategorizerConfig{
 			Provider: os.Getenv("CATEGORIZER_PROVIDER"),

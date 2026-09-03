@@ -38,8 +38,8 @@ go test ./internal/domain/categorizer/... -v   # single package
 Reads `config.yaml` or env vars:
 - `MONARCH_TOKEN` — Monarch API token (required)
 - LLM categorizer — set **one** of:
-  - `OPENAI_API_KEY` (also `OPENAI_APIKEY`) with optional `OPENAI_MODEL` (default `gpt-5.4-nano`)
-  - `ANTHROPIC_API_KEY` (also `CLAUDE_API_KEY`) with optional `ANTHROPIC_MODEL` (default `claude-haiku-4-5-20251001`)
+  - `OPENAI_API_KEY` (also `OPENAI_APIKEY`) with optional `OPENAI_MODEL` (default `gpt-5.6-luna`)
+  - `ANTHROPIC_API_KEY` (also `CLAUDE_API_KEY`) with optional `ANTHROPIC_MODEL` (default `claude-haiku-4-5`)
 - `CATEGORIZER_PROVIDER` — `openai` or `anthropic` to force a backend when both keys are set (auto-detected otherwise)
 - SQLite DB auto-created at `monarch_sync.db`
 
