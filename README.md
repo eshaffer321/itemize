@@ -77,11 +77,11 @@ monarch:
 
 openai:
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-5.4-nano"
+  model: "gpt-5.6-luna"
 
 anthropic:
   api_key: "${ANTHROPIC_API_KEY}"
-  model: "claude-haiku-4-5-20251001"
+  model: "claude-haiku-4-5"
 
 # Optional: force a backend when both keys are set.
 # Leave blank to auto-detect from whichever key is present.

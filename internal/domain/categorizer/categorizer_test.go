@@ -423,5 +423,5 @@ func TestCategorizer_CategorizeItems_ExhaustsRetries(t *testing.T) {
 func TestNewCategorizer_DefaultsModelWhenEmpty(t *testing.T) {
 	categorizer := NewCategorizer(new(MockChatClient), new(MockCache), "")
 
-	assert.Equal(t, "gpt-5.4-nano", categorizer.Model)
+	assert.Equal(t, DefaultModel, categorizer.Model)
 }

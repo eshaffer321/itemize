@@ -37,7 +37,7 @@ func TestLoadFromYAML(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, cfg)
 	assert.Equal(t, "monarch_sync.db", cfg.Storage.DatabasePath)
-	assert.Equal(t, "gpt-5.4-nano", cfg.OpenAI.Model)
+	assert.Equal(t, "gpt-5.6-luna", cfg.OpenAI.Model)
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -66,7 +66,7 @@ func TestLoadFromEnv_Defaults(t *testing.T) {
 	cfg := LoadFromEnv()
 	assert.NotNil(t, cfg)
 	assert.Equal(t, "monarch_sync.db", cfg.Storage.DatabasePath)
-	assert.Equal(t, "gpt-5.4-nano", cfg.OpenAI.Model)
+	assert.Equal(t, "gpt-5.6-luna", cfg.OpenAI.Model)
 }
 
 func TestLoadOrEnv(t *testing.T) {
