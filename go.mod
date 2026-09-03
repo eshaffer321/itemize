@@ -8,7 +8,7 @@ require (
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.0.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.2.1
-	github.com/getsentry/sentry-go v0.36.0
+	github.com/getsentry/sentry-go v0.49.0
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/pressly/goose/v3 v3.27.3
 	github.com/stretchr/testify v1.12.1
@@ -20,7 +20,6 @@ require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
