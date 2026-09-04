@@ -12,9 +12,11 @@ import (
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
 	"github.com/eshaffer321/itemize/internal/adapters/providers/costco"
+	homedepotprovider "github.com/eshaffer321/itemize/internal/adapters/providers/homedepot"
 	"github.com/eshaffer321/itemize/internal/adapters/providers/walmart"
 	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
+	hdgo "github.com/fnziman/homedepot-go"
 	walmartclient "github.com/eshaffer321/walmart-client-go/v2"
 )
 
@@ -73,6 +75,27 @@ func NewWalmartProvider(cfg *config.Config, verbose bool) (providers.OrderProvid
 	}
 
 	return walmart.NewProvider(walmartClient, walmartLogger), nil
+}
+
+// NewHomeDepotProvider creates a new Home Depot provider with a system-scoped
+// logger. Auth is cookie replay from ~/.homedepot-api/cookies.json (or the
+// user's HOMEDEPOT_COOKIE_FILE override); the underlying homedepot-go client
+// loads and decodes the THD_CUSTOMER cookie for the API auth token.
+func NewHomeDepotProvider(cfg *config.Config, verbose bool) (providers.OrderProvider, error) {
+	loggingCfg := cfg.Observability.Logging
+	if verbose {
+		loggingCfg.Level = "debug"
+	}
+	hdLogger := logging.NewLoggerWithSystem(loggingCfg, "homedepot")
+
+	client, err := hdgo.NewClient(hdgo.Config{
+		CookieFile: cfg.Providers.HomeDepot.CookieFile,
+		Logger:     hdLogger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Home Depot client: %w", err)
+	}
+	return homedepotprovider.NewProvider(client, hdLogger), nil
 }
 
 // NewAmazonProvider creates a new Amazon provider with a system-scoped logger.

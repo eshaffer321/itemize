@@ -62,9 +62,10 @@ type CategorizerConfig struct {
 
 // ProvidersConfig holds provider-specific configuration
 type ProvidersConfig struct {
-	Walmart WalmartConfig `yaml:"walmart"`
-	Costco  CostcoConfig  `yaml:"costco"`
-	Amazon  AmazonConfig  `yaml:"amazon"`
+	Walmart   WalmartConfig   `yaml:"walmart"`
+	Costco    CostcoConfig    `yaml:"costco"`
+	Amazon    AmazonConfig    `yaml:"amazon"`
+	HomeDepot HomeDepotConfig `yaml:"homedepot"`
 }
 
 // WalmartConfig holds Walmart-specific settings
@@ -97,6 +98,18 @@ type AmazonConfig struct {
 	Debug        bool   `yaml:"debug"`
 	AccountName  string `yaml:"account_name"` // For multi-account support (optional)
 	CookieFile   string `yaml:"cookie_file"`  // Optional amazon-go cookie file
+}
+
+// HomeDepotConfig holds Home Depot-specific settings.
+// Auth is cookie-replay via ~/.homedepot-api/cookies.json (override via
+// CookieFile / HOMEDEPOT_COOKIE_FILE).
+type HomeDepotConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	RateLimit    string `yaml:"rate_limit"`
+	LookbackDays int    `yaml:"lookback_days"`
+	MaxOrders    int    `yaml:"max_orders"`
+	Debug        bool   `yaml:"debug"`
+	CookieFile   string `yaml:"cookie_file"` // Optional path override
 }
 
 // ObservabilityConfig holds observability settings
@@ -212,6 +225,12 @@ func LoadFromEnv() *Config {
 				MaxOrders:    getEnvInt("AMAZON_MAX_ORDERS", 0),
 				AccountName:  getEnv("AMAZON_ACCOUNT_NAME", ""),
 				CookieFile:   getEnv("AMAZON_COOKIE_FILE", ""),
+			},
+			HomeDepot: HomeDepotConfig{
+				Enabled:      true,
+				LookbackDays: getEnvInt("HOMEDEPOT_LOOKBACK_DAYS", 14),
+				MaxOrders:    getEnvInt("HOMEDEPOT_MAX_ORDERS", 0),
+				CookieFile:   getEnv("HOMEDEPOT_COOKIE_FILE", ""),
 			},
 		},
 		Observability: ObservabilityConfig{

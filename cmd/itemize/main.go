@@ -190,6 +190,8 @@ func main() {
 		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
 	case "amazon":
 		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose, amazonAccount)
+	case "homedepot":
+		provider, err = cli.NewHomeDepotProvider(cfg, flags.Verbose)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -249,6 +251,7 @@ func printUsage() {
 	fmt.Println("  amazon returns -account <name>")
 	fmt.Println("              Read Amazon's return/refund ledger as JSON")
 	fmt.Println("  costco      Sync Costco orders")
+	fmt.Println("  homedepot   Sync Home Depot orders")
 	fmt.Println("  walmart     Sync Walmart orders")
 	fmt.Println("  version     Print version, commit, and build date (also: -version, --version)")
 	fmt.Println()
@@ -287,4 +290,7 @@ func printUsage() {
 	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
 	fmt.Println("                             Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' first")
 	fmt.Println("  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
+	fmt.Println("  HOMEDEPOT_LOOKBACK_DAYS    Days to look back for Home Depot orders (default 14)")
+	fmt.Println("  HOMEDEPOT_MAX_ORDERS       Max Home Depot orders to process (0 = all)")
+	fmt.Println("  HOMEDEPOT_COOKIE_FILE      Optional cookie file override (default ~/.homedepot-api/cookies.json)")
 }
