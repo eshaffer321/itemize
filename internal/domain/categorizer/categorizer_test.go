@@ -425,3 +425,26 @@ func TestNewCategorizer_DefaultsModelWhenEmpty(t *testing.T) {
 
 	assert.Equal(t, DefaultModel, categorizer.Model)
 }
+
+func TestIsReasoningModel(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{"gpt-5.4-nano", true},
+		{"gpt-5.6-luna", true},
+		{"gpt-6-luna", true},
+		{"gpt-6-sol", true},
+		{" GPT-6-Luna ", true},
+		{"gpt-4o-mini", false},
+		{"gpt-4.1", false},
+		{"claude-haiku-4-5", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			assert.Equal(t, tt.want, isReasoningModel(tt.model))
+		})
+	}
+}

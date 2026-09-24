@@ -80,7 +80,7 @@ monarch:
 
 openai:
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-5.6-luna"
+  model: "gpt-6-luna"
 
 anthropic:
   api_key: "${ANTHROPIC_API_KEY}"

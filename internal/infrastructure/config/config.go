@@ -188,7 +188,7 @@ func LoadFromEnv() *Config {
 		},
 		OpenAI: OpenAIConfig{
 			APIKey: os.Getenv("OPENAI_API_KEY"),
-			Model:  getEnv("OPENAI_MODEL", "gpt-5.6-luna"),
+			Model:  getEnv("OPENAI_MODEL", "gpt-6-luna"),
 		},
 		Anthropic: AnthropicConfig{
 			APIKey: firstNonEmpty(os.Getenv("ANTHROPIC_API_KEY"), os.Getenv("CLAUDE_API_KEY")),
