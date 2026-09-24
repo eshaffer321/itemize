@@ -43,18 +43,18 @@ func TestLoadFromYAML(t *testing.T) {
 func TestLoadFromEnv(t *testing.T) {
 	// Set environment variables
 	os.Setenv("MONARCH_DB_PATH", "test.db")
-	os.Setenv("MONARCH_TOKEN", "test-token")
+	os.Setenv("MONARCH_COOKIE", "sessionid=abc; csrftoken=def")
 	os.Setenv("OPENAI_API_KEY", "test-key")
 	defer func() {
 		os.Unsetenv("MONARCH_DB_PATH")
-		os.Unsetenv("MONARCH_TOKEN")
+		os.Unsetenv("MONARCH_COOKIE")
 		os.Unsetenv("OPENAI_API_KEY")
 	}()
 
 	cfg := LoadFromEnv()
 	assert.NotNil(t, cfg)
 	assert.Equal(t, "test.db", cfg.Storage.DatabasePath)
-	assert.Equal(t, "test-token", cfg.Monarch.APIKey)
+	assert.Equal(t, "sessionid=abc; csrftoken=def", cfg.Monarch.Cookie)
 	assert.Equal(t, "test-key", cfg.OpenAI.APIKey)
 }
 
@@ -96,7 +96,7 @@ func TestEnvVarExpansion(t *testing.T) {
 storage:
   database_path: "${TEST_DB_PATH}"
 monarch:
-  api_key: "${TEST_MONARCH_TOKEN}"
+  cookie: "${TEST_MONARCH_COOKIE}"
 `
 
 	err := os.WriteFile(configPath, []byte(configContent), 0600)
@@ -104,16 +104,16 @@ monarch:
 
 	// Set env vars
 	os.Setenv("TEST_DB_PATH", "expanded.db")
-	os.Setenv("TEST_MONARCH_TOKEN", "expanded-token")
+	os.Setenv("TEST_MONARCH_COOKIE", "sessionid=expanded")
 	defer func() {
 		os.Unsetenv("TEST_DB_PATH")
-		os.Unsetenv("TEST_MONARCH_TOKEN")
+		os.Unsetenv("TEST_MONARCH_COOKIE")
 	}()
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err)
 	assert.Equal(t, "expanded.db", cfg.Storage.DatabasePath)
-	assert.Equal(t, "expanded-token", cfg.Monarch.APIKey)
+	assert.Equal(t, "sessionid=expanded", cfg.Monarch.Cookie)
 }
 
 func TestValidateConfigPathRejectsUnsafePaths(t *testing.T) {

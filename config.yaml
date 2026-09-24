@@ -29,9 +29,9 @@ providers:
     account_name: "${AMAZON_ACCOUNT_NAME}"
     cookie_file: "${AMAZON_COOKIE_FILE}"
 
-# Monarch API configuration
+# Monarch API configuration (browser session cookie — see README)
 monarch:
-  api_key: "${MONARCH_TOKEN}"
+  cookie: "${MONARCH_COOKIE}"
 
 # OpenAI configuration
 openai:

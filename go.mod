@@ -6,7 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/eshaffer321/amazon-go v0.4.0
 	github.com/eshaffer321/costco-go v0.3.11
-	github.com/eshaffer321/monarch-go/v2 v2.0.0
+	github.com/eshaffer321/monarch-go/v2 v2.1.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.2.1
 	github.com/getsentry/sentry-go v0.36.0
 	github.com/go-chi/chi/v5 v5.3.1

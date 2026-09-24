@@ -277,7 +277,7 @@ func printUsage() {
 	fmt.Println("  -skip-auth-check Skip Amazon auth validation after importing cookies")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  MONARCH_TOKEN              Monarch API token (required)")
+	fmt.Println("  MONARCH_COOKIE             Monarch browser session cookie (required)")
 	fmt.Println("  OPENAI_API_KEY             OpenAI API key")
 	fmt.Println("  ANTHROPIC_API_KEY          Anthropic Claude API key")
 	fmt.Println("  CATEGORIZER_PROVIDER       Force backend: 'openai' or 'anthropic'")
