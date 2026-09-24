@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -96,7 +97,7 @@ func NewCategorizer(client ChatClient, cache Cache, model string) *Categorizer {
 	}
 }
 
-const DefaultModel = "gpt-5.6-luna"
+const DefaultModel = "gpt-6-luna"
 
 // CategorizeItems categorizes a list of items using available categories
 func (c *Categorizer) CategorizeItems(ctx context.Context, items []Item, categories []Category) (*CategorizationResult, error) {
@@ -233,7 +234,7 @@ func (c *Categorizer) callLLM(ctx context.Context, items []Item, categories []Ca
 			},
 		},
 	}
-	if isGPT5Model(c.Model) {
+	if isReasoningModel(c.Model) {
 		reasoningEffort := "low"
 		request.ReasoningEffort = &reasoningEffort
 	} else {
@@ -274,8 +275,19 @@ func (c *Categorizer) callLLM(ctx context.Context, items []Item, categories []Ca
 	return nil, fmt.Errorf("%w after %d attempts", lastErr, maxRetries)
 }
 
-func isGPT5Model(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-5")
+// isReasoningModel reports whether model is a GPT-5-or-later reasoning model,
+// which takes reasoning_effort and rejects a custom temperature.
+func isReasoningModel(model string) bool {
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
+	if !ok {
+		return false
+	}
+	end := strings.IndexFunc(rest, func(r rune) bool { return r < '0' || r > '9' })
+	if end == -1 {
+		end = len(rest)
+	}
+	generation, err := strconv.Atoi(rest[:end])
+	return err == nil && generation >= 5
 }
 
 // buildPrompt creates the prompt for OpenAI

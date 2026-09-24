@@ -12,6 +12,19 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-09-23: GPT-6 models would be sent `temperature` instead of `reasoning_effort`
+
+**Description:**
+The categorizer detected reasoning models with a `gpt-5` prefix check. Any `gpt-6-*` model (e.g. `OPENAI_MODEL=gpt-6-luna`) fell through to the non-reasoning path and was sent `temperature: 0.1` with no `reasoning_effort`.
+
+**Test Case:**
+`TestIsReasoningModel` in `internal/domain/categorizer/categorizer_test.go` — the `gpt-6-luna`, `gpt-6-sol`, and ` GPT-6-Luna ` cases failed against the old prefix check.
+
+**Fix Applied:**
+Replaced `isGPT5Model` with `isReasoningModel`, which parses the generation number after `gpt-` and treats generation 5 and later as reasoning models. The default OpenAI model moves to `gpt-6-luna` in the same change.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-08-23: CI and release builds used a vulnerable Go patch release
 
 **Description:**
