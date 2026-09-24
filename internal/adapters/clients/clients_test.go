@@ -190,3 +190,32 @@ func TestNewChatClient_CaseInsensitiveProvider(t *testing.T) {
 	_, ok := client.(*anthropicclient.Client)
 	assert.True(t, ok)
 }
+
+func TestNewMonarchClient_UsesCookie(t *testing.T) {
+	t.Setenv("MONARCH_COOKIE", "")
+	cfg := &config.Config{Monarch: config.MonarchConfig{Cookie: "sessionid=abc; csrftoken=def"}}
+
+	client, err := newMonarchClient(cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+}
+
+func TestNewMonarchClient_FallsBackToCookieEnv(t *testing.T) {
+	t.Setenv("MONARCH_COOKIE", "sessionid=abc; csrftoken=def")
+	cfg := &config.Config{}
+
+	client, err := newMonarchClient(cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+}
+
+func TestNewMonarchClient_MissingCookie(t *testing.T) {
+	t.Setenv("MONARCH_COOKIE", "")
+	t.Setenv("MONARCH_TOKEN", "legacy-token")
+	cfg := &config.Config{}
+
+	_, err := newMonarchClient(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MONARCH_COOKIE")
+	assert.Contains(t, err.Error(), "MONARCH_TOKEN is no longer supported")
+}

@@ -8,8 +8,8 @@ github.com/eshaffer321/amazon-go v0.4.0 h1:HMNcXCHkEsbdJze0gTu4oBLhMiy1qEl7+TaC3
 github.com/eshaffer321/amazon-go v0.4.0/go.mod h1:4nXAvyIk9EvcAAe/oTA66izwLdu0LAoyEp3A24nAaBs=
 github.com/eshaffer321/costco-go v0.3.11 h1:vOEXcSj/vGlwE/4AbXK3uUdXG7XYg1qfUPViujJRS7Q=
 github.com/eshaffer321/costco-go v0.3.11/go.mod h1:ANJTHfRSPyot9cWKNlfs5qDKRKkA4tYORrorvWx/vbM=
-github.com/eshaffer321/monarch-go/v2 v2.0.0 h1:3reQ15D0K/Btc3mu+sfWdKJnU0hmNb0/ZwsbVUjN4l8=
-github.com/eshaffer321/monarch-go/v2 v2.0.0/go.mod h1:0rdAjSetvYQ8wGkUdg4BsqN8jTMhJ4TbHAr6qhAzSk4=
+github.com/eshaffer321/monarch-go/v2 v2.1.0 h1:qsYIPv5ha/WEcwQLnbTdup2sg5F9L1724aM5FS3s2uI=
+github.com/eshaffer321/monarch-go/v2 v2.1.0/go.mod h1:0rdAjSetvYQ8wGkUdg4BsqN8jTMhJ4TbHAr6qhAzSk4=
 github.com/eshaffer321/walmart-client-go/v2 v2.2.1 h1:FT6VAzEC6SNdQm7r2Mr26Q8/cREDj5vlTGBHVp2W1lw=
 github.com/eshaffer321/walmart-client-go/v2 v2.2.1/go.mod h1:4PVK9TsqFscTZypC67dgCt/vnPxXdtaheJVM7HOnod0=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=

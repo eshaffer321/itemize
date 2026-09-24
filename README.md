@@ -62,7 +62,10 @@ To bypass once in an emergency, run `ITEMIZE_SKIP_PRECOMMIT=1 git commit ...`.
 
 Set environment variables:
 ```bash
-export MONARCH_TOKEN="your_monarch_token"
+# Required — Monarch no longer accepts the old MONARCH_TOKEN bearer token. Log in at
+# app.monarch.com, open DevTools → Network, find a request to api.monarch.com/graphql,
+# and copy its full Cookie request header ("sessionid=...; csrftoken=...").
+export MONARCH_COOKIE="sessionid=...; csrftoken=..."
 
 # Pick one LLM backend:
 export OPENAI_API_KEY="your_openai_key"
@@ -73,7 +76,7 @@ export ANTHROPIC_API_KEY="your_anthropic_key"
 Or create `config.yaml`:
 ```yaml
 monarch:
-  api_key: "${MONARCH_TOKEN}"
+  cookie: "${MONARCH_COOKIE}"
 
 openai:
   api_key: "${OPENAI_API_KEY}"
@@ -200,7 +203,7 @@ itemize collects anonymous usage data to help understand how the tool is being u
 - OS and Go version (added automatically by the Sentry SDK)
 
 **What is never collected:**
-- API tokens or keys (`MONARCH_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
+- API tokens, keys, or cookies (`MONARCH_COOKIE`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
 - Costco email or password
 - Amazon account names or cookie file paths
 - Order IDs, transaction IDs, or any financial data

@@ -8,7 +8,7 @@
 //
 //	cfg := config.LoadOrEnv()
 //	dbPath := cfg.Storage.DatabasePath
-//	monarchToken := cfg.Monarch.APIKey
+//	monarchCookie := cfg.Monarch.Cookie
 package config
 
 import (
@@ -38,7 +38,9 @@ type StorageConfig struct {
 
 // MonarchConfig holds Monarch API configuration
 type MonarchConfig struct {
-	APIKey string `yaml:"api_key"`
+	// Cookie is a browser-copied Monarch session cookie ("sessionid=...; csrftoken=...").
+	// Required — Monarch no longer accepts the legacy bearer token.
+	Cookie string `yaml:"cookie"`
 }
 
 // OpenAIConfig holds OpenAI API configuration
@@ -131,7 +133,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Expand environment variables (e.g., ${MONARCH_TOKEN})
+	// Expand environment variables (e.g., ${MONARCH_COOKIE})
 	expanded := os.ExpandEnv(string(data))
 
 	var cfg Config
@@ -182,7 +184,7 @@ func LoadFromEnv() *Config {
 			DatabasePath: getEnv("MONARCH_DB_PATH", "monarch_sync.db"),
 		},
 		Monarch: MonarchConfig{
-			APIKey: os.Getenv("MONARCH_TOKEN"),
+			Cookie: os.Getenv("MONARCH_COOKIE"),
 		},
 		OpenAI: OpenAIConfig{
 			APIKey: os.Getenv("OPENAI_API_KEY"),
@@ -266,7 +268,7 @@ func getEnvInt(key string, fallback int) int {
 }
 
 // GetAPIKey retrieves an API key from config first, then tries multiple environment variable names
-// Usage: GetAPIKey(cfg.Monarch.APIKey, "MONARCH_TOKEN")
+// Usage: GetAPIKey(cfg.Monarch.Cookie, "MONARCH_COOKIE")
 //
 //	GetAPIKey(cfg.OpenAI.APIKey, "OPENAI_API_KEY", "OPENAI_APIKEY")
 func (c *Config) GetAPIKey(configValue string, envVarNames ...string) string {

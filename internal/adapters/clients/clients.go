@@ -24,9 +24,7 @@ type Clients struct {
 }
 
 func NewClients(cfg *config.Config) (*Clients, error) {
-	monarchToken := cfg.GetAPIKey(cfg.Monarch.APIKey, "MONARCH_TOKEN")
-
-	mClient, err := monarch.NewClientWithToken(monarchToken)
+	mClient, err := newMonarchClient(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +39,17 @@ func NewClients(cfg *config.Config) (*Clients, error) {
 		Monarch:     mClient,
 		Categorizer: cat,
 	}, nil
+}
+
+// newMonarchClient authenticates with a browser-copied session cookie. Monarch
+// no longer accepts the legacy bearer token (MONARCH_TOKEN), so a cookie is
+// required. See README for how to copy MONARCH_COOKIE.
+func newMonarchClient(cfg *config.Config) (*monarch.Client, error) {
+	cookie := cfg.GetAPIKey(cfg.Monarch.Cookie, "MONARCH_COOKIE")
+	if cookie == "" {
+		return nil, fmt.Errorf("monarch cookie not set: set MONARCH_COOKIE (or monarch.cookie in config.yaml) to your browser session cookie; MONARCH_TOKEN is no longer supported")
+	}
+	return monarch.NewClientWithCookie(cookie)
 }
 
 // newChatClient picks the configured LLM backend and returns a ChatClient plus
