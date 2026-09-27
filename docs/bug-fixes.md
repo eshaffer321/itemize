@@ -12,6 +12,35 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-09-26: Amazon orders misreported, missed, or matched to other orders' charges
+
+**Description:**
+An Amazon sync reported two errors:
+- `112-3421348-5157859` was skipped with "could not find all transactions: expected 2, found 2". Only the $19.48 of its $13.77 + $19.48 charges had posted to Monarch.
+- `112-7815140-3755432` (order total $55.31) was skipped because Amazon charged the card $59.36; a $4.05 discount on the order was not applied to the charge. The exact $59.36 transaction was in Monarch.
+
+When `112-7815140-3755432` was synced on its own, Monarch-side discovery matched $25.44 + $29.87, two charges belonging to other orders that happened to sum to $55.31.
+
+**Test Cases:**
+- `TestAmazonHandler_ProcessOrder_PartialMultiChargeMatchIsPending`
+- `TestAmazonHandler_ProcessOrder_NoMultiChargeMatchesReportsActualFoundCount`
+- `TestAmazonHandler_ProcessOrder_OverchargeMatchesReportedCardCharge`
+- `TestAmazonHandler_ProcessOrder_DiscoveryIgnoresSubsetsWithoutOrderCharge`
+- `TestFindSubsetByTotalIncluding_RejectsSubsetWithoutOrderCharge` (`internal/domain/matcher/subset_test.go`)
+
+**Root Cause:**
+- `FindMultipleMatches` keeps `nil` placeholders for unmatched charges, and the Amazon handler counted `len(Matches)` as the number found.
+- A partial multi-charge match was reported as an error instead of waiting for the remaining charges to post.
+- When charges failed validation, the handler went straight to discovery by order total and never tried the card charges Amazon reported for the order.
+- Discovery accepted any Monarch subset summing to the order total, so the only guard against using other orders' charges was the processing order of `usedTxnIDs`.
+
+**Fix Applied:**
+- The Amazon handler counts only non-nil matches, and a partial multi-charge match is skipped as `payment pending`.
+- When card charges meet or exceed the expected amount, they are matched against Monarch directly and allocated using the charged amount.
+- Discovery uses `FindSubsetByTotalIncluding`, which requires the subset to contain at least one charge Amazon reported for the order.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-09-23: GPT-6 models would be sent `temperature` instead of `reasoning_effort`
 
 **Description:**

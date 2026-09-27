@@ -196,16 +196,83 @@ func (h *AmazonHandler) ProcessOrder(
 	var consolidatedTxn *monarch.Transaction
 	monarchDiscovered := false // true when we matched via subset search rather than provider charges
 
-	if !validation.Valid {
-		// Provider charges are incomplete (common for multi-shipment orders where later
-		// charges post after the provider visited the order details page). Try to find the
-		// matching Monarch transactions by searching for a subset that sums to the order total.
+	// Charges that meet or exceed the expected amount fully cover the order, so
+	// the card charges Amazon attributes to it are the ground truth for what
+	// hit the bank. Overcharges happen when a discount shown on the order is
+	// not applied to the card charge.
+	chargesCoverOrder := validation.Valid || validation.Difference > 0
+	var reportedTxns []*monarch.Transaction
+	reportedFound := 0
+	if chargesCoverOrder {
+		reportedTxns, reportedFound, err = h.matchReportedCharges(order, monarchTxns, usedTxnIDs, bankCharges)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	switch {
+	case reportedTxns != nil:
+		matchedTxns = reportedTxns
+		for _, t := range matchedTxns {
+			usedTxnIDs[t.ID] = true
+		}
+		if validation.Valid {
+			h.logDebug("Matched reported charges",
+				"order_id", order.GetID(),
+				"transaction_count", len(matchedTxns))
+		} else {
+			h.logInfo("Matched reported card charges that differ from order total",
+				"order_id", order.GetID(),
+				"bank_sum", validation.BankChargesSum,
+				"expected", validation.ExpectedSum,
+				"difference", validation.Difference)
+		}
+		if len(matchedTxns) > 1 {
+			h.logInfo("Matched all transactions for multi-delivery order",
+				"order_id", order.GetID(),
+				"transaction_count", len(matchedTxns))
+		}
+
+	case validation.Valid && len(bankCharges) == 1:
+		result.Skipped = true
+		result.SkipReason = "no matching transaction found"
+		h.logWarn("No matching transaction found",
+			"order_id", order.GetID(),
+			"expected_amount", bankCharges[0])
+		return result, nil
+
+	case validation.Valid && reportedFound > 0:
+		// Some of the order's charges are in Monarch; the rest have not posted yet.
+		result.Skipped = true
+		result.SkipReason = "payment pending"
+		h.logInfo("Waiting for remaining Amazon charges to post",
+			"order_id", order.GetID(),
+			"expected", len(bankCharges),
+			"found", reportedFound)
+		return result, nil
+
+	case validation.Valid:
+		result.Skipped = true
+		result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
+			len(bankCharges), reportedFound)
+		h.logWarn("Not all transactions found",
+			"order_id", order.GetID(),
+			"expected", len(bankCharges),
+			"found", reportedFound)
+		return result, nil
+
+	default:
+		// Provider charges don't reconcile with the order total (common for
+		// multi-shipment orders where later charges post after the provider
+		// visited the order details page). Search Monarch for a subset that sums
+		// to the order total and includes at least one charge Amazon reported
+		// for this order, so unrelated orders' charges can't fill the total.
 		h.logDebug("Provider charges incomplete, attempting Monarch-side discovery",
 			"order_id", order.GetID(),
 			"provider_charge_sum", validation.BankChargesSum,
 			"expected", validation.ExpectedSum)
 
-		discovered, discoverErr := h.matcher.FindSubsetByTotal(order, monarchTxns, usedTxnIDs)
+		discovered, discoverErr := h.matcher.FindSubsetByTotalIncluding(order, monarchTxns, usedTxnIDs, bankCharges)
 		if discoverErr != nil {
 			h.logWarn("Charge validation failed and Monarch discovery found no match",
 				"order_id", order.GetID(),
@@ -226,68 +293,6 @@ func (h *AmazonHandler) ProcessOrder(
 		h.logInfo("Monarch-side discovery found matching transactions",
 			"order_id", order.GetID(),
 			"count", len(matchedTxns))
-	} else {
-		h.logDebug("Charge validation passed",
-			"order_id", order.GetID(),
-			"bank_sum", validation.BankChargesSum,
-			"expected", validation.ExpectedSum)
-
-		if len(bankCharges) > 1 {
-			// Multi-delivery order - find multiple matches
-			multiResult, err := h.matcher.FindMultipleMatches(order, monarchTxns, usedTxnIDs, bankCharges)
-			if err != nil {
-				return nil, fmt.Errorf("multi-match error: %w", err)
-			}
-
-			if !multiResult.AllFound {
-				result.Skipped = true
-				result.SkipReason = fmt.Sprintf("could not find all transactions: expected %d, found %d",
-					len(bankCharges), len(multiResult.Matches))
-				h.logWarn("Not all transactions found",
-					"order_id", order.GetID(),
-					"expected", len(bankCharges),
-					"found", len(multiResult.Matches))
-				return result, nil
-			}
-
-			for _, match := range multiResult.Matches {
-				matchedTxns = append(matchedTxns, match.Transaction)
-				usedTxnIDs[match.Transaction.ID] = true
-			}
-			h.logInfo("Matched all transactions for multi-delivery order",
-				"order_id", order.GetID(),
-				"transaction_count", len(matchedTxns))
-		} else {
-			// Single charge - find one match
-			// Use a wrapper order that returns the bank charge amount for matching
-			// This handles gift card orders where order total differs from bank charge
-			matchOrder := &bankChargeOrder{
-				Order:      order,
-				bankCharge: bankCharges[0],
-			}
-
-			matchResult, err := h.matcher.FindMatch(matchOrder, monarchTxns, usedTxnIDs)
-			if err != nil {
-				return nil, fmt.Errorf("match error: %w", err)
-			}
-
-			if matchResult == nil {
-				result.Skipped = true
-				result.SkipReason = "no matching transaction found"
-				h.logWarn("No matching transaction found",
-					"order_id", order.GetID(),
-					"expected_amount", bankCharges[0])
-				return result, nil
-			}
-
-			consolidatedTxn = matchResult.Transaction
-			usedTxnIDs[consolidatedTxn.ID] = true
-
-			h.logDebug("Matched single transaction",
-				"order_id", order.GetID(),
-				"transaction_id", consolidatedTxn.ID,
-				"amount", math.Abs(consolidatedTxn.Amount))
-		}
 	}
 
 	// Never consolidate multiple pending bank-feed rows. Pending transactions
@@ -455,6 +460,51 @@ func (h *AmazonHandler) ProcessOrder(
 	result.Transaction = consolidatedTxn
 	result.Processed = true
 	return result, nil
+}
+
+// matchReportedCharges finds a Monarch transaction for each card charge Amazon
+// reported for the order. It returns the matches only when every charge was
+// found, along with how many were found, and does not mark anything as used.
+func (h *AmazonHandler) matchReportedCharges(
+	order AmazonOrder,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	bankCharges []float64,
+) ([]*monarch.Transaction, int, error) {
+	if len(bankCharges) == 1 {
+		// Match on the bank charge rather than the order total, which can differ
+		// for gift card, points, and discount adjustments.
+		matchOrder := &bankChargeOrder{
+			Order:      order,
+			bankCharge: bankCharges[0],
+		}
+		matchResult, err := h.matcher.FindMatch(matchOrder, monarchTxns, usedTxnIDs)
+		if err != nil {
+			return nil, 0, fmt.Errorf("match error: %w", err)
+		}
+		if matchResult == nil {
+			return nil, 0, nil
+		}
+		h.logDebug("Matched single transaction",
+			"order_id", order.GetID(),
+			"transaction_id", matchResult.Transaction.ID,
+			"amount", math.Abs(matchResult.Transaction.Amount))
+		return []*monarch.Transaction{matchResult.Transaction}, 1, nil
+	}
+
+	multiResult, err := h.matcher.FindMultipleMatches(order, monarchTxns, usedTxnIDs, bankCharges)
+	if err != nil {
+		return nil, 0, fmt.Errorf("multi-match error: %w", err)
+	}
+	found := countFoundMatches(multiResult.Matches)
+	if !multiResult.AllFound {
+		return nil, found, nil
+	}
+	matched := make([]*monarch.Transaction, 0, len(multiResult.Matches))
+	for _, match := range multiResult.Matches {
+		matched = append(matched, match.Transaction)
+	}
+	return matched, found, nil
 }
 
 // bankChargeOrder wraps an order to return the bank charge amount for matching
