@@ -25,6 +25,20 @@ func (m *Matcher) FindSubsetByTotal(
 	monarchTxns []*monarch.Transaction,
 	usedTxnIDs map[string]bool,
 ) ([]*monarch.Transaction, error) {
+	return m.FindSubsetByTotalIncluding(order, monarchTxns, usedTxnIDs, nil)
+}
+
+// FindSubsetByTotalIncluding is FindSubsetByTotal restricted to subsets that
+// contain at least one transaction matching one of requiredAmounts. Callers pass
+// the charges the provider already attributes to this order so that discovery
+// cannot assemble the total purely from other orders' charges that happen to
+// sum to it. A nil or empty requiredAmounts applies no restriction.
+func (m *Matcher) FindSubsetByTotalIncluding(
+	order providers.Order,
+	monarchTxns []*monarch.Transaction,
+	usedTxnIDs map[string]bool,
+	requiredAmounts []float64,
+) ([]*monarch.Transaction, error) {
 	target := order.GetTotal()
 	if target <= 0 {
 		return nil, fmt.Errorf("order total must be positive")
@@ -49,7 +63,13 @@ func (m *Matcher) FindSubsetByTotal(
 	}
 
 	// Brute-force subset search — n is always small (typically 1–5)
-	matches := subsetSummingTo(candidates, target, m.config.AmountTolerance)
+	var accept func([]*monarch.Transaction) bool
+	if len(requiredAmounts) > 0 {
+		accept = func(subset []*monarch.Transaction) bool {
+			return containsAnyAmount(subset, requiredAmounts, m.config.AmountTolerance)
+		}
+	}
+	matches := subsetSummingTo(candidates, target, m.config.AmountTolerance, accept)
 	if matches == nil {
 		return nil, fmt.Errorf("no combination of Monarch transactions sums to order total $%.2f", target)
 	}
@@ -57,9 +77,17 @@ func (m *Matcher) FindSubsetByTotal(
 }
 
 // subsetSummingTo returns the closest subset of txns whose absolute amounts
-// sum to target within tolerance, or nil if none exists. When multiple subsets
-// are equally close, it prefers the one with fewer transactions.
-func subsetSummingTo(txns []*monarch.Transaction, target, tolerance float64) []*monarch.Transaction {
+// sum to target within tolerance and that accept approves, or nil if none
+// exists. A nil accept approves every subset. When multiple subsets are equally
+// close, it prefers the one with fewer transactions.
+func subsetSummingTo(
+	txns []*monarch.Transaction,
+	target, tolerance float64,
+	accept func([]*monarch.Transaction) bool,
+) []*monarch.Transaction {
+	if accept == nil {
+		accept = func([]*monarch.Transaction) bool { return true }
+	}
 	n := len(txns)
 	if n > 20 {
 		n = 20 // guard; 2^20 is ~1M — still fast, but cap for safety
@@ -71,7 +99,7 @@ func subsetSummingTo(txns []*monarch.Transaction, target, tolerance float64) []*
 	// Search every valid subset. Iterating by size preserves the fewer-transactions
 	// tie-breaker while allowing an exact total to beat an earlier tolerated match.
 	for size := 1; size <= n; size++ {
-		result, difference := closestSubsetOfSize(txns[:n], target, tolerance, 0, size, nil)
+		result, difference := closestSubsetOfSize(txns[:n], target, tolerance, accept, 0, size, nil)
 		if result != nil && difference < bestDifference {
 			best = result
 			bestDifference = difference
@@ -85,6 +113,7 @@ func subsetSummingTo(txns []*monarch.Transaction, target, tolerance float64) []*
 func closestSubsetOfSize(
 	txns []*monarch.Transaction,
 	target, tolerance float64,
+	accept func([]*monarch.Transaction) bool,
 	start, remaining int,
 	current []*monarch.Transaction,
 ) ([]*monarch.Transaction, float64) {
@@ -94,7 +123,7 @@ func closestSubsetOfSize(
 			sum += math.Abs(t.Amount)
 		}
 		difference := math.Abs(sum - target)
-		if difference <= tolerance {
+		if difference <= tolerance && accept(current) {
 			result := make([]*monarch.Transaction, len(current))
 			copy(result, current)
 			return result, difference
@@ -105,7 +134,7 @@ func closestSubsetOfSize(
 	var best []*monarch.Transaction
 	bestDifference := math.Inf(1)
 	for i := start; i <= len(txns)-remaining; i++ {
-		found, difference := closestSubsetOfSize(txns, target, tolerance, i+1, remaining-1,
+		found, difference := closestSubsetOfSize(txns, target, tolerance, accept, i+1, remaining-1,
 			append(current, txns[i]))
 		if found != nil && difference < bestDifference {
 			best = found
@@ -113,4 +142,18 @@ func closestSubsetOfSize(
 		}
 	}
 	return best, bestDifference
+}
+
+// containsAnyAmount reports whether any transaction's absolute amount is within
+// tolerance of one of amounts.
+func containsAnyAmount(txns []*monarch.Transaction, amounts []float64, tolerance float64) bool {
+	const epsilon = 0.0000001
+	for _, t := range txns {
+		for _, amount := range amounts {
+			if math.Abs(math.Abs(t.Amount)-amount) <= tolerance+epsilon {
+				return true
+			}
+		}
+	}
+	return false
 }

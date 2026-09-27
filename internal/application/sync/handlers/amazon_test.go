@@ -278,7 +278,130 @@ func TestAmazonHandler_ProcessOrder_MissingTransactions(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, result.Skipped)
-	assert.Contains(t, result.SkipReason, "could not find all transactions")
+	// One of two charges matched, so the other has not posted yet.
+	assert.Equal(t, "payment pending", result.SkipReason)
+}
+
+// Regression: order 112-3421348-5157859 split into $13.77 + $19.48 card charges.
+// Only $19.48 had posted to Monarch. The skip was reported as an error saying
+// "expected 2, found 2" because nil placeholders were counted as matches.
+func TestAmazonHandler_ProcessOrder_PartialMultiChargeMatchIsPending(t *testing.T) {
+	orderDate := time.Now()
+	order := &mockAmazonOrder{
+		id:            "112-3421348-5157859",
+		date:          orderDate,
+		total:         33.25,
+		items:         []providers.OrderItem{&mockItem{name: "Item A", price: 14.00}, &mockItem{name: "Item B", price: 19.25}},
+		bankCharges:   []float64{13.77, 19.48},
+		nonBankAmount: 1.50, // Visa points earned, not a payment
+	}
+	monarchTxns := []*monarch.Transaction{
+		{ID: "posted", Amount: -19.48, Date: toMonarchDate(orderDate), Pending: true},
+	}
+	splitter := &mockSplitter{}
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		&mockConsolidator{}, splitter, monarchClient, nil,
+	)
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(context.Background(), order, monarchTxns, usedTxnIDs, nil, nil, false)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Equal(t, "payment pending", result.SkipReason)
+	assert.False(t, usedTxnIDs["posted"], "a pending order must not claim transactions")
+	assert.Nil(t, splitter.lastOrder)
+	assert.False(t, monarchClient.updateCalled)
+}
+
+func TestAmazonHandler_ProcessOrder_NoMultiChargeMatchesReportsActualFoundCount(t *testing.T) {
+	order := &mockAmazonOrder{
+		id:          "no-charges-posted",
+		date:        time.Now(),
+		total:       33.25,
+		items:       []providers.OrderItem{&mockItem{name: "Item", price: 33.25}},
+		bankCharges: []float64{13.77, 19.48},
+	}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		nil, nil, nil, nil,
+	)
+
+	result, err := handler.ProcessOrder(context.Background(), order, nil, make(map[string]bool), nil, nil, false)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Equal(t, "could not find all transactions: expected 2, found 0", result.SkipReason)
+}
+
+// Regression: order 112-7815140-3755432 had an order total of $55.31 but Amazon
+// charged the card $59.36 (a $4.05 discount was not applied to the charge).
+// The exact $59.36 transaction was in Monarch but was never tried.
+func TestAmazonHandler_ProcessOrder_OverchargeMatchesReportedCardCharge(t *testing.T) {
+	orderDate := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	order := &mockAmazonOrder{
+		id:       "112-7815140-3755432",
+		date:     orderDate,
+		total:    55.31,
+		subtotal: 56.00,
+		tax:      3.36,
+		items: []providers.OrderItem{
+			&mockItem{name: "Leggings", price: 32.00},
+			&mockItem{name: "T-Shirt", price: 24.00},
+		},
+		bankCharges: []float64{59.36},
+	}
+	monarchTxns := []*monarch.Transaction{
+		{ID: "other-order-a", Amount: -25.44, Date: toMonarchDate(orderDate)},
+		{ID: "other-order-b", Amount: -29.87, Date: toMonarchDate(orderDate)},
+		{ID: "own-charge", Amount: -59.36, Date: toMonarchDate(orderDate.AddDate(0, 0, 1))},
+	}
+	splitter := &mockSplitter{categoryID: "clothing", notes: "Clothing:\n- Leggings\n- T-Shirt"}
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		&mockConsolidator{}, splitter, monarchClient, nil,
+	)
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(context.Background(), order, monarchTxns, usedTxnIDs, nil, nil, false)
+
+	require.NoError(t, err)
+	require.True(t, result.Processed, "skip reason: %s", result.SkipReason)
+	assert.Equal(t, "own-charge", result.Transaction.ID)
+	assert.Equal(t, "own-charge", monarchClient.updatedID)
+	assert.InDelta(t, 59.36, result.Allocations.TotalAllocated, 0.001)
+	assert.False(t, usedTxnIDs["other-order-a"])
+	assert.False(t, usedTxnIDs["other-order-b"])
+}
+
+func TestAmazonHandler_ProcessOrder_DiscoveryIgnoresSubsetsWithoutOrderCharge(t *testing.T) {
+	orderDate := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	order := &mockAmazonOrder{
+		id:          "112-7815140-3755432",
+		date:        orderDate,
+		total:       55.31,
+		items:       []providers.OrderItem{&mockItem{name: "Leggings", price: 56.00}},
+		bankCharges: []float64{59.36}, // not yet in Monarch
+	}
+	monarchTxns := []*monarch.Transaction{
+		{ID: "other-order-a", Amount: -25.44, Date: toMonarchDate(orderDate)},
+		{ID: "other-order-b", Amount: -29.87, Date: toMonarchDate(orderDate)},
+	}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		&mockConsolidator{}, &mockSplitter{}, &mockMonarch{}, nil,
+	)
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(context.Background(), order, monarchTxns, usedTxnIDs, nil, nil, false)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Contains(t, result.SkipReason, "exceed expected")
+	assert.Empty(t, usedTxnIDs, "unrelated transactions must not be claimed")
 }
 
 func TestAmazonHandler_ProcessOrder_DoesNotConsolidatePendingMultiChargeTransactions(t *testing.T) {
