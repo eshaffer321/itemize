@@ -538,6 +538,14 @@ func (a *allocatedAmazonOrder) GetItems() []providers.OrderItem {
 	return items
 }
 
+// GetTax returns zero because GetItems exposes pro-rata shares of the final
+// charge, which already includes tax, fees, discounts, and other adjustments.
+// Amazon provides only order-level tax here, so the splitter cannot calculate
+// exact item-level tax and must not add the aggregate tax a second time.
+func (a *allocatedAmazonOrder) GetTax() float64 {
+	return 0
+}
+
 // allocatedItem represents an item with its allocated cost
 type allocatedItem struct {
 	name  string
