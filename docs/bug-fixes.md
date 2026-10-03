@@ -12,6 +12,26 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-10-03: Amazon multi-category splits added allocated tax twice
+
+**Description:**
+For Amazon orders split across multiple categories, each item's allocated cost already included its share of the final charge, including tax. The splitter also read the original order tax and added it again. Its balancing adjustment then hid the overage by reducing the largest category split, so split amounts did not match the item prices in their notes.
+
+**Test Case:**
+`TestAllocatedAmazonOrderSplitsDoNotAddTaxTwice` reproduces the reported $148.84 charge with $141.44 subtotal, $10.70 tax, and items assigned across Clothing and Home & Garden.
+
+**Root Cause:**
+`allocatedAmazonOrder` replaced the order's items with charge-allocated costs but inherited `GetTax()` from the original order. The shared splitter interpreted those final allocated costs as pre-tax subtotals and applied tax again.
+
+**Fix Applied:**
+The allocated Amazon order now returns zero tax to the splitter because its item costs are pro-rata shares of the final charge, which already includes tax, fees, discounts, and other charge adjustments. Amazon data here provides only order-level tax, not per-item tax, so the category amounts are a proportional allocation rather than an exact tax breakdown.
+
+**Verification:**
+- The regression failed before the fix (`Home & Garden` was -$79.22 and Clothing was -$69.62) and passes after it (`-$73.65` and `-$75.19`).
+- `go test ./...` passes.
+
+**Commit:** Not committed.
+
 ### 2026-09-26: Amazon orders misreported, missed, or matched to other orders' charges
 
 **Description:**

@@ -8,8 +8,10 @@ import (
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	amazonprovider "github.com/eshaffer321/itemize/internal/adapters/providers/amazon"
+	"github.com/eshaffer321/itemize/internal/domain/allocator"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
 	"github.com/eshaffer321/itemize/internal/domain/matcher"
+	"github.com/eshaffer321/itemize/internal/domain/splitter"
 	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -918,4 +920,67 @@ func TestAllocatedItem(t *testing.T) {
 	assert.Empty(t, item.GetDescription())
 	assert.Empty(t, item.GetSKU())
 	assert.Empty(t, item.GetCategory())
+}
+
+type fixedCategorizer struct {
+	result *categorizer.CategorizationResult
+}
+
+func (c *fixedCategorizer) CategorizeItems(context.Context, []categorizer.Item, []categorizer.Category) (*categorizer.CategorizationResult, error) {
+	return c.result, nil
+}
+
+func TestAllocatedAmazonOrderSplitsDoNotAddTaxTwice(t *testing.T) {
+	listPrices := []float64{32.99, 9.98, 13.49, 69.99, 14.99}
+	baseItems := make([]providers.OrderItem, len(listPrices))
+	allocationItems := make([]allocator.Item, len(listPrices))
+	for i, price := range listPrices {
+		name := []string{"item 1", "item 2", "item 3", "sheet set", "item 5"}[i]
+		baseItems[i] = &mockItem{name: name, price: price}
+		allocationItems[i] = allocator.Item{Name: name, ListPrice: price}
+	}
+
+	allocation, err := allocator.Allocate(allocationItems, 148.84)
+	require.NoError(t, err)
+	order := &mockAmazonOrder{
+		id:       "amazon-tax-regression",
+		total:    148.84,
+		subtotal: 141.44,
+		tax:      10.70,
+		items:    baseItems,
+	}
+	allocatedOrder := &allocatedAmazonOrder{
+		Order:       order,
+		allocations: allocation.Allocations,
+		baseItems:   baseItems,
+	}
+	categorizer := &fixedCategorizer{result: &categorizer.CategorizationResult{Categorizations: []categorizer.ItemCategorization{
+		{ItemName: "item 1", CategoryID: "clothing", CategoryName: "Clothing"},
+		{ItemName: "item 2", CategoryID: "clothing", CategoryName: "Clothing"},
+		{ItemName: "item 3", CategoryID: "clothing", CategoryName: "Clothing"},
+		{ItemName: "sheet set", CategoryID: "home", CategoryName: "Home & Garden"},
+		{ItemName: "item 5", CategoryID: "clothing", CategoryName: "Clothing"},
+	}}}
+	realSplitter := splitter.NewSplitter(categorizer)
+
+	splits, err := realSplitter.CreateSplits(
+		context.Background(),
+		allocatedOrder,
+		&monarch.Transaction{ID: "txn", Amount: -148.84},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, splits, 2)
+
+	amountsByCategory := make(map[string]float64, len(splits))
+	notesByCategory := make(map[string]string, len(splits))
+	for _, split := range splits {
+		amountsByCategory[split.CategoryID] = split.Amount
+		notesByCategory[split.CategoryID] = split.Notes
+	}
+	assert.Equal(t, -73.65, amountsByCategory["home"])
+	assert.Equal(t, -75.19, amountsByCategory["clothing"])
+	assert.Equal(t, -148.84, amountsByCategory["home"]+amountsByCategory["clothing"])
+	assert.Contains(t, notesByCategory["home"], "$73.65")
 }
