@@ -3,6 +3,7 @@ package matcher
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
@@ -59,8 +60,20 @@ func (m *Matcher) FindSubsetByTotalIncluding(
 		if days > subsetDateTolerance {
 			continue
 		}
+		// A charge larger than the total can't be part of a subset summing to it.
+		if -txn.Amount > target+m.config.AmountTolerance {
+			continue
+		}
 		candidates = append(candidates, txn)
 	}
+
+	// The search looks at no more than 20 candidates. Monarch lists newest
+	// first, so on a busy account the order's own charges could fall past the
+	// cutoff; keep the ones closest to the order date.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return math.Abs(candidates[i].Date.Time.Sub(orderDate).Hours()) <
+			math.Abs(candidates[j].Date.Time.Sub(orderDate).Hours())
+	})
 
 	// Brute-force subset search — n is always small (typically 1–5)
 	var accept func([]*monarch.Transaction) bool
