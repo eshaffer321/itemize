@@ -31,6 +31,11 @@ type OrderRepository interface {
 	// IsProcessed checks if an order has been successfully processed (non-dry-run)
 	IsProcessed(orderID string) bool
 
+	// ClaimedTransactionIDs returns the Monarch transaction IDs that other
+	// synced orders (success or provisional, non-dry-run) already claimed,
+	// leaving out excludeOrderID's own.
+	ClaimedTransactionIDs(excludeOrderID string) (map[string]bool, error)
+
 	// GetStats returns aggregate statistics
 	GetStats() (*Stats, error)
 

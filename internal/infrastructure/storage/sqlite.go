@@ -677,6 +677,38 @@ func (s *Storage) IsProcessed(orderID string) bool {
 	return err == nil && count > 0
 }
 
+// ClaimedTransactionIDs returns the Monarch transaction IDs claimed by other
+// synced orders: each record's main transaction plus every transaction a real
+// run associated with it (all charges of a multi-charge order).
+func (s *Storage) ClaimedTransactionIDs(excludeOrderID string) (map[string]bool, error) {
+	query := `
+		SELECT transaction_id FROM processing_records
+		WHERE dry_run = 0 AND status IN ('success', 'provisional')
+		  AND order_id != ? AND COALESCE(transaction_id, '') != ''
+		UNION
+		SELECT ot.transaction_id FROM order_transactions ot
+		JOIN sync_runs sr ON sr.id = ot.run_id
+		JOIN processing_records pr ON pr.order_id = ot.order_id
+		WHERE sr.dry_run = 0 AND pr.dry_run = 0 AND pr.status IN ('success', 'provisional')
+		  AND ot.order_id != ?
+	`
+	rows, err := s.db.Query(query, excludeOrderID, excludeOrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	claimed := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		claimed[id] = true
+	}
+	return claimed, rows.Err()
+}
+
 // StartSyncRun records the start of a sync run
 func (s *Storage) StartSyncRun(provider string, lookbackDays int, dryRun bool) (int64, error) {
 	query := `

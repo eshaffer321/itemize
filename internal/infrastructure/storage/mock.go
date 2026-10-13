@@ -141,6 +141,27 @@ func (m *MockRepository) IsProcessed(orderID string) bool {
 	return record.Status == "success" && !record.DryRun
 }
 
+// ClaimedTransactionIDs returns transaction IDs of other synced orders' records
+// and their real-run order transactions.
+func (m *MockRepository) ClaimedTransactionIDs(excludeOrderID string) (map[string]bool, error) {
+	claimed := make(map[string]bool)
+	for orderID, record := range m.records {
+		if orderID == excludeOrderID || record.DryRun ||
+			(record.Status != "success" && record.Status != "provisional") {
+			continue
+		}
+		if record.TransactionID != "" {
+			claimed[record.TransactionID] = true
+		}
+		for _, txn := range m.orderTxns[orderID] {
+			if run, ok := m.syncRuns[txn.RunID]; ok && !run.dryRun {
+				claimed[txn.TransactionID] = true
+			}
+		}
+	}
+	return claimed, nil
+}
+
 // GetStats returns mock statistics
 func (m *MockRepository) GetStats() (*Stats, error) {
 	stats := &Stats{

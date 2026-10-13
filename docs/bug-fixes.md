@@ -12,6 +12,29 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-10-12: `-order-id` syncs could claim another order's Monarch charge
+
+**Description:**
+While checking the exchanged order above, an `-order-id` dry run for it matched the replacement order's $34.42 charge, which that order had already itemized, alongside the order's own $58.11. A real run would have overwritten the replacement charge's notes and category with the original order's items, scaled down to $34.42.
+
+**Test Cases:**
+- `TestReserveClaimedTransactions_OrderIDRunReservesOtherOrdersCharges` (`internal/application/sync/order_filter_test.go`)
+- `TestReserveClaimedTransactions_FullRunLeavesReservationToReconciliation`
+- `TestStorage_ClaimedTransactionIDs`, `TestMockRepository_ClaimedTransactionIDs`
+
+**Root Cause:**
+In a full sync, each stored order reserves its Monarch transaction in `usedTransactionIDs` as `reconcileStoredOrder` resolves it. With `-order-id`, the loop skips every other order before that step, so nothing is reserved and the one order can match any charge in the window.
+
+**Fix Applied:**
+- New `OrderRepository.ClaimedTransactionIDs(excludeOrderID)` returns the transaction IDs held by other synced orders (status `success` or `provisional`, not dry runs): each record's transaction plus every transaction a real run recorded for it in `order_transactions`, so all charges of a multi-charge order are included.
+- `Run` reserves them before processing when `-order-id` is set. Full syncs are unchanged.
+
+**Verification:**
+- The reservation test fails before the fix (the helper didn't exist) and passes after it. With the fix, the `-order-id` dry run matched only the $58.11 charge.
+- `go test -race ./...` and `golangci-lint run` (v2.4.0) pass.
+
+**Commit:** See the pull request.
+
 ### 2026-10-12: Monarch-side discovery missed an order's own charge on busy accounts
 
 **Description:**
