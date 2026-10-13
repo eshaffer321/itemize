@@ -115,6 +115,27 @@ func (o *Orchestrator) processOrder(
 	return false, true, nil
 }
 
+// reserveClaimedTransactions marks the Monarch transactions that other synced
+// orders own as used before an -order-id run. A full run reserves them as it
+// reconciles each stored order, but -order-id leaves the other orders out, so
+// the one order could otherwise claim (and overwrite) another order's charge,
+// e.g. an exchange's replacement charge that Amazon also lists under the
+// original order.
+func (o *Orchestrator) reserveClaimedTransactions(opts Options, used map[string]bool) error {
+	if opts.OrderID == "" || o.storage == nil {
+		return nil
+	}
+	claimed, err := o.storage.ClaimedTransactionIDs(opts.OrderID)
+	if err != nil {
+		return fmt.Errorf("load transactions claimed by other orders: %w", err)
+	}
+	for id := range claimed {
+		used[id] = true
+	}
+	o.logger.Debug("Reserved transactions claimed by other orders", "count", len(claimed))
+	return nil
+}
+
 // Run executes the sync process for the configured provider
 func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 	result := &Result{
@@ -182,6 +203,10 @@ func (o *Orchestrator) Run(ctx context.Context, opts Options) (*Result, error) {
 
 	// 5. Process orders
 	usedTransactionIDs := make(map[string]bool)
+	if err := o.reserveClaimedTransactions(opts, usedTransactionIDs); err != nil {
+		o.completeFailedRun(1)
+		return nil, err
+	}
 
 	for i, order := range orders {
 		if opts.OrderID != "" && order.GetID() != opts.OrderID {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -983,4 +984,49 @@ func TestAllocatedAmazonOrderSplitsDoNotAddTaxTwice(t *testing.T) {
 	assert.Equal(t, -75.19, amountsByCategory["clothing"])
 	assert.Equal(t, -148.84, amountsByCategory["home"]+amountsByCategory["clothing"])
 	assert.Contains(t, notesByCategory["home"], "$73.65")
+}
+
+// Regression: a $58.11 order whose mattress pad was exchanged. Amazon lists
+// the replacement order's $34.42 charge under the original order too. The
+// replacement order had already claimed that charge, so Monarch-side discovery
+// had to find the $58.11 on its own, but it only searched the first 20 of the
+// account's Amazon charges (newest first).
+func TestAmazonHandler_ProcessOrder_ExchangeReplacementChargeListedUnderOriginal(t *testing.T) {
+	orderDate := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	order := &mockAmazonOrder{
+		id:       "112-1111111-1111111",
+		date:     orderDate,
+		total:    58.11,
+		subtotal: 53.93,
+		tax:      4.18,
+		items: []providers.OrderItem{
+			&mockItem{name: "Shower Curtain Rod", price: 21.99},
+			&mockItem{name: "Twin Mattress Pad", price: 31.94},
+		},
+		bankCharges: []float64{34.42, 58.11},
+	}
+	var monarchTxns []*monarch.Transaction
+	for i := 0; i < 30; i++ {
+		monarchTxns = append(monarchTxns, &monarch.Transaction{
+			ID: fmt.Sprintf("newer-%d", i), Amount: -12.00 - float64(i), Date: toMonarchDate(orderDate.AddDate(0, 0, 9-i%9)),
+		})
+	}
+	monarchTxns = append(monarchTxns,
+		&monarch.Transaction{ID: "replacement-charge", Amount: -34.42, Date: toMonarchDate(orderDate.AddDate(0, 0, 2))},
+		&monarch.Transaction{ID: "pad-refund", Amount: 34.42, Date: toMonarchDate(orderDate.AddDate(0, 0, 1))},
+		&monarch.Transaction{ID: "own-charge", Amount: -58.11, Date: toMonarchDate(orderDate)},
+	)
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.DefaultConfig()),
+		&mockConsolidator{}, &mockSplitter{categoryID: "home", notes: "Home & Garden"}, monarchClient, nil,
+	)
+	usedTxnIDs := map[string]bool{"replacement-charge": true}
+
+	result, err := handler.ProcessOrder(context.Background(), order, monarchTxns, usedTxnIDs, nil, nil, false)
+
+	require.NoError(t, err)
+	require.True(t, result.Processed, "skip reason: %s", result.SkipReason)
+	assert.Equal(t, []string{"own-charge"}, monarchClient.updatedIDs)
+	assert.InDelta(t, 58.11, result.Allocations.TotalAllocated, 0.001)
 }

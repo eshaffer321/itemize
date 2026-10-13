@@ -1156,3 +1156,61 @@ func TestStorage_AuditColumns_UpdateExisting(t *testing.T) {
 	assert.Equal(t, "Personal Care:\n- Shampoo $8.99", retrieved.MonarchNotes)
 	assert.Equal(t, `{"orderId":"walmart-456"}`, retrieved.RawOrderJSON)
 }
+
+func TestStorage_ClaimedTransactionIDs(t *testing.T) {
+	tmpDB := createTempDB(t)
+	defer os.Remove(tmpDB)
+
+	store, err := NewStorage(tmpDB)
+	require.NoError(t, err)
+	defer store.Close()
+
+	realRun, err := store.StartSyncRun("Amazon", 30, false)
+	require.NoError(t, err)
+	dryRun, err := store.StartSyncRun("Amazon", 30, true)
+	require.NoError(t, err)
+
+	for _, r := range []*ProcessingRecord{
+		{OrderID: "replacement", Status: "success", TransactionID: "txn-replacement"},
+		{OrderID: "multi", Status: "success", TransactionID: "txn-multi-1"},
+		{OrderID: "pending", Status: "provisional", TransactionID: "txn-pending"},
+		{OrderID: "failed", Status: "failed", TransactionID: "txn-failed"},
+		{OrderID: "preview", Status: "dry-run", DryRun: true, TransactionID: "txn-preview"},
+		{OrderID: "target", Status: "success", TransactionID: "txn-own"},
+	} {
+		r.Provider = "Amazon"
+		r.OrderDate = time.Now()
+		require.NoError(t, store.SaveRecord(r))
+	}
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: realRun, OrderID: "multi", TransactionID: "txn-multi-2", Role: "matched"}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: dryRun, OrderID: "multi", TransactionID: "txn-multi-preview", Role: "matched"}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: realRun, OrderID: "failed", TransactionID: "txn-failed-2", Role: "matched"}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: realRun, OrderID: "target", TransactionID: "txn-own-2", Role: "matched"}))
+
+	claimed, err := store.ClaimedTransactionIDs("target")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]bool{
+		"txn-replacement": true,
+		"txn-multi-1":     true,
+		"txn-multi-2":     true,
+		"txn-pending":     true,
+	}, claimed)
+}
+
+func TestMockRepository_ClaimedTransactionIDs(t *testing.T) {
+	store := NewMockRepository()
+	realRun, _ := store.StartSyncRun("Amazon", 30, false)
+	dryRun, _ := store.StartSyncRun("Amazon", 30, true)
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{OrderID: "replacement", Status: "success", TransactionID: "txn-replacement"}))
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{OrderID: "multi", Status: "provisional", TransactionID: "txn-multi-1"}))
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{OrderID: "preview", Status: "dry-run", DryRun: true, TransactionID: "txn-preview"}))
+	require.NoError(t, store.SaveRecord(&ProcessingRecord{OrderID: "target", Status: "success", TransactionID: "txn-own"}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: realRun, OrderID: "multi", TransactionID: "txn-multi-2"}))
+	require.NoError(t, store.SaveOrderTransaction(&OrderTransaction{RunID: dryRun, OrderID: "multi", TransactionID: "txn-multi-preview"}))
+
+	claimed, err := store.ClaimedTransactionIDs("target")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]bool{"txn-replacement": true, "txn-multi-1": true, "txn-multi-2": true}, claimed)
+}

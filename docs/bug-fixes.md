@@ -12,6 +12,52 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-10-12: `-order-id` syncs could claim another order's Monarch charge
+
+**Description:**
+While checking the exchanged order above, an `-order-id` dry run for it matched the replacement order's $34.42 charge, which that order had already itemized, alongside the order's own $58.11. A real run would have overwritten the replacement charge's notes and category with the original order's items, scaled down to $34.42.
+
+**Test Cases:**
+- `TestReserveClaimedTransactions_OrderIDRunReservesOtherOrdersCharges` (`internal/application/sync/order_filter_test.go`)
+- `TestReserveClaimedTransactions_FullRunLeavesReservationToReconciliation`
+- `TestStorage_ClaimedTransactionIDs`, `TestMockRepository_ClaimedTransactionIDs`
+
+**Root Cause:**
+In a full sync, each stored order reserves its Monarch transaction in `usedTransactionIDs` as `reconcileStoredOrder` resolves it. With `-order-id`, the loop skips every other order before that step, so nothing is reserved and the one order can match any charge in the window.
+
+**Fix Applied:**
+- New `OrderRepository.ClaimedTransactionIDs(excludeOrderID)` returns the transaction IDs held by other synced orders (status `success` or `provisional`, not dry runs): each record's transaction plus every transaction a real run recorded for it in `order_transactions`, so all charges of a multi-charge order are included.
+- `Run` reserves them before processing when `-order-id` is set. Full syncs are unchanged.
+
+**Verification:**
+- The reservation test fails before the fix (the helper didn't exist) and passes after it. With the fix, the `-order-id` dry run matched only the $58.11 charge.
+- `go test -race ./...` and `golangci-lint run` (v2.4.0) pass.
+
+**Commit:** See the pull request.
+
+### 2026-10-12: Monarch-side discovery missed an order's own charge on busy accounts
+
+**Description:**
+A $58.11 Amazon order was skipped on every sync with "bank charges ($92.53) exceed expected ($58.11) by $34.42 - possible duplicate or extra charge". Its mattress pad had been exchanged, and Amazon lists the replacement order's $34.42 charge under the original order as well. The replacement order had already claimed that charge, so the handler fell back to Monarch-side discovery, which should have found the order's own $58.11 charge on its own. It never did.
+
+**Test Cases:**
+- `TestAmazonHandler_ProcessOrder_ExchangeReplacementChargeListedUnderOriginal`
+- `TestFindSubsetByTotalIncluding_IgnoresChargesLargerThanTotal` (`internal/domain/matcher/subset_test.go`)
+- `TestFindSubsetByTotalIncluding_PrefersChargesClosestToOrderDate` (`internal/domain/matcher/subset_test.go`)
+
+**Root Cause:**
+`subsetSummingTo` searches at most the first 20 candidates. `FindSubsetByTotalIncluding` passed the candidates in Monarch's order, newest first, so on an account with many Amazon charges inside the discovery window the order's own charges could fall past the cutoff. The account in question had 56 Amazon charges in the window, and the $58.11 was candidate 33.
+
+**Fix Applied:**
+- Candidates larger than the order total are left out, since they can't be part of a subset summing to it.
+- The remaining candidates are ordered by distance from the order date (stable sort) before the 20-candidate cap.
+
+**Verification:**
+- All three tests fail before the fix and pass after it.
+- `go test -race ./...` and `golangci-lint run` (v2.4.0) pass.
+
+**Commit:** See the pull request.
+
 ### 2026-10-03: Amazon multi-category splits added allocated tax twice
 
 **Description:**

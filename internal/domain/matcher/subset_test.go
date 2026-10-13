@@ -1,6 +1,7 @@
 package matcher
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -55,4 +56,45 @@ func TestFindSubsetByTotalIncluding_AcceptsSubsetContainingOrderCharge(t *testin
 	require.NoError(t, err)
 	require.Len(t, matches, 2)
 	assert.ElementsMatch(t, []string{"known", "late"}, []string{matches[0].ID, matches[1].ID})
+}
+
+// Regression: a busy account had 56 Amazon charges inside the discovery
+// window. Monarch lists newest first, so the order's own $58.11 was candidate
+// 33 and the search only looked at the first 20.
+func TestFindSubsetByTotalIncluding_IgnoresChargesLargerThanTotal(t *testing.T) {
+	orderDate := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	order := &mockOrder{id: "112-1111111-1111111", date: orderDate, total: 58.11}
+	var transactions []*monarch.Transaction
+	for i := 0; i < 25; i++ {
+		transactions = append(transactions, &monarch.Transaction{
+			ID: fmt.Sprintf("bigger-%d", i), Amount: -100 - float64(i), Date: monarch.Date{Time: orderDate.AddDate(0, 0, 1+i%9)},
+		})
+	}
+	transactions = append(transactions, &monarch.Transaction{ID: "own", Amount: -58.11, Date: monarch.Date{Time: orderDate}})
+	m := NewMatcher(DefaultConfig())
+
+	matches, err := m.FindSubsetByTotalIncluding(order, transactions, map[string]bool{}, []float64{58.11})
+
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, "own", matches[0].ID)
+}
+
+func TestFindSubsetByTotalIncluding_PrefersChargesClosestToOrderDate(t *testing.T) {
+	orderDate := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	order := &mockOrder{id: "112-1111111-1111111", date: orderDate, total: 58.11}
+	var transactions []*monarch.Transaction
+	for i := 0; i < 25; i++ {
+		transactions = append(transactions, &monarch.Transaction{
+			ID: fmt.Sprintf("later-%d", i), Amount: -7.00, Date: monarch.Date{Time: orderDate.AddDate(0, 0, 9-i%9)},
+		})
+	}
+	transactions = append(transactions, &monarch.Transaction{ID: "own", Amount: -58.11, Date: monarch.Date{Time: orderDate}})
+	m := NewMatcher(DefaultConfig())
+
+	matches, err := m.FindSubsetByTotalIncluding(order, transactions, map[string]bool{}, []float64{58.11})
+
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, "own", matches[0].ID)
 }
