@@ -294,12 +294,12 @@ func isReasoningModel(model string) bool {
 func (c *Categorizer) buildPrompt(items []Item, categories []Category) string {
 	var itemsList strings.Builder
 	for i, item := range items {
-		itemsList.WriteString(fmt.Sprintf("%d. %s - $%.2f\n", i+1, item.Name, item.Price))
+		fmt.Fprintf(&itemsList, "%d. %s - $%.2f\n", i+1, item.Name, item.Price)
 	}
 
 	var categoriesList strings.Builder
 	for _, cat := range categories {
-		categoriesList.WriteString(fmt.Sprintf("- %s (ID: %s)\n", cat.Name, cat.ID))
+		fmt.Fprintf(&categoriesList, "- %s (ID: %s)\n", cat.Name, cat.ID)
 	}
 
 	prompt := fmt.Sprintf(`Please categorize the following items into the most appropriate categories.

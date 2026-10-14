@@ -12,6 +12,23 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-10-14: CI and release builds used a Go release with unpatched net/http, crypto/tls, and x/net vulnerabilities
+
+**Description:**
+The pull-request vulnerability scan failed with seven reachable vulnerabilities (GO-2026-6607, -6608, -6610, -6611, -6612, -6613, -6617) in `net/http`, `mime/multipart`, `crypto/tls`, and `golang.org/x/net v0.58.0`. They were published after main's last green CI run. Go 1.25 received no patch; the fixes are in Go 1.26.9 and `golang.org/x/net v0.60.0`.
+
+**Fix Applied:**
+- Raised the module, CI, and release workflow toolchain to Go 1.26.9.
+- Upgraded `golang.org/x/net` to `v0.60.0`.
+- Raised CI's golangci-lint from v2.4.0, which was built with Go 1.25 and refuses to lint a Go 1.26 module, to v2.14.0.
+- Applied its two new staticcheck QF1012 suggestions in the categorizer prompt builder.
+
+**Verification:**
+- With Go 1.26.9, `govulncheck ./...` reports no vulnerabilities.
+- `go test -race ./...` passes and golangci-lint v2.14.0 reports 0 issues.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-10-03: Amazon multi-category splits added allocated tax twice
 
 **Description:**
