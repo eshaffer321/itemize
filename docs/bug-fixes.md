@@ -29,6 +29,31 @@ The pull-request vulnerability scan failed with seven reachable vulnerabilities 
 
 **Commit:** Included in the pull request for this fix.
 
+### 2026-10-13: Amazon refunds split between a card and points were never categorized
+
+**Description:**
+A +$31.24 Amazon credit stayed in `[TEMP] Amazon`. It refunded order `112-8070743-2513824`, which was paid with $31.24 on a card plus $11.15 in Amazon Visa points. Every sync logged `Amazon refund left untouched ... no unique temporary Amazon credit found for $42.39`.
+
+**Test Case:**
+- `TestRefundOrderUsesCardPortionWhenRefundWasSplitAcrossTenders`, `TestAttachRefundTendersAssignsOrderRefundRowsToReturns`, and `TestRefundedOrderDoesNotCountRefundRowsAsCharges` (Amazon provider)
+- `TestAmazonHandler_ProcessRefundMatchesCardPortionOfSplitTenderRefund`, `TestAmazonHandler_ProcessRefundSkipsRefundWithNoBankCredit`, and `TestAmazonHandler_ProcessRefundGroupUsesCardPortion` (handler)
+- `TestProcessAmazonReturnsMatchesCardPortionOfSplitTenderRefund` (orchestrator)
+
+**Root Cause:**
+The Return Center reports only the refund total across all payment methods ($42.39), and the matcher used that total as the expected bank credit. The per-tender split appears only on Amazon's payment transactions page, and `amazon-go v0.4.0` discarded it there: it dropped the `+` sign and the `Refund:` label, so refund rows looked like extra charges, and it gave every row the page's last date.
+
+**Fix Applied:**
+- `amazon-go v0.5.0` adds `Transaction.IsRefund` and dates each row from its own heading.
+- Itemize maps `IsRefund` to refund transactions, so a refunded order no longer appears to have duplicate card charges.
+- `FetchReturns` fetches each refunded order's transactions and attaches a `RefundTenders` breakdown to the return. It does this only when the refund rows can be tied to that return unambiguously and add up to the Return Center total.
+- Refund matching, item pricing, and same-day grouping now use `BankRefundAmount()`, the card portion of the refund. A refund that went entirely to points or gift-card balance is skipped with an explicit reason. A return without a breakdown keeps the previous behavior.
+
+**Verification:**
+- With the fix disabled, all seven new tests failed; with it enabled, they pass. `go test ./... -race` passes.
+- `./itemize amazon -account wife -dry-run -days 14` now reports `Categorized Amazon refund order_id=112-8070743-2513824 ... refund_amount=42.39 bank_refund_amount=31.24` against the +$31.24 Monarch credit.
+
+**Commit:** See PR.
+
 ### 2026-10-03: Amazon multi-category splits added allocated tax twice
 
 **Description:**

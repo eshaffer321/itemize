@@ -422,6 +422,30 @@ func TestConvertGoTransactionMapsRefundAndPendingStatuses(t *testing.T) {
 	assert.Equal(t, "charge", charge.Type)
 }
 
+func TestRefundedOrderDoesNotCountRefundRowsAsCharges(t *testing.T) {
+	charged := time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC)
+	refunded := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	parsed := convertGoOrder(&amazongo.Order{ID: "112-1111111-2222222", Total: 31.24}, []*amazongo.Transaction{
+		{Date: refunded, Amount: 31.24, LastFour: "4242", Status: "Completed", IsRefund: true},
+		{Date: refunded, Amount: 11.15, Status: "Completed", IsRefund: true},
+		{Date: charged, Amount: 31.24, LastFour: "4242", Status: "Completed"},
+		{Date: charged, Amount: 11.15, Status: "Completed"},
+	})
+	require.Len(t, parsed.Transactions, 4)
+	assert.Equal(t, "refund", parsed.Transactions[0].Type)
+	assert.Equal(t, "refund", parsed.Transactions[1].Type)
+	assert.Equal(t, "charge", parsed.Transactions[2].Type)
+
+	order := NewOrder(parsed, nil)
+	charges, err := order.GetFinalCharges()
+	require.NoError(t, err)
+	assert.Equal(t, []float64{31.24}, charges)
+	nonBank, err := order.GetNonBankAmount()
+	require.NoError(t, err)
+	assert.InDelta(t, 11.15, nonBank, 0.001)
+	assert.Equal(t, []time.Time{charged, charged}, order.GetTransactionDates())
+}
+
 func TestLoginCommandUsesExplicitCookieFile(t *testing.T) {
 	provider := NewProvider(nil, &ProviderConfig{CookieFile: "/tmp/amazon-cookies.json"})
 
@@ -443,6 +467,7 @@ type fakeAmazonClient struct {
 	healthErr             error
 	cookiesSaved          bool
 	saveCookiesErr        error
+	transactionFetches    map[string]int
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -483,6 +508,13 @@ func (f *fakeAmazonClient) SaveCookies() error {
 }
 
 func (f *fakeAmazonClient) FetchTransactions(_ context.Context, orderID string) ([]*amazongo.Transaction, error) {
+	if f.transactionFetches == nil {
+		f.transactionFetches = make(map[string]int)
+	}
+	f.transactionFetches[orderID]++
+	if orderID == "failing-order" {
+		return nil, errors.New("transactions unavailable")
+	}
 	if f.fetchTransactionsErr != nil {
 		return nil, f.fetchTransactionsErr
 	}

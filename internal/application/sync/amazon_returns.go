@@ -63,7 +63,8 @@ func (o *Orchestrator) processAmazonReturns(
 			o.logger.Debug("Skipping already processed Amazon refund", "refund_id", refund.GetID())
 			continue
 		}
-		key := fmt.Sprintf("%s|%.2f", record.RefundIssuedAt.Format("2006-01-02"), record.RefundAmount)
+		// Group by the credit the bank feed shows, not the Return Center total.
+		key := fmt.Sprintf("%s|%.2f", record.RefundIssuedAt.Format("2006-01-02"), record.BankRefundAmount())
 		group := groupsByKey[key]
 		if group == nil {
 			group = &refundGroup{key: key}

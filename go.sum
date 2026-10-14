@@ -4,8 +4,8 @@ github.com/andybalholm/cascadia v1.3.4 h1:vM2lgh0Vru9Vwyfm4cQqWP2HHMW0u0+2PAW7Q3
 github.com/andybalholm/cascadia v1.3.4/go.mod h1:BLRmbRjpEtNKieZOCCvYj4RqN+KRA41GBe/5O+G93kM=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
-github.com/eshaffer321/amazon-go v0.4.0 h1:HMNcXCHkEsbdJze0gTu4oBLhMiy1qEl7+TaC3kCA8bg=
-github.com/eshaffer321/amazon-go v0.4.0/go.mod h1:4nXAvyIk9EvcAAe/oTA66izwLdu0LAoyEp3A24nAaBs=
+github.com/eshaffer321/amazon-go v0.5.0 h1:9/NZpZ55afx9OM9+ymaTUVU0oscLABlvHpIAyBViM5M=
+github.com/eshaffer321/amazon-go v0.5.0/go.mod h1:4nXAvyIk9EvcAAe/oTA66izwLdu0LAoyEp3A24nAaBs=
 github.com/eshaffer321/costco-go v0.3.11 h1:vOEXcSj/vGlwE/4AbXK3uUdXG7XYg1qfUPViujJRS7Q=
 github.com/eshaffer321/costco-go v0.3.11/go.mod h1:ANJTHfRSPyot9cWKNlfs5qDKRKkA4tYORrorvWx/vbM=
 github.com/eshaffer321/monarch-go/v2 v2.1.0 h1:qsYIPv5ha/WEcwQLnbTdup2sg5F9L1724aM5FS3s2uI=

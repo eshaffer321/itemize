@@ -51,13 +51,21 @@ func (h *AmazonHandler) ProcessRefund(
 		result.SkipReason = "multiple returned items lack an authoritative item-level refund allocation"
 		return result, nil
 	}
+	// The bank feed shows only the card portion of a refund; anything returned
+	// to points or gift-card balance never appears in Monarch.
+	bankAmount := record.BankRefundAmount()
+	if bankAmount <= 0 {
+		result.Skipped = true
+		result.SkipReason = fmt.Sprintf("Amazon refunded $%.2f to points or gift-card balance; there is no bank credit to categorize", record.RefundAmount)
+		return result, nil
+	}
 
 	eligible := eligibleAmazonRefundTransactions(monarchTxns)
 
 	matchResult, err := h.matcher.FindUniqueMatch(refund, eligible, usedTxnIDs)
 	if errors.Is(err, matcher.ErrAmbiguousMatch) {
 		result.Skipped = true
-		result.SkipReason = fmt.Sprintf("ambiguous Amazon refund credit for $%.2f on %s", record.RefundAmount, record.RefundIssuedAt.Format("2006-01-02"))
+		result.SkipReason = fmt.Sprintf("ambiguous Amazon refund credit for $%.2f on %s", bankAmount, record.RefundIssuedAt.Format("2006-01-02"))
 		return result, nil
 	}
 	if err != nil {
@@ -65,7 +73,7 @@ func (h *AmazonHandler) ProcessRefund(
 	}
 	if matchResult == nil {
 		result.Skipped = true
-		result.SkipReason = fmt.Sprintf("no unique temporary Amazon credit found for $%.2f", record.RefundAmount)
+		result.SkipReason = fmt.Sprintf("no unique temporary Amazon credit found for $%.2f", bankAmount)
 		return result, nil
 	}
 
@@ -114,6 +122,7 @@ func (h *AmazonHandler) ProcessRefund(
 		"rma_id", record.RMAID,
 		"transaction_id", transaction.ID,
 		"refund_amount", record.RefundAmount,
+		"bank_refund_amount", bankAmount,
 		"item_asin", record.Items[0].ASIN,
 		"dry_run", dryRun)
 	return result, nil
@@ -139,6 +148,7 @@ func (h *AmazonHandler) ProcessRefundGroup(
 		return nil, "Amazon did not report a refund-issued date", nil
 	}
 	issuedDate := base.RefundIssuedAt.Format("2006-01-02")
+	bankAmount := base.BankRefundAmount()
 	for _, refund := range refunds {
 		if refund == nil {
 			return nil, "missing Amazon refund record", nil
@@ -147,14 +157,14 @@ func (h *AmazonHandler) ProcessRefundGroup(
 		if !record.HasRefundTotal || record.RefundIssuedAt == nil || record.RMAID == "" || len(record.Items) != 1 {
 			return nil, "refund group lacks authoritative single-item detail", nil
 		}
-		if math.Abs(record.RefundAmount-base.RefundAmount) > 0.001 || record.RefundIssuedAt.Format("2006-01-02") != issuedDate {
+		if math.Abs(record.BankRefundAmount()-bankAmount) > 0.001 || record.RefundIssuedAt.Format("2006-01-02") != issuedDate {
 			return nil, "refund group does not share one amount and issued date", nil
 		}
 	}
 
 	candidates := make([]*monarch.Transaction, 0, len(refunds))
 	for _, tx := range eligibleAmazonRefundTransactions(monarchTxns) {
-		if usedTxnIDs[tx.ID] || math.Abs(tx.Amount-base.RefundAmount) > 0.011 || tx.Date.Format("2006-01-02") != issuedDate {
+		if usedTxnIDs[tx.ID] || math.Abs(tx.Amount-bankAmount) > 0.011 || tx.Date.Format("2006-01-02") != issuedDate {
 			continue
 		}
 		candidates = append(candidates, tx)
@@ -196,7 +206,7 @@ func (h *AmazonHandler) ProcessRefundGroup(
 
 	noteLines := []string{
 		fmt.Sprintf("%s:", categoryName),
-		fmt.Sprintf("- %d indistinguishable Amazon refunds of $%.2f issued %s", len(refunds), base.RefundAmount, issuedDate),
+		fmt.Sprintf("- %d indistinguishable Amazon refunds of $%.2f issued %s", len(refunds), bankAmount, issuedDate),
 	}
 	for _, refund := range refunds {
 		record := refund.Record()
@@ -228,7 +238,7 @@ func (h *AmazonHandler) ProcessRefundGroup(
 	}
 	h.logInfo("Categorized indistinguishable Amazon refund group",
 		"refund_count", len(refunds),
-		"refund_amount", base.RefundAmount,
+		"refund_amount", bankAmount,
 		"issued_date", issuedDate,
 		"category_id", categoryID,
 		"dry_run", dryRun)

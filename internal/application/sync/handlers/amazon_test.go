@@ -657,6 +657,93 @@ func TestAmazonHandler_ProcessRefundCategorizesUniqueTemporaryCredit(t *testing.
 	assert.Equal(t, 11.36, splitter.lastOrder.GetItems()[0].GetPrice())
 }
 
+func TestAmazonHandler_ProcessRefundMatchesCardPortionOfSplitTenderRefund(t *testing.T) {
+	issuedAt := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	refund := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+		OrderID:        "112-1111111-2222222",
+		RMAID:          "DsplitRRMA",
+		RefundAmount:   42.39,
+		HasRefundTotal: true,
+		RefundIssuedAt: &issuedAt,
+		Items:          []amazonprovider.ReturnedItem{{ASIN: "B0EXAMPLE1", Name: "Tumbler", Price: 39.99}},
+		RefundTenders: []amazonprovider.RefundTender{
+			{Date: issuedAt, Amount: 31.24, Last4: "4242", Description: "Prime Visa ****4242"},
+			{Date: issuedAt, Amount: 11.15, Description: "Amazon Visa points"},
+		},
+	})
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{
+		{ID: "card-credit", Amount: 31.24, Date: toMonarchDate(issuedAt), Category: temporary},
+		{ID: "other-credit", Amount: 87.68, Date: toMonarchDate(issuedAt), Category: temporary},
+	}
+	splitter := &mockSplitter{categoryID: "home", notes: "Home Spending:\n- Tumbler $31.24"}
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}), nil, splitter, monarchClient, nil)
+
+	result, err := handler.ProcessRefund(context.Background(), refund, transactions, map[string]bool{}, nil, nil, false)
+
+	require.NoError(t, err)
+	require.True(t, result.Processed, result.SkipReason)
+	assert.Equal(t, "card-credit", result.Transaction.ID)
+	assert.Equal(t, "card-credit", monarchClient.updatedID)
+	require.NotNil(t, splitter.lastOrder)
+	assert.InDelta(t, 31.24, splitter.lastOrder.GetItems()[0].GetPrice(), 0.001)
+}
+
+func TestAmazonHandler_ProcessRefundSkipsRefundWithNoBankCredit(t *testing.T) {
+	issuedAt := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	refund := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+		OrderID:        "112-1111111-2222222",
+		RMAID:          "DpointsRRMA",
+		RefundAmount:   11.15,
+		HasRefundTotal: true,
+		RefundIssuedAt: &issuedAt,
+		Items:          []amazonprovider.ReturnedItem{{ASIN: "B0EXAMPLE1", Name: "Tumbler", Price: 11.15}},
+		RefundTenders:  []amazonprovider.RefundTender{{Date: issuedAt, Amount: 11.15, Description: "Amazon Visa points"}},
+	})
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{{ID: "unrelated", Amount: 11.15, Date: toMonarchDate(issuedAt), Category: temporary}}
+	monarchClient := &mockMonarch{}
+	handler := NewAmazonHandler(matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}), nil, &mockSplitter{}, monarchClient, nil)
+
+	result, err := handler.ProcessRefund(context.Background(), refund, transactions, map[string]bool{}, nil, nil, false)
+
+	require.NoError(t, err)
+	assert.True(t, result.Skipped)
+	assert.Contains(t, result.SkipReason, "no bank credit")
+	assert.False(t, monarchClient.updateCalled)
+}
+
+func TestAmazonHandler_ProcessRefundGroupUsesCardPortion(t *testing.T) {
+	issuedAt := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	record := func(rma string, total float64) *amazonprovider.RefundOrder {
+		return amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{
+			OrderID: "order-" + rma, RMAID: rma, RefundAmount: total, HasRefundTotal: true, RefundIssuedAt: &issuedAt,
+			Items: []amazonprovider.ReturnedItem{{ASIN: "B0" + rma, Name: "Cup " + rma, Price: 14.41}},
+			RefundTenders: []amazonprovider.RefundTender{
+				{Date: issuedAt, Amount: 14.41, Last4: "4242"},
+				{Date: issuedAt, Amount: total - 14.41},
+			},
+		})
+	}
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{
+		{ID: "refund-1", Amount: 14.41, Date: toMonarchDate(issuedAt), Category: temporary},
+		{ID: "refund-2", Amount: 14.41, Date: toMonarchDate(issuedAt), Category: temporary},
+	}
+	monarchClient := &mockMonarch{}
+	splitter := &mockSplitter{categoryID: "kid-needs", notes: "Kid Needs:\n- Cup"}
+	handler := NewAmazonHandler(matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}), nil, splitter, monarchClient, nil)
+
+	// Different Return Center totals, identical card credits.
+	results, skipReason, err := handler.ProcessRefundGroup(context.Background(), []*amazonprovider.RefundOrder{record("A", 16.41), record("B", 19.41)}, transactions, map[string]bool{}, nil, nil, false)
+
+	require.NoError(t, err)
+	assert.Empty(t, skipReason)
+	require.Len(t, results, 2)
+	assert.Contains(t, results[0].MonarchNotes, "$14.41")
+}
+
 func TestAmazonHandler_ProcessRefundSkipsIndistinguishableCredits(t *testing.T) {
 	issuedAt := time.Date(2026, time.July, 3, 0, 0, 0, 0, time.UTC)
 	refund := amazonprovider.NewRefundOrder(amazonprovider.ReturnRecord{

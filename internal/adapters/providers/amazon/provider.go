@@ -382,7 +382,7 @@ func convertGoOrder(order *amazongo.Order, transactions []*amazongo.Transaction)
 func convertGoTransaction(tx *amazongo.Transaction) *ParsedTransaction {
 	txType := "charge"
 	status := strings.ToLower(tx.Status)
-	if strings.Contains(status, "refund") || strings.Contains(status, "refunded") {
+	if tx.IsRefund || strings.Contains(status, "refund") {
 		txType = "refund"
 	}
 	if strings.Contains(status, "pending") {

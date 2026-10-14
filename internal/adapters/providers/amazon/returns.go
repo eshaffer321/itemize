@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -34,7 +35,9 @@ var (
 )
 
 // ReturnRecord is one return event reported by Amazon's Return Center.
-// RefundAmount is authoritative only when HasRefundTotal is true.
+// RefundAmount is authoritative only when HasRefundTotal is true. It is the
+// total across every payment method; RefundTenders, when known, says how much
+// of it went back to a bank card.
 type ReturnRecord struct {
 	OrderID        string         `json:"order_id"`
 	RMAID          string         `json:"rma_id,omitempty"`
@@ -44,7 +47,34 @@ type ReturnRecord struct {
 	RefundIssuedAt *time.Time     `json:"refund_issued_at,omitempty"`
 	Status         string         `json:"status"`
 	Items          []ReturnedItem `json:"items"`
+	RefundTenders  []RefundTender `json:"refund_tenders,omitempty"`
 	statusURL      string
+}
+
+// RefundTender is the part of a refund Amazon credited to one payment method.
+// Last4 is empty for points, gift-card balance, and other non-bank tenders.
+type RefundTender struct {
+	Date        time.Time `json:"date"`
+	Amount      float64   `json:"amount"`
+	Last4       string    `json:"last4,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+// BankRefundAmount is the credit expected in the bank feed. Points and
+// gift-card refunds never reach the bank, so when the tender breakdown is known
+// only its card rows count; otherwise the Return Center total is assumed to
+// have gone to a card.
+func (r ReturnRecord) BankRefundAmount() float64 {
+	if len(r.RefundTenders) == 0 {
+		return r.RefundAmount
+	}
+	cents := 0.0
+	for _, tender := range r.RefundTenders {
+		if tender.Last4 != "" {
+			cents += math.Round(tender.Amount * 100)
+		}
+	}
+	return cents / 100
 }
 
 // ReturnedItem identifies an item included in an Amazon return event.
@@ -72,8 +102,8 @@ func (o *RefundOrder) GetDate() time.Time {
 	}
 	return o.record.CreatedAt
 }
-func (o *RefundOrder) GetTotal() float64       { return -o.record.RefundAmount }
-func (o *RefundOrder) GetSubtotal() float64    { return o.record.RefundAmount }
+func (o *RefundOrder) GetTotal() float64       { return -o.record.BankRefundAmount() }
+func (o *RefundOrder) GetSubtotal() float64    { return o.record.BankRefundAmount() }
 func (o *RefundOrder) GetTax() float64         { return 0 }
 func (o *RefundOrder) GetTip() float64         { return 0 }
 func (o *RefundOrder) GetFees() float64        { return 0 }
@@ -85,7 +115,7 @@ func (o *RefundOrder) GetItems() []providers.OrderItem {
 	for _, item := range o.record.Items {
 		price := item.Price
 		if len(o.record.Items) == 1 && o.record.HasRefundTotal {
-			price = o.record.RefundAmount
+			price = o.record.BankRefundAmount()
 		}
 		items = append(items, refundOrderItem{item: item, price: price})
 	}
@@ -140,7 +170,94 @@ func (p *Provider) FetchReturns(ctx context.Context) ([]ReturnRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch Amazon returns: %w", err)
 	}
+	p.attachRefundTenders(ctx, returns)
 	return returns, nil
+}
+
+// attachRefundTenders records how each issued refund was divided between
+// payment methods. The Return Center reports only a refund total; the order's
+// payment transactions list the per-tender credits. A return is left without a
+// breakdown whenever its refund rows cannot be identified with certainty.
+func (p *Provider) attachRefundTenders(ctx context.Context, returns []ReturnRecord) {
+	byOrder := make(map[string][]int)
+	orderIDs := make([]string, 0)
+	for i := range returns {
+		if !returns[i].HasRefundTotal || returns[i].RefundIssuedAt == nil || returns[i].OrderID == "" {
+			continue
+		}
+		if _, seen := byOrder[returns[i].OrderID]; !seen {
+			orderIDs = append(orderIDs, returns[i].OrderID)
+		}
+		byOrder[returns[i].OrderID] = append(byOrder[returns[i].OrderID], i)
+	}
+	if len(orderIDs) == 0 {
+		return
+	}
+	client, err := p.getClient()
+	if err != nil {
+		p.logger.Warn("refund tender breakdown unavailable", slog.String("error", err.Error()))
+		return
+	}
+
+	for _, orderID := range orderIDs {
+		transactions, err := client.FetchTransactions(ctx, orderID)
+		if err != nil {
+			p.logger.Warn("failed to fetch Amazon refund transactions",
+				slog.String("order_id", orderID),
+				slog.String("error", err.Error()))
+			continue
+		}
+		tenders := make([]RefundTender, 0)
+		for _, tx := range transactions {
+			if tx == nil || !tx.IsRefund || tx.Amount <= 0 {
+				continue
+			}
+			tenders = append(tenders, RefundTender{Date: tx.Date, Amount: tx.Amount, Last4: tx.LastFour, Description: tx.PaymentMethod})
+		}
+		if len(tenders) == 0 {
+			continue
+		}
+
+		indexes := byOrder[orderID]
+		for _, i := range indexes {
+			issuedDay := returns[i].RefundIssuedAt.Format("2006-01-02")
+			onlyReturnThatDay := true
+			for _, other := range indexes {
+				if other != i && returns[other].RefundIssuedAt.Format("2006-01-02") == issuedDay {
+					onlyReturnThatDay = false
+				}
+			}
+			sameDay := make([]RefundTender, 0, len(tenders))
+			for _, tender := range tenders {
+				if tender.Date.Format("2006-01-02") == issuedDay {
+					sameDay = append(sameDay, tender)
+				}
+			}
+			switch {
+			case onlyReturnThatDay && tendersTotal(sameDay, returns[i].RefundAmount):
+				returns[i].RefundTenders = sameDay
+			case len(indexes) == 1 && tendersTotal(tenders, returns[i].RefundAmount):
+				// Amazon may date the payment credit a day off the Return
+				// Center's issued date; with one return there is no ambiguity.
+				returns[i].RefundTenders = tenders
+			default:
+				p.logger.Debug("Amazon refund rows do not identify this return's tenders",
+					slog.String("order_id", orderID),
+					slog.String("rma_id", returns[i].RMAID))
+			}
+		}
+	}
+}
+
+func tendersTotal(tenders []RefundTender, want float64) bool {
+	if len(tenders) == 0 {
+		return false
+	}
+	cents := 0.0
+	for _, tender := range tenders {
+		cents += math.Round(tender.Amount * 100)
+	}
+	return math.Abs(cents-math.Round(want*100)) < 0.5
 }
 
 func (p *Provider) resolvedCookieFile() (string, error) {

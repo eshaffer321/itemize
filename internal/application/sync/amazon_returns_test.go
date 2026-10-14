@@ -74,6 +74,41 @@ func TestProcessAmazonReturnsIncludesCalendarDayAtLookbackBoundary(t *testing.T)
 	assert.Equal(t, 0, result.RefundSkippedCount)
 }
 
+func TestProcessAmazonReturnsMatchesCardPortionOfSplitTenderRefund(t *testing.T) {
+	now := time.Date(2026, time.October, 13, 15, 30, 0, 0, time.UTC)
+	issuedAt := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	tenders := func(points float64) []amazonprovider.RefundTender {
+		return []amazonprovider.RefundTender{
+			{Date: issuedAt, Amount: 31.24, Last4: "4242", Description: "Prime Visa ****4242"},
+			{Date: issuedAt, Amount: points, Description: "Amazon Visa points"},
+		}
+	}
+	// The Return Center totals differ, but both card credits are $31.24, so the
+	// two refunds are indistinguishable in the bank feed and must be grouped.
+	records := []amazonprovider.ReturnRecord{
+		{OrderID: "112-1111111-2222222", RMAID: "DfirstRRMA", RefundAmount: 42.39, HasRefundTotal: true, RefundIssuedAt: &issuedAt, RefundTenders: tenders(11.15), Items: []amazonprovider.ReturnedItem{{ASIN: "B0CUPONE", Name: "Tumbler", Price: 39.99}}},
+		{OrderID: "112-3333333-4444444", RMAID: "DsecondRRMA", RefundAmount: 36.24, HasRefundTotal: true, RefundIssuedAt: &issuedAt, RefundTenders: tenders(5.00), Items: []amazonprovider.ReturnedItem{{ASIN: "B0CUPTWO", Name: "Mug", Price: 34.00}}},
+	}
+	temporary := &monarch.TransactionCategory{ID: "temp-amazon", Name: "[TEMP] Amazon"}
+	transactions := []*monarch.Transaction{
+		{ID: "refund-1", Amount: 31.24, Date: toMonarchDate(issuedAt), Category: temporary},
+		{ID: "refund-2", Amount: 31.24, Date: toMonarchDate(issuedAt), Category: temporary},
+	}
+	transactionMatcher := matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5})
+	spl := splitter.NewSplitter(&mockCategorizer{categoryID: "home", categoryName: "Home Spending"})
+	orchestrator := &Orchestrator{
+		amazonHandler: handlers.NewAmazonHandler(transactionMatcher, nil, &mockSplitterAdapter{splitter: spl}, &processOrderTestMonarch{}, slog.Default()),
+		logger:        slog.Default(),
+		storage:       storage.NewMockRepository(),
+	}
+	result := &Result{}
+
+	orchestrator.processAmazonReturns(context.Background(), records, transactions, map[string]bool{}, []categorizer.Category{{ID: "home", Name: "Home Spending"}}, nil, Options{LookbackDays: 14}, now, result)
+
+	assert.Equal(t, 2, result.RefundProcessedCount)
+	assert.Equal(t, 0, result.RefundSkippedCount)
+}
+
 func TestReturnFallsWithinLookbackUsesIssuedDateNotCreatedDate(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 15, 30, 0, 0, time.UTC)
 	createdAt := time.Date(2026, time.June, 14, 0, 0, 0, 0, time.UTC)

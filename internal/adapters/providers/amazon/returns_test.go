@@ -361,3 +361,108 @@ func TestReturnParsingRejectsIncompleteRecordsAndHandlesURLVariants(t *testing.T
 func jsonMarshal(value any) ([]byte, error) {
 	return json.Marshal(value)
 }
+
+func TestRefundOrderUsesCardPortionWhenRefundWasSplitAcrossTenders(t *testing.T) {
+	issuedAt := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	record := ReturnRecord{
+		OrderID:        "112-1111111-2222222",
+		RMAID:          "DsplitRRMA",
+		RefundAmount:   42.39,
+		HasRefundTotal: true,
+		RefundIssuedAt: &issuedAt,
+		Items:          []ReturnedItem{{ASIN: "B0EXAMPLE1", Name: "Tumbler", Price: 39.99}},
+		RefundTenders: []RefundTender{
+			{Date: issuedAt, Amount: 31.24, Last4: "4242", Description: "Prime Visa ****4242"},
+			{Date: issuedAt, Amount: 11.15, Description: "Amazon Visa points"},
+		},
+	}
+
+	assert.InDelta(t, 31.24, record.BankRefundAmount(), 0.001)
+
+	order := NewRefundOrder(record)
+	assert.InDelta(t, -31.24, order.GetTotal(), 0.001)
+	assert.InDelta(t, 31.24, order.GetSubtotal(), 0.001)
+	require.Len(t, order.GetItems(), 1)
+	assert.InDelta(t, 31.24, order.GetItems()[0].GetPrice(), 0.001)
+	assert.InDelta(t, 31.24, order.GetItems()[0].GetUnitPrice(), 0.001)
+
+	pointsOnly := ReturnRecord{RefundAmount: 11.15, HasRefundTotal: true, RefundTenders: []RefundTender{{Amount: 11.15, Description: "Amazon Visa points"}}}
+	assert.Zero(t, pointsOnly.BankRefundAmount())
+
+	withoutBreakdown := ReturnRecord{RefundAmount: 11.36, HasRefundTotal: true}
+	assert.InDelta(t, 11.36, withoutBreakdown.BankRefundAmount(), 0.001)
+}
+
+func TestAttachRefundTendersAssignsOrderRefundRowsToReturns(t *testing.T) {
+	oct3 := time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC)
+	oct5 := time.Date(2026, time.October, 5, 0, 0, 0, 0, time.UTC)
+	refundRow := func(date time.Time, amount float64, last4 string) *amazongo.Transaction {
+		method := "Amazon Visa points"
+		if last4 != "" {
+			method = "Prime Visa ****" + last4
+		}
+		return &amazongo.Transaction{Date: date, Amount: amount, LastFour: last4, PaymentMethod: method, IsRefund: true}
+	}
+	charge := func(date time.Time, amount float64, last4 string) *amazongo.Transaction {
+		return &amazongo.Transaction{Date: date, Amount: amount, LastFour: last4}
+	}
+	client := &fakeAmazonClient{transactionsByOrderID: map[string][]*amazongo.Transaction{
+		"split-order": {
+			refundRow(oct3, 31.24, "4242"), refundRow(oct3, 11.15, ""),
+			charge(oct3.AddDate(0, 0, -5), 31.24, "4242"), charge(oct3.AddDate(0, 0, -6), 11.15, ""),
+		},
+		// The refund row is dated a day after the Return Center's issued date.
+		"late-row-order": {refundRow(oct3.AddDate(0, 0, 1), 20.00, "4242")},
+		"two-returns-order": {
+			refundRow(oct3, 10.00, "4242"),
+			refundRow(oct5, 15.00, "4242"), refundRow(oct5, 5.00, ""),
+		},
+		"same-day-order":  {refundRow(oct3, 30.00, "4242"), refundRow(oct3, 10.00, "")},
+		"mismatch-order":  {refundRow(oct3, 7.00, "4242")},
+		"no-refund-order": {charge(oct3, 9.00, "4242")},
+	}}
+	provider := NewProvider(nil, nil)
+	provider.client = client
+	record := func(orderID, rma string, amount float64, issued *time.Time) ReturnRecord {
+		return ReturnRecord{OrderID: orderID, RMAID: rma, RefundAmount: amount, HasRefundTotal: issued != nil, RefundIssuedAt: issued}
+	}
+	returns := []ReturnRecord{
+		record("split-order", "split", 42.39, &oct3),
+		record("late-row-order", "late", 20.00, &oct3),
+		record("two-returns-order", "first", 10.00, &oct3),
+		record("two-returns-order", "second", 20.00, &oct5),
+		record("same-day-order", "same-a", 20.00, &oct3),
+		record("same-day-order", "same-b", 20.00, &oct3),
+		record("mismatch-order", "mismatch", 9.00, &oct3),
+		record("no-refund-order", "none", 9.00, &oct3),
+		record("pending-order", "pending", 0, nil),
+		record("failing-order", "failing", 5.00, &oct3),
+	}
+
+	provider.attachRefundTenders(context.Background(), returns)
+
+	byRMA := map[string]ReturnRecord{}
+	for _, r := range returns {
+		byRMA[r.RMAID] = r
+	}
+	require.Len(t, byRMA["split"].RefundTenders, 2)
+	assert.Equal(t, RefundTender{Date: oct3, Amount: 31.24, Last4: "4242", Description: "Prime Visa ****4242"}, byRMA["split"].RefundTenders[0])
+	assert.InDelta(t, 31.24, byRMA["split"].BankRefundAmount(), 0.001)
+	assert.InDelta(t, 20.00, byRMA["late"].BankRefundAmount(), 0.001)
+	require.Len(t, byRMA["late"].RefundTenders, 1)
+	assert.InDelta(t, 10.00, byRMA["first"].BankRefundAmount(), 0.001)
+	require.Len(t, byRMA["first"].RefundTenders, 1)
+	assert.InDelta(t, 15.00, byRMA["second"].BankRefundAmount(), 0.001)
+	require.Len(t, byRMA["second"].RefundTenders, 2)
+	// Two returns refunded the same day cannot be told apart, and a breakdown
+	// that disagrees with the Return Center total is not trusted.
+	for _, rma := range []string{"same-a", "same-b", "mismatch", "none", "pending", "failing"} {
+		assert.Empty(t, byRMA[rma].RefundTenders, rma)
+	}
+	assert.InDelta(t, 9.00, byRMA["mismatch"].BankRefundAmount(), 0.001)
+	// One request per order, and none for returns without an issued refund.
+	assert.Equal(t, map[string]int{
+		"split-order": 1, "late-row-order": 1, "two-returns-order": 1, "same-day-order": 1,
+		"mismatch-order": 1, "no-refund-order": 1, "failing-order": 1,
+	}, client.transactionFetches)
+}
