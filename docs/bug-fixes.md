@@ -12,6 +12,20 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-10-30: CI vulnerability scan failed on Go 1.26.9 and x/net v0.60.0
+
+**Description:**
+`govulncheck` failed on main with GO-2026-6860 (`golang.org/x/net` html parsing, reached through goquery in the Amazon returns parser) and GO-2026-6809 (`crypto/x509`, reached through the API server). Both were published after the last green run.
+
+**Fix Applied:**
+- Raised the module, CI, and release workflow toolchain to Go 1.26.10.
+- Upgraded `golang.org/x/net` to `v0.62.0`.
+
+**Verification:**
+- `govulncheck ./...` reports no vulnerabilities and `go test -race ./...` passes.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-10-14: CI and release builds used a Go release with unpatched net/http, crypto/tls, and x/net vulnerabilities
 
 **Description:**
