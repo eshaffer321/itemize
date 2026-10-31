@@ -1,0 +1,85 @@
+{
+  "order_number": "102000000000001",
+  "order_date": "2026-08-05T20:47:05.000Z",
+  "order_type": "Sales",
+  "summary": {
+    "grand_total": 22.72,
+    "total_product_price": 23.92,
+    "total_taxes": 0.00,
+    "total_adjustments": 1.20,
+    "total_shipping_charges": 0.00
+  },
+  "packages": [
+    {
+      "order_lines": [
+        {
+          "order_line_key": "200000000000000000000000000004",
+          "quantity": 2.0,
+          "original_quantity": 2.0,
+          "item": {
+            "tcin": "10000001",
+            "description": "Sliced Sharp Cheddar Cheese - 8oz - Good &#38; Gather&#8482;",
+            "unit_price": 3.59,
+            "list_price": 3.59,
+            "product_classification": {
+              "product_type_name": "GROCERY",
+              "product_subtype_name": "MEAT, POULTRY AND SEAFOOD"
+            }
+          }
+        },
+        {
+          "order_line_key": "200000000000000000000000000003",
+          "quantity": 2.0,
+          "original_quantity": 2.0,
+          "item": {
+            "tcin": "10000002",
+            "description": "Gala Apples - 3lb Bag",
+            "unit_price": 4.19,
+            "list_price": 4.19,
+            "product_classification": {
+              "product_type_name": "GROCERY",
+              "product_subtype_name": "VEGETABLES AND FRUITS"
+            }
+          }
+        },
+        {
+          "order_line_key": "200000000000000000000000000002",
+          "quantity": 3.0,
+          "original_quantity": 3.0,
+          "item": {
+            "tcin": "10000003",
+            "description": "Organic Baby Spinach - 5oz - Good &#38; Gather&#8482;",
+            "unit_price": 1.79,
+            "list_price": 1.79,
+            "product_classification": {
+              "product_type_name": "GROCERY",
+              "product_subtype_name": "VEGETABLES AND FRUITS"
+            }
+          }
+        },
+        {
+          "order_line_key": "200000000000000000000000000001",
+          "quantity": 1.0,
+          "original_quantity": 1.0,
+          "item": {
+            "tcin": "10000004",
+            "description": "Fresh Blueberries - 1pt",
+            "unit_price": 2.99,
+            "list_price": 2.99,
+            "product_classification": {
+              "product_type_name": "GROCERY",
+              "product_subtype_name": "VEGETABLES AND FRUITS"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "amount": 22.72,
+      "payment_type": "TARGETDEBIT",
+      "guest_display_payment_type": "Target Circle Debit Card"
+    }
+  ]
+}

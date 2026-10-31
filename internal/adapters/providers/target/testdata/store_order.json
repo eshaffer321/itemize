@@ -1,0 +1,17 @@
+{
+  "store_receipt_id": "6032-2290-0172-8918",
+  "store_id": "1234",
+  "order_purchase_date": "2026-09-26T18:31:36-07:00",
+  "grand_total": "24.42",
+  "summary": {"grand_total": "24.42"},
+  "order_lines": [
+    {"line_number": 1, "quantity": 2, "item": {"tcin": "13202943", "description": "Whole Wheat Penne Pasta - 16oz", "unit_price": "3.49", "list_price": "3.49", "product_classification": {"product_type_name": "GROCERY"}}},
+    {"line_number": 2, "quantity": 1, "item": {"tcin": "54191097", "description": "Men&#39;s Crew Socks 6pk - Gray", "unit_price": "12.00", "list_price": "15.00", "product_classification": {"product_type_name": "APPAREL"}}},
+    {"line_number": 3, "quantity": 1, "item": {"tcin": "1", "description": "PAPER_BAG", "unit_price": "0.00"}},
+    {"line_number": 4, "quantity": 1, "item": {"tcin": "14917313", "description": "Freezer Storage Bags - 40ct - up&#38;up&#8482;", "unit_price": "3.79", "product_classification": {"product_type_name": "HOME"}}}
+  ],
+  "payment_transactions": [
+    {"payment_type": "CREDIT_CARD", "card_type": "TARGET_CIRCLE_DEBIT", "amount": "24.42"}
+  ],
+  "receipts": ["data:image/gif;base64,R0lGODlhAQABAAAAACw="]
+}

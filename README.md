@@ -1,6 +1,6 @@
 # Itemize
 
-CLI tool that syncs purchases from Walmart, Costco, and Amazon with Monarch. Automatically splits transactions by category using AI.
+CLI tool that syncs purchases from Walmart, Costco, Amazon, and Target with Monarch. Automatically splits transactions by category using AI.
 
 ## What it does
 
@@ -112,11 +112,13 @@ Override the model with `OPENAI_MODEL` or `ANTHROPIC_MODEL` per run.
 ./itemize walmart -dry-run -days 14
 ./itemize costco -dry-run -days 7
 ./itemize amazon -dry-run -days 7
+./itemize target -dry-run -days 14
 
 # Apply changes
 ./itemize walmart -days 14
 ./itemize costco -days 7
 ./itemize amazon -days 7
+./itemize target -days 14
 ```
 
 ### Flags
@@ -177,6 +179,40 @@ an env var, or for cron jobs where the account name should be visible right in t
 
 `AMAZON_ACCOUNT_NAME` still works and is used as the default when `-account` is omitted — cron
 jobs relying on the env var need no changes.
+
+### Target
+Reads in-store receipts linked to your Target Circle account and online orders, through the JSON
+APIs target.com's own order pages use ([target-go](https://github.com/daslicious/target-go); its
+[PROTOCOL.md](https://github.com/daslicious/target-go/blob/main/PROTOCOL.md) documents them).
+Target has no API login, so you save a browser login once and Itemize renews it before every run:
+
+1. In Chrome, open an **Incognito window** and sign in at target.com. Target replaces the refresh
+   token on every renewal, so the login must not stay in use in a browser that would renew it too.
+2. Open target.com/orders, then DevTools → Network, filter `history`, and reload.
+3. Right-click the `history` request marked `{}` (not the preflight) → Copy → **Copy as cURL (bash)**.
+4. Save it; Itemize replays the request and saves it only if Target accepts it:
+
+   ```bash
+   pbpaste | ./itemize target set-session -account default    # or: xclip -o -selection clipboard | ...
+   ```
+
+5. Close the Incognito window **without signing out** (signing out ends the login).
+
+Logins are saved to `~/.itemize/target/session-<account>.json` (`ITEMIZE_TARGET_DIR` to change).
+Each run renews the 24-hour access token with a refresh token that lasts 180 days. Use
+`-account` for more than one login; receipts on a shared Target Circle account show up in each
+and are synced once.
+
+```bash
+./itemize target orders -account default -days 30   # orders as Itemize reads them (JSON), no Monarch
+./itemize target refresh -account default           # renew the login now
+```
+
+An online order shipped in parts is charged once per shipment; each charge is matched and split on
+its own, as `<order>`, `<order>-2`, …  Gift cards, manufacturer coupons and the reusable-bag
+discount are left out of the amount to match. An expired login fails with
+`target auth check failed`; Target's bot protection with `target blocked the request` (wait an hour
+or more). Requests are paced 3-5 seconds apart.
 
 ## Troubleshooting
 

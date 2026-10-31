@@ -1,0 +1,77 @@
+{
+  "id": "62000000000000001",
+  "type": "SHIPMENT",
+  "date": "2026-08-05T21:39:16.000Z",
+  "total_amount": 22.72,
+  "discount": -1.2000000000000002,
+  "status": "CLOSED",
+  "payments": [
+    {
+      "type": "TARGETDEBIT",
+      "sub_type": "NONE",
+      "total_charged": 22.72
+    }
+  ],
+  "lines": [
+    {
+      "id": "2",
+      "order_line_key": "200000000000000000000000000001",
+      "quantity": 1.0,
+      "shipped_quantity": 1.0,
+      "unit_price": 2.99,
+      "discount": -0.15,
+      "amount": 2.99,
+      "effective_amount": 2.84,
+      "total_tax": 0.0,
+      "item": {
+        "tcin": "10000004",
+        "description": "Fresh Blueberries - 1pt"
+      }
+    },
+    {
+      "id": "1",
+      "order_line_key": "200000000000000000000000000002",
+      "quantity": 3.0,
+      "shipped_quantity": 3.0,
+      "unit_price": 1.79,
+      "discount": -0.27,
+      "amount": 5.37,
+      "effective_amount": 5.1,
+      "total_tax": 0.0,
+      "item": {
+        "tcin": "10000003",
+        "description": "Organic Baby Spinach - 5oz - Good &#38; Gather&#8482;"
+      }
+    },
+    {
+      "id": "3",
+      "order_line_key": "200000000000000000000000000003",
+      "quantity": 2.0,
+      "shipped_quantity": 2.0,
+      "unit_price": 4.19,
+      "discount": -0.42,
+      "amount": 8.38,
+      "effective_amount": 7.96,
+      "total_tax": 0.0,
+      "item": {
+        "tcin": "10000002",
+        "description": "Gala Apples - 3lb Bag"
+      }
+    },
+    {
+      "id": "4",
+      "order_line_key": "200000000000000000000000000004",
+      "quantity": 2.0,
+      "shipped_quantity": 2.0,
+      "unit_price": 3.59,
+      "discount": -0.36,
+      "amount": 7.18,
+      "effective_amount": 6.82,
+      "total_tax": 0.0,
+      "item": {
+        "tcin": "10000001",
+        "description": "Sliced Sharp Cheddar Cheese - 8oz - Good &#38; Gather&#8482;"
+      }
+    }
+  ]
+}

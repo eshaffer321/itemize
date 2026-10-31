@@ -1,0 +1,7 @@
+{
+  "invoices": [
+    {"id": "2002", "type": "SHIPMENT", "date": "2026-10-02T15:00:00.000Z", "amount": 46.87},
+    {"id": "2001", "type": "SHIPMENT", "date": "2026-09-21T15:00:00.000Z", "amount": 25.82},
+    {"id": "2003", "type": "RETURN", "date": "2026-10-05T15:00:00.000Z", "amount": 4.08}
+  ]
+}

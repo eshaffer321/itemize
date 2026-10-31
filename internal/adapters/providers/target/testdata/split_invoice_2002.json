@@ -1,0 +1,13 @@
+{
+  "id": "2002",
+  "type": "SHIPMENT",
+  "date": "2026-10-02T15:00:00.000Z",
+  "total_amount": 46.87,
+  "payments": [{"type": "VISA", "sub_type": "NONE", "total_charged": 46.87}],
+  "lines": [
+    {"id": "3", "order_line_key": "k3", "quantity": 1.0, "shipped_quantity": 1.0, "unit_price": 13.49, "amount": 13.49, "effective_amount": 14.54, "total_tax": 1.05,
+     "item": {"tcin": "77777777", "description": "Big Coloring Book"}},
+    {"id": "4", "order_line_key": "k4", "quantity": 2.0, "shipped_quantity": 2.0, "unit_price": 15.00, "amount": 30.00, "effective_amount": 32.33, "total_tax": 2.33,
+     "item": {"tcin": "10000020", "description": "Boys&#39; Pajama Set - Blue 8"}}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "order_number": "912002749053897",
+  "order_date": "2026-09-20T10:02:11.000Z",
+  "summary": {"grand_total": "35.67", "total_product_price": "33.48", "total_taxes": "2.19"},
+  "packages": [
+    {"order_lines": [{"line_number": 1, "quantity": 1, "item": {"tcin": "89120321", "description": "LEGO City F1 Williams Racing &amp; Haas F1 Race Cars 60464", "unit_price": 19.99}}]},
+    {"order_lines": [{"line_number": 2, "quantity": 1, "item": {"tcin": "77777777", "description": "<b>Big</b> Coloring Book", "unit_price": 13.49}}]}
+  ]
+}

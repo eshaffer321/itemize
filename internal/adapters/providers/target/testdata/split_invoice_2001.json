@@ -1,0 +1,15 @@
+{
+  "id": "2001",
+  "type": "SHIPMENT",
+  "date": "2026-09-21T15:00:00.000Z",
+  "total_amount": 25.82,
+  "payments": [{"type": "VISA", "sub_type": "NONE", "total_charged": 25.82}],
+  "lines": [
+    {"id": "1", "order_line_key": "k1", "quantity": 1.0, "shipped_quantity": 1.0, "unit_price": 19.99, "amount": 19.99, "effective_amount": 21.54, "total_tax": 1.55,
+     "item": {"tcin": "89120321", "description": "LEGO City F1 Williams Racing &#38; Haas F1 Race Cars 60464"}},
+    {"id": "2", "order_line_key": "k2", "quantity": 1.0, "shipped_quantity": 1.0, "unit_price": 3.79, "amount": 3.79, "effective_amount": 4.08, "total_tax": 0.29,
+     "item": {"tcin": "13306410", "description": "Freezer Storage Bags - 40ct - up&#38;up&#8482;"}},
+    {"id": "3", "order_line_key": "k9", "quantity": 2.0, "shipped_quantity": 2.0, "unit_price": 0.10, "amount": 0.20, "effective_amount": 0.20, "total_tax": 0.0,
+     "item": {"tcin": "10000019", "description": "PAPER_BAG"}}
+  ]
+}

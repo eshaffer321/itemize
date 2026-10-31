@@ -68,6 +68,9 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 			"amazon": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
 				return NewAmazonProvider(c, verbose, "")
 			},
+			"target": func(c *config.Config, verbose bool) (providers.OrderProvider, error) {
+				return NewTargetProvider(c, verbose, "default")
+			},
 		}
 
 		// Create sync service
@@ -76,7 +79,7 @@ func RunServe(cfg *config.Config, flags *ServeFlags) error {
 		// Start background cleanup for stale jobs (checks every 5 minutes)
 		syncService.StartBackgroundCleanup(5 * time.Minute)
 
-		logger.Info("sync service initialized", "providers", []string{"walmart", "costco", "amazon"})
+		logger.Info("sync service initialized", "providers", []string{"walmart", "costco", "amazon", "target"})
 	}
 
 	// Create API config

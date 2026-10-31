@@ -4,6 +4,7 @@ go 1.26.10
 
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/daslicious/target-go v0.1.2
 	github.com/eshaffer321/amazon-go v0.5.0
 	github.com/eshaffer321/costco-go v0.3.11
 	github.com/eshaffer321/monarch-go/v2 v2.1.0

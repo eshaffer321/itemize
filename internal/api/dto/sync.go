@@ -2,7 +2,7 @@ package dto
 
 // StartSyncRequest is the request body for starting a sync.
 type StartSyncRequest struct {
-	Provider     string `json:"provider"`      // "walmart", "costco", "amazon"
+	Provider     string `json:"provider"`      // "walmart", "costco", "amazon", "target"
 	DryRun       bool   `json:"dry_run"`       // Preview mode
 	LookbackDays int    `json:"lookback_days"` // How many days to look back (default 14)
 	MaxOrders    int    `json:"max_orders"`    // Max orders to process (0 = all)

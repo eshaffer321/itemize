@@ -1,0 +1,44 @@
+{
+  "store_receipt_id": "6000-1234-0000-0001",
+  "store_id": "1234",
+  "order_purchase_date": "2026-09-24T14:51:08-05:00",
+  "order_type": "STORES",
+  "grand_total": "20.46",
+  "summary": {
+    "grand_total": "20.46",
+    "total_product_price": "19.99",
+    "total_taxes": "1.47",
+    "total_adjustment": "1.00",
+    "adjustments": [
+      {
+        "promo_description": "Target Circle Card 5%",
+        "promo_value": "1.00"
+      }
+    ]
+  },
+  "order_lines": [
+    {
+      "quantity": 1,
+      "status": {
+        "key": "STAT_STORE_PURCHASE"
+      },
+      "item": {
+        "tcin": "10000016",
+        "description": "Kid&#39;s Building Blocks Set - 100pc",
+        "unit_price": "19.99",
+        "list_price": "19.99",
+        "product_classification": {
+          "product_type_name": "TOYS",
+          "product_subtype_name": "INDOOR TOYS"
+        }
+      }
+    }
+  ],
+  "payment_transactions": [
+    {
+      "amount": "20.46",
+      "payment_type": "TARGETDEBIT",
+      "payment_sub_type_value": "Target Circle Debit Card"
+    }
+  ]
+}

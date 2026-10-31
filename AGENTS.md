@@ -2,7 +2,7 @@
 
 **Last Updated:** June 2026
 
-CLI + API server that syncs Walmart, Costco, and Amazon purchases into Monarch:
+CLI + API server that syncs Walmart, Costco, Amazon, and Target purchases into Monarch:
 matches each order to its Monarch transaction, categorizes items with OpenAI, and splits
 the transaction by category. Local single-user tool — not a SaaS, extension, or real-time service.
 
@@ -51,7 +51,7 @@ Layered, with the domain core kept dependency-free. Flow: **CLI → application 
 internal/
   application/sync/   orchestrator + per-provider handlers (walmart, costco, amazon, simple)
   domain/             pure logic: categorizer/ (pluggable LLM backend), matcher/ (fuzzy), splitter/ (splits + tax)
-  adapters/           providers/ (walmart, costco, amazon) and clients/ (Monarch, openai/, anthropic/)
+  adapters/           providers/ (walmart, costco, amazon, target) and clients/ (Monarch, openai/, anthropic/)
   infrastructure/     config/, storage/ (SQLite + goose migrations), logging/ (slog)
   cli/                flag parsing + output
 ```
@@ -104,7 +104,7 @@ in `config.go`, register in `internal/cli/providers.go`, add a handler in
 - **"No matching transaction found"** — transaction not posted yet (wait 1–3 days), amount off by
   >$0.01, or date off by >5 days. Use `-verbose` to see match scoring.
 - **"Order already processed"** — expected; dedup working. `-force` to reprocess.
-- **Provider auth** — Walmart cookies in `~/.walmart-api/cookies.json`; Costco creds saved by costco-go.
+- **Provider auth** — Walmart cookies in `~/.walmart-api/cookies.json`; Costco creds saved by costco-go; Target logins in `~/.itemize/target/session-<account>.json` (renewed before each run; the refresh token rotates, so a saved login must not stay in use in a browser).
 - **DB reset** — back up and delete `monarch_sync.db`; migrations (goose) re-run on startup.
 
 ## Deeper docs

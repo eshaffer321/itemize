@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/eshaffer321/itemize/internal/adapters/clients"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
@@ -53,8 +54,12 @@ func main() {
 	providerName := command
 	amazonSetup := providerName == "amazon" && len(os.Args) > 2 && os.Args[2] == "setup"
 	amazonReturns := providerName == "amazon" && len(os.Args) > 2 && os.Args[2] == "returns"
+	targetSubcommand := ""
+	if providerName == "target" && len(os.Args) > 2 && (os.Args[2] == "set-session" || os.Args[2] == "orders" || os.Args[2] == "refresh") {
+		targetSubcommand = os.Args[2]
+	}
 	// Shift args for flag parsing
-	if amazonSetup || amazonReturns {
+	if amazonSetup || amazonReturns || targetSubcommand != "" {
 		os.Args = append([]string{os.Args[0]}, os.Args[3:]...)
 	} else if providerName == "amazon" && len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
 		os.Args = append([]string{os.Args[0], "-account", os.Args[2]}, os.Args[3:]...)
@@ -86,6 +91,54 @@ func main() {
 		if err != nil {
 			log.Fatalf("Invalid Amazon account arguments: %v", err)
 		}
+	}
+	targetAccount := flags.Account
+	if targetAccount == "" {
+		targetAccount = "default"
+	}
+	if providerName != "amazon" && providerName != "target" && flags.Account != "" {
+		log.Fatalf("-account is only supported for the amazon and target providers")
+	}
+
+	switch targetSubcommand {
+	case "refresh":
+		if err := cli.RunTargetRefresh(context.Background(), cfg, flags.Verbose, targetAccount, os.Stdout); err != nil {
+			log.Fatalf("Target login for %s: %v", targetAccount, err)
+		}
+		return
+	case "set-session":
+		if err := cli.RunTargetSetSession(context.Background(), targetAccount, os.Stdin, os.Stdout); err != nil {
+			log.Fatalf("Target session for %s: %v", targetAccount, err)
+		}
+		return
+	case "orders":
+		// The logger writes to stdout; send it to stderr so stdout is only the JSON.
+		jsonOut := os.Stdout
+		os.Stdout = os.Stderr
+		provider, createErr := cli.NewTargetProvider(cfg, flags.Verbose, targetAccount)
+		if createErr != nil {
+			log.Fatalf("Failed to create Target provider: %v", createErr)
+		}
+		var orders []providers.Order
+		var fetchErr error
+		if flags.OrderID != "" {
+			orders, fetchErr = provider.FetchOrder(context.Background(), flags.OrderID)
+		} else {
+			end := time.Now()
+			orders, fetchErr = provider.FetchOrders(context.Background(), providers.FetchOptions{
+				StartDate:      end.AddDate(0, 0, -flags.LookbackDays),
+				EndDate:        end,
+				MaxOrders:      flags.MaxOrders,
+				IncludeDetails: true,
+			})
+		}
+		if fetchErr != nil {
+			log.Fatalf("Failed to fetch Target orders: %v", fetchErr)
+		}
+		if printErr := cli.PrintTargetOrders(jsonOut, orders); printErr != nil {
+			log.Fatalf("Failed to print Target orders: %v", printErr)
+		}
+		return
 	}
 
 	if flags.ListAccounts {
@@ -190,6 +243,8 @@ func main() {
 		provider, err = cli.NewWalmartProvider(cfg, flags.Verbose)
 	case "amazon":
 		provider, err = cli.NewAmazonProvider(cfg, flags.Verbose, amazonAccount)
+	case "target":
+		provider, err = cli.NewTargetProvider(cfg, flags.Verbose, targetAccount)
 	default:
 		fmt.Printf("Unknown provider: %s\n", providerName)
 		printUsage()
@@ -215,6 +270,9 @@ func main() {
 		if resolvedAccount == "" {
 			resolvedAccount = "default"
 		}
+	}
+	if providerName == "target" {
+		resolvedAccount = targetAccount
 	}
 	cli.PrintConfiguration(provider.DisplayName(), flags.LookbackDays, flags.MaxOrders, flags.Force, resolvedAccount)
 
@@ -250,6 +308,13 @@ func printUsage() {
 	fmt.Println("              Read Amazon's return/refund ledger as JSON")
 	fmt.Println("  costco      Sync Costco orders")
 	fmt.Println("  walmart     Sync Walmart orders")
+	fmt.Println("  target      Sync Target in-store and online orders")
+	fmt.Println("  target set-session -account <name>")
+	fmt.Println("              Save a target.com login from a DevTools 'Copy as cURL' read on stdin")
+	fmt.Println("  target refresh -account <name>")
+	fmt.Println("              Renew the saved Target login now (syncs renew it automatically)")
+	fmt.Println("  target orders -account <name> [-days N | -order-id ID]")
+	fmt.Println("              Print Target orders as itemize reads them (JSON); does not touch Monarch")
 	fmt.Println("  version     Print version, commit, and build date (also: -version, --version)")
 	fmt.Println()
 	fmt.Println("Serve Flags:")
@@ -263,7 +328,7 @@ func printUsage() {
 	fmt.Println("  -force           Force reprocess already processed orders")
 	fmt.Println("  -verbose         Verbose output")
 	fmt.Println("  -order-id string Process only this specific order ID (limits blast radius)")
-	fmt.Println("  -account string  Amazon cookie account name (amazon only)")
+	fmt.Println("  -account string  Account name (amazon and target)")
 	fmt.Println("  -cookie-file string")
 	fmt.Println("                  Explicit Amazon cookie file (amazon only)")
 	fmt.Println("  -list-accounts   List saved Amazon cookie accounts and exit (amazon only)")
@@ -287,4 +352,6 @@ func printUsage() {
 	fmt.Println("  AMAZON_ACCOUNT_NAME        Amazon cookie account name (optional)")
 	fmt.Println("                             Run 'itemize amazon -import-browser-profile <profile-dir> -account <name>' first")
 	fmt.Println("  AMAZON_COOKIE_FILE         Explicit amazon-go cookie file (optional)")
+	fmt.Println("  ITEMIZE_TARGET_DIR         Where Target sessions are saved (default ~/.itemize/target)")
+	fmt.Println("  ITEMIZE_TARGET_DUMP_DIR    Save every Target API response here (for debugging)")
 }

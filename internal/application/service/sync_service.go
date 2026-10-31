@@ -40,7 +40,7 @@ const (
 
 // SyncRequest holds parameters for starting a sync.
 type SyncRequest struct {
-	Provider     string // "walmart", "costco", "amazon"
+	Provider     string // "walmart", "costco", "amazon", "target"
 	DryRun       bool
 	LookbackDays int
 	MaxOrders    int

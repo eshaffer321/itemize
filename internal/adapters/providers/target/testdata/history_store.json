@@ -1,0 +1,9 @@
+{
+  "total_orders": 3,
+  "total_pages": 1,
+  "orders": [
+    {"store_receipt_id": "6032-2290-0172-8918", "placed_date": "2026-09-26T18:31:36-07:00", "order_purchase_type": "STORE", "order_type": "Sales", "summary": {"grand_total": "24.42"}},
+    {"store_receipt_id": "6032-2290-0172-0001", "placed_date": "2026-09-20T09:00:00-07:00", "order_purchase_type": "STORE", "order_type": "Return", "summary": {"grand_total": "12.00"}},
+    {"store_receipt_id": "6032-2290-0170-0002", "placed_date": "2026-07-01T09:00:00-07:00", "order_purchase_type": "STORE", "order_type": "Sales", "summary": {"grand_total": "8.12"}}
+  ]
+}

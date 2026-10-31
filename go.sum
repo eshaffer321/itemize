@@ -2,6 +2,8 @@ github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
 github.com/andybalholm/cascadia v1.3.4 h1:vM2lgh0Vru9Vwyfm4cQqWP2HHMW0u0+2PAW7Q38Qufg=
 github.com/andybalholm/cascadia v1.3.4/go.mod h1:BLRmbRjpEtNKieZOCCvYj4RqN+KRA41GBe/5O+G93kM=
+github.com/daslicious/target-go v0.1.2 h1:2mgbneyQE40IpQ1CWujCDiVBN45lI73NJFi+RsVp7bE=
+github.com/daslicious/target-go v0.1.2/go.mod h1:TcfBvr8q3AT0HBPZ5cd6t+Rkw5DoH4UGo4jyMyVEDhg=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/eshaffer321/amazon-go v0.5.0 h1:9/NZpZ55afx9OM9+ymaTUVU0oscLABlvHpIAyBViM5M=

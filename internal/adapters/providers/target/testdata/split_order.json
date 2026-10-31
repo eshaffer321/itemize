@@ -1,0 +1,16 @@
+{
+  "order_number": "912002800000001",
+  "order_date": "2026-09-20T18:02:11.000Z",
+  "summary": {"grand_total": 72.69, "total_product_price": 67.27, "total_taxes": 5.22, "total_regional_fees": 0.20},
+  "packages": [
+    {"order_lines": [
+      {"order_line_key": "k1", "line_number": 1, "quantity": 1, "item": {"tcin": "89120321", "description": "LEGO City F1 Williams Racing &#38; Haas F1 Race Cars 60464", "unit_price": 19.99, "product_classification": {"product_type_name": "TOYS"}}},
+      {"order_line_key": "k2", "line_number": 2, "quantity": 1, "item": {"tcin": "13306410", "description": "Freezer Storage Bags - 40ct - up&#38;up&#8482;", "unit_price": 3.79, "product_classification": {"product_type_name": "HOME"}}}
+    ]},
+    {"order_lines": [
+      {"order_line_key": "k3", "line_number": 3, "quantity": 1, "item": {"tcin": "77777777", "description": "Big Coloring Book", "unit_price": 13.49, "product_classification": {"product_type_name": "BOOKS"}}},
+      {"order_line_key": "k4", "line_number": 4, "quantity": 2, "item": {"tcin": "10000020", "description": "Boys&#39; Pajama Set - Blue 8", "unit_price": 15.00, "product_classification": {"product_type_name": "APPAREL"}}}
+    ]}
+  ],
+  "payments": [{"payment_type": "VISA", "amount": 72.69}]
+}

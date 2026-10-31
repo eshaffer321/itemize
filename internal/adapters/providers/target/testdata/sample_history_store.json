@@ -1,0 +1,74 @@
+{
+  "total_orders": 23,
+  "total_pages": 3,
+  "orders": [
+    {
+      "store_receipt_id": "6000-1234-0000-0002",
+      "placed_date": "2026-10-06T23:17:42-05:00",
+      "order_purchase_type": "STORE",
+      "order_type": "STORES",
+      "summary": {
+        "grand_total": "494.77"
+      },
+      "order_lines": [
+        {
+          "original_quantity": 1,
+          "item": {
+            "tcin": "10000014",
+            "description": "Wheat Crackers 9oz - Market Pantry&#8482;"
+          }
+        },
+        {
+          "original_quantity": 2,
+          "item": {
+            "tcin": "10000015",
+            "description": "Frozen Buttermilk Waffles - 12.3oz"
+          }
+        }
+      ]
+    },
+    {
+      "store_receipt_id": "6000-1234-0000-0001",
+      "placed_date": "2026-09-24T14:51:08-05:00",
+      "order_purchase_type": "STORE",
+      "order_type": "STORES",
+      "summary": {
+        "grand_total": "20.46"
+      },
+      "order_lines": [
+        {
+          "original_quantity": 1,
+          "item": {
+            "tcin": "10000016",
+            "description": "Kid&#39;s Building Blocks Set - 100pc"
+          }
+        }
+      ]
+    },
+    {
+      "store_receipt_id": "6000-1234-0000-0003",
+      "placed_date": "2026-08-19T12:06:21-05:00",
+      "order_purchase_type": "STORE",
+      "order_type": "STORES",
+      "summary": {
+        "grand_total": "152.13"
+      },
+      "order_lines": [
+        {
+          "original_quantity": 1,
+          "item": {
+            "tcin": "10000017",
+            "description": "Oats N&#39; Cr&#232;me Granola Bars - 10ct"
+          }
+        },
+        {
+          "original_quantity": 1,
+          "item": {
+            "tcin": "10000018",
+            "description": "Cinnamon Granola Bars - 10ct"
+          }
+        }
+      ]
+    }
+  ]
+}
