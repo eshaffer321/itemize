@@ -7,7 +7,7 @@ require (
 	github.com/daslicious/target-go v0.1.2
 	github.com/eshaffer321/amazon-go v0.5.0
 	github.com/eshaffer321/costco-go v0.3.13
-	github.com/eshaffer321/monarch-go/v2 v2.1.0
+	github.com/eshaffer321/monarch-go/v2 v2.2.0
 	github.com/eshaffer321/walmart-client-go/v2 v2.2.1
 	github.com/getsentry/sentry-go v0.36.0
 	github.com/go-chi/chi/v5 v5.3.2
