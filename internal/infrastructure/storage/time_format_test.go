@@ -71,3 +71,14 @@ func TestMigrations_RepairUnnamedZoneTimestamps(t *testing.T) {
 	wantProcessed := time.Date(2026, 11, 3, 20, 24, 55, 856105000, time.FixedZone("", -7*3600))
 	assert.True(t, got.ProcessedAt.Equal(wantProcessed), "got %v, want %v", got.ProcessedAt, wantProcessed)
 }
+
+func TestWithTimeFormat(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"monarch_sync.db", "monarch_sync.db?_time_format=sqlite"},
+		{"file:monarch_sync.db?cache=shared", "file:monarch_sync.db?cache=shared&_time_format=sqlite"},
+		{"monarch_sync.db?_time_format=datetime", "monarch_sync.db?_time_format=datetime"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, withTimeFormat(tt.in), tt.in)
+	}
+}
