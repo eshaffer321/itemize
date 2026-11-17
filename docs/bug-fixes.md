@@ -12,6 +12,19 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-11-17: CI vulnerability scan failed on Go 1.26.10
+
+**Description:**
+`govulncheck` failed with GO-2026-6859 in `net/http`, which is reachable through the API server and every HTTP client. The vulnerability was published after main's last green run and is fixed in Go 1.26.11.
+
+**Fix Applied:**
+- Raised the module, CI, and release workflow toolchain to Go 1.26.11.
+
+**Verification:**
+- With Go 1.26.11, `govulncheck ./...` reports no vulnerabilities and `go test -race ./...` passes.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-10-30: CI vulnerability scan failed on Go 1.26.9 and x/net v0.60.0
 
 **Description:**
