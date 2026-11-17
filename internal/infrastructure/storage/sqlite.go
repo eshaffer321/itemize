@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -29,7 +30,7 @@ var _ Repository = (*Storage)(nil)
 
 // NewStorage creates a new storage instance with SQLite database
 func NewStorage(dbPath string) (*Storage, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", withTimeFormat(dbPath))
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +50,21 @@ func NewStorage(dbPath string) (*Storage, error) {
 	}
 
 	return s, nil
+}
+
+// withTimeFormat makes the driver write time.Time values as
+// "2006-01-02 15:04:05.999999999-07:00". Its default, time.Time.String,
+// renders an unnamed fixed zone as "-0700 -0700", which the driver cannot
+// parse back into a time.Time, so such rows failed to load.
+func withTimeFormat(dbPath string) string {
+	if strings.Contains(dbPath, "_time_format=") {
+		return dbPath
+	}
+	sep := "?"
+	if strings.Contains(dbPath, "?") {
+		sep = "&"
+	}
+	return dbPath + sep + "_time_format=sqlite"
 }
 
 // runMigrations uses goose to run all pending migrations
