@@ -25,6 +25,24 @@ Each bug fix entry should include:
 
 **Commit:** Included in the pull request for this fix.
 
+### 2026-11-13: Walmart order failed with "load processing record: sql: Scan error ... order_date"
+
+**Description:**
+Every sync reported order `02796073446817290005` as an error: `load processing record: sql: Scan error on column index 4, name "order_date": unsupported Scan, storing driver.Value type string into type *time.Time`. That order had already been processed successfully.
+
+**Test Case:**
+- `TestStorage_SaveRecord_UnnamedFixedZoneRoundTrips`
+- `TestMigrations_RepairUnnamedZoneTimestamps`
+
+**Root Cause:**
+By default `modernc.org/sqlite` writes a `time.Time` using `time.Time.String()`. The order's timestamp had offset -07:00, but the local zone was MDT (-06:00), so Go parsed it into an unnamed fixed zone, and `String()` rendered that zone as `2026-10-31 19:11:53 -0700 -0700`. When reading, the driver only recognizes `-0700 MST`-style suffixes and SQLite's ISO formats. It handed the value back as a string, and scanning that into `time.Time` failed. Offsets that match the local zone (e.g. `-0700 MST` in winter) were unaffected, which is why only this one row broke.
+
+**Fix Applied:**
+- `NewStorage` opens the DB with `_time_format=sqlite`, so times are written as `2006-01-02 15:04:05.999999999-07:00`. The driver always parses this format, and SQLite's date functions understand it.
+- Migration `00011_repair_unnamed_zone_timestamps.sql` rewrites existing `... -0700 -0700` values in every timestamp column to that form. The instant stays the same.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-10-30: CI vulnerability scan failed on Go 1.26.9 and x/net v0.60.0
 
 **Description:**
