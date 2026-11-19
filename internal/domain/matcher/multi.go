@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // MultiMatchResult contains results from multi-transaction matching
@@ -24,6 +24,23 @@ func (m *Matcher) FindMultipleMatches(
 	transactions []*monarch.Transaction,
 	usedTransactionIDs map[string]bool,
 	amounts []float64,
+) (*MultiMatchResult, error) {
+	return m.FindMultipleMatchesWithDates(order, transactions, usedTransactionIDs, amounts, nil)
+}
+
+// FindMultipleMatchesWithDates is FindMultipleMatches with an optional charge
+// date per amount (chargeDates[i] pairs with amounts[i]; nil or a zero time
+// means unknown). Multi-shipment orders are charged as each shipment ships,
+// which can be more than DateTolerance days after the order date, so a
+// transaction is eligible when it falls within DateTolerance of either the
+// order date or that charge's own date. A known charge date is also used for
+// scoring.
+func (m *Matcher) FindMultipleMatchesWithDates(
+	order providers.Order,
+	transactions []*monarch.Transaction,
+	usedTransactionIDs map[string]bool,
+	amounts []float64,
+	chargeDates []time.Time,
 ) (*MultiMatchResult, error) {
 	if len(amounts) == 0 {
 		return nil, fmt.Errorf("no amounts provided")
@@ -47,9 +64,15 @@ func (m *Matcher) FindMultipleMatches(
 		}
 
 		// Find best matching transaction for this amount
+		var chargeDate time.Time
+		if i < len(chargeDates) {
+			chargeDate = chargeDates[i]
+		}
+
 		match := m.findBestMatchForAmount(
 			amount,
 			orderDate,
+			chargeDate,
 			transactions,
 			usedTransactionIDs,
 			matchedThisRound,
@@ -84,6 +107,7 @@ func (m *Matcher) FindMultipleMatches(
 func (m *Matcher) findBestMatchForAmount(
 	amount float64,
 	orderDate time.Time,
+	chargeDate time.Time,
 	transactions []*monarch.Transaction,
 	usedTransactionIDs map[string]bool,
 	matchedThisRound map[string]bool,
@@ -102,9 +126,17 @@ func (m *Matcher) findBestMatchForAmount(
 			continue
 		}
 
-		// Calculate date difference (in days)
+		// Calculate date difference (in days). Eligible if near the order date
+		// or near this charge's own date; score by the charge date when known.
+		tolerance := float64(m.config.DateTolerance)
 		dateDiff := math.Abs(tx.Date.Time.Sub(orderDate).Hours() / 24)
-		if dateDiff > float64(m.config.DateTolerance) {
+		if !chargeDate.IsZero() {
+			chargeDiff := math.Abs(tx.Date.Time.Sub(chargeDate).Hours() / 24)
+			if dateDiff > tolerance && chargeDiff > tolerance {
+				continue
+			}
+			dateDiff = chargeDiff
+		} else if dateDiff > tolerance {
 			continue
 		}
 

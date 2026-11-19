@@ -370,3 +370,24 @@ func TestOrder_GetItemsForChargeUsesLineTotalsForShipmentMatching(t *testing.T) 
 	assert.Equal(t, 80.0, items[0].GetPrice())
 	assert.Equal(t, 2.0, items[0].GetQuantity())
 }
+
+func TestOrder_GetFinalChargeDates_AlignedWithCharges(t *testing.T) {
+	nov6 := time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC)
+	nov11 := time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC)
+	order := NewOrder(&ParsedOrder{
+		ID:    "112-8585165-6989818",
+		Date:  time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC),
+		Total: 492.65,
+		Transactions: []*ParsedTransaction{
+			{Amount: 74.19, Last4: "1211", Type: "refund", Date: nov11},
+			{Amount: 198.19, Last4: "1211", Type: "charge", Date: nov11},
+			{Amount: 5.00, Last4: "", Type: "charge", Date: nov6}, // points
+			{Amount: 294.46, Last4: "1211", Type: "charge", Date: nov6},
+		},
+	}, nil)
+
+	charges, err := order.GetFinalCharges()
+	assert.NoError(t, err)
+	assert.Equal(t, []float64{198.19, 294.46}, charges)
+	assert.Equal(t, []time.Time{nov11, nov6}, order.GetFinalChargeDates())
+}

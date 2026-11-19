@@ -231,7 +231,7 @@ func TestMatcher_FindMultipleMatches(t *testing.T) {
 		// Multiple transactions with same amount, different dates
 		transactions := []*monarch.Transaction{
 			{ID: "txn1", Amount: -100.00, Date: monarch.Date{Time: baseDate.AddDate(0, 0, -3)}}, // 3 days before
-			{ID: "txn2", Amount: -100.00, Date: monarch.Date{Time: baseDate}},                    // Same day
+			{ID: "txn2", Amount: -100.00, Date: monarch.Date{Time: baseDate}},                   // Same day
 			{ID: "txn3", Amount: -100.00, Date: monarch.Date{Time: baseDate.AddDate(0, 0, 2)}},  // 2 days after
 		}
 
@@ -402,4 +402,44 @@ func TestMatcher_validateMultiMatchSum(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nil match at index 1")
 	})
+}
+
+// Regression: Amazon multi-shipment orders charge each shipment when it ships,
+// which can be more than DateTolerance days after the order date. The charge
+// date Amazon reports must be honored, not just the order date.
+func TestMatcher_FindMultipleMatchesWithDates_UsesChargeDate(t *testing.T) {
+	m := NewMatcher(Config{AmountTolerance: 0.01, DateTolerance: 5})
+	orderDate := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	order := &mockOrder{id: "112-8585165-6989818", date: orderDate, total: 492.65}
+
+	transactions := []*monarch.Transaction{
+		{ID: "late", Amount: -198.19, Date: monarch.Date{Time: orderDate.AddDate(0, 0, 6)}},
+		{ID: "early", Amount: -294.46, Date: monarch.Date{Time: orderDate}},
+	}
+	amounts := []float64{198.19, 294.46}
+	chargeDates := []time.Time{orderDate.AddDate(0, 0, 6), orderDate.AddDate(0, 0, 1)}
+
+	result, err := m.FindMultipleMatchesWithDates(order, transactions, map[string]bool{}, amounts, chargeDates)
+	require.NoError(t, err)
+	require.True(t, result.AllFound, "charge 6 days after the order should match by its own charge date")
+	assert.Equal(t, "late", result.Matches[0].Transaction.ID)
+	assert.Equal(t, "early", result.Matches[1].Transaction.ID)
+}
+
+func TestMatcher_FindMultipleMatchesWithDates_ZeroDateFallsBackToOrderDate(t *testing.T) {
+	m := NewMatcher(Config{AmountTolerance: 0.01, DateTolerance: 5})
+	orderDate := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	order := &mockOrder{id: "o", date: orderDate, total: 30}
+
+	transactions := []*monarch.Transaction{
+		{ID: "far", Amount: -10, Date: monarch.Date{Time: orderDate.AddDate(0, 0, 6)}},
+		{ID: "near", Amount: -20, Date: monarch.Date{Time: orderDate.AddDate(0, 0, 2)}},
+	}
+
+	result, err := m.FindMultipleMatchesWithDates(order, transactions, map[string]bool{},
+		[]float64{10, 20}, []time.Time{{}, {}})
+	require.NoError(t, err)
+	assert.False(t, result.AllFound, "without a charge date the order-date window still applies")
+	assert.Nil(t, result.Matches[0])
+	assert.Equal(t, "near", result.Matches[1].Transaction.ID)
 }

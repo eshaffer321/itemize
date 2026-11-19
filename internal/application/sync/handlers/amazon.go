@@ -23,6 +23,9 @@ import (
 type AmazonOrder interface {
 	providers.Order
 	GetFinalCharges() ([]float64, error)
+	// GetFinalChargeDates returns each bank charge's date, aligned with
+	// GetFinalCharges. Zero or missing entries mean the date is unknown.
+	GetFinalChargeDates() []time.Time
 	GetNonBankAmount() (float64, error)
 	IsMultiDelivery() (bool, error)
 	// GetItemsForCharge returns only the items that belong to the shipment
@@ -492,7 +495,7 @@ func (h *AmazonHandler) matchReportedCharges(
 		return []*monarch.Transaction{matchResult.Transaction}, 1, nil
 	}
 
-	multiResult, err := h.matcher.FindMultipleMatches(order, monarchTxns, usedTxnIDs, bankCharges)
+	multiResult, err := h.matcher.FindMultipleMatchesWithDates(order, monarchTxns, usedTxnIDs, bankCharges, order.GetFinalChargeDates())
 	if err != nil {
 		return nil, 0, fmt.Errorf("multi-match error: %w", err)
 	}

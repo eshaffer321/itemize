@@ -12,6 +12,30 @@ Each bug fix entry should include:
 
 ## Bug Fixes
 
+### 2026-11-19: Amazon multi-shipment order stuck on "Waiting for remaining Amazon charges to post"
+
+**Description:**
+Order `112-8585165-6989818` (dated Nov 5, $492.65) was charged in two shipments: $294.46 on Nov 6 and $198.19 on Nov 11. Both had posted to Monarch, but every sync logged `Waiting for remaining Amazon charges to post expected=2 found=1` and left the transactions uncategorized.
+
+**Test Case:**
+- `TestMatcher_FindMultipleMatchesWithDates_UsesChargeDate`
+- `TestMatcher_FindMultipleMatchesWithDates_ZeroDateFallsBackToOrderDate`
+- `TestOrder_GetFinalChargeDates_AlignedWithCharges`
+- `TestAmazonHandler_ProcessOrder_LateShipmentChargeMatchesByChargeDate`
+
+**Root Cause:**
+`FindMultipleMatches` checked every charge against the order date ±`DateTolerance` (5 days). The Nov 11 charge was 6 days after the order, so it was never a candidate. Amazon reports each charge's own date, but `GetFinalCharges` returned only the amounts, so that date was lost.
+
+**Fix Applied:**
+- Added `Order.GetFinalChargeDates()` (Amazon provider), aligned index for index with `GetFinalCharges`.
+- Added `Matcher.FindMultipleMatchesWithDates`. A transaction is eligible when it is within tolerance of the order date or of that charge's own date, and a known charge date is used for scoring. `FindMultipleMatches` delegates with no dates, so Walmart's behavior is unchanged.
+- The Amazon handler passes the charge dates through.
+
+**Verification:**
+- `go test -race ./...` passes. A dry run of the order now matches both charges and consolidates them.
+
+**Commit:** Included in the pull request for this fix.
+
 ### 2026-11-17: CI vulnerability scan failed on Go 1.26.10
 
 **Description:**

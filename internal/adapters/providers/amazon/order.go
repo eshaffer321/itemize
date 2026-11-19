@@ -152,6 +152,25 @@ func (o *Order) GetFinalCharges() ([]float64, error) {
 	return bankCharges, nil
 }
 
+// GetFinalChargeDates returns the date of each bank charge, aligned index for
+// index with GetFinalCharges. Multi-shipment orders are charged as each
+// shipment ships, so these can be well after the order date.
+func (o *Order) GetFinalChargeDates() []time.Time {
+	var dates []time.Time
+	for _, tx := range o.parsedOrder.Transactions {
+		if isBankCharge(tx) {
+			dates = append(dates, tx.Date)
+		}
+	}
+	return dates
+}
+
+// isBankCharge reports whether tx is a final card charge — the same filter
+// GetFinalCharges applies.
+func isBankCharge(tx *ParsedTransaction) bool {
+	return tx.Type == "charge" && tx.Amount > 0 && tx.Last4 != ""
+}
+
 // GetNonBankAmount returns the total amount paid via non-bank methods
 // (Amazon Visa points, gift cards, promotional credits, etc.)
 // These won't appear in Monarch as they aren't actual bank transactions

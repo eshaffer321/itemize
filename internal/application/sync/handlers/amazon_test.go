@@ -32,6 +32,7 @@ type mockAmazonOrder struct {
 	tax            float64
 	items          []providers.OrderItem
 	bankCharges    []float64
+	chargeDates    []time.Time
 	nonBankAmount  float64
 	bankChargesErr error
 	nonBankErr     error
@@ -49,6 +50,9 @@ func (m *mockAmazonOrder) GetProviderName() string         { return "Amazon" }
 func (m *mockAmazonOrder) GetRawData() interface{}         { return nil }
 func (m *mockAmazonOrder) GetFinalCharges() ([]float64, error) {
 	return m.bankCharges, m.bankChargesErr
+}
+func (m *mockAmazonOrder) GetFinalChargeDates() []time.Time {
+	return m.chargeDates
 }
 func (m *mockAmazonOrder) GetNonBankAmount() (float64, error) {
 	return m.nonBankAmount, m.nonBankErr
@@ -1116,4 +1120,35 @@ func TestAmazonHandler_ProcessOrder_ExchangeReplacementChargeListedUnderOriginal
 	require.True(t, result.Processed, "skip reason: %s", result.SkipReason)
 	assert.Equal(t, []string{"own-charge"}, monarchClient.updatedIDs)
 	assert.InDelta(t, 58.11, result.Allocations.TotalAllocated, 0.001)
+}
+
+// Regression: order 112-8585165-6989818 was dated Nov 5 but its second
+// shipment was charged (and posted) Nov 11 — 6 days later. The handler must
+// match each charge using the charge date Amazon reports.
+func TestAmazonHandler_ProcessOrder_LateShipmentChargeMatchesByChargeDate(t *testing.T) {
+	orderDate := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	order := &mockAmazonOrder{
+		id:          "112-8585165-6989818",
+		date:        orderDate,
+		total:       492.65,
+		items:       []providers.OrderItem{&mockItem{name: "Lamp", price: 200}, &mockItem{name: "Blanket", price: 292.65}},
+		bankCharges: []float64{198.19, 294.46},
+		chargeDates: []time.Time{orderDate.AddDate(0, 0, 6), orderDate.AddDate(0, 0, 1)},
+	}
+	late := &monarch.Transaction{ID: "late", Amount: -198.19, Date: toMonarchDate(orderDate.AddDate(0, 0, 6))}
+	early := &monarch.Transaction{ID: "early", Amount: -294.46, Date: toMonarchDate(orderDate)}
+	consolidated := &monarch.Transaction{ID: "early", Amount: -492.65, Date: toMonarchDate(orderDate)}
+	handler := NewAmazonHandler(
+		matcher.NewMatcher(matcher.Config{AmountTolerance: 0.01, DateTolerance: 5}),
+		&mockConsolidator{result: &ConsolidationResult{ConsolidatedTransaction: consolidated}},
+		&mockSplitter{}, &mockMonarch{}, nil,
+	)
+	usedTxnIDs := make(map[string]bool)
+
+	result, err := handler.ProcessOrder(context.Background(), order, []*monarch.Transaction{late, early}, usedTxnIDs, nil, nil, true)
+
+	require.NoError(t, err)
+	assert.False(t, result.Skipped, "skip reason: %s", result.SkipReason)
+	assert.True(t, usedTxnIDs["late"])
+	assert.True(t, usedTxnIDs["early"])
 }
