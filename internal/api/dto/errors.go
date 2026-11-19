@@ -9,10 +9,10 @@ type APIError struct {
 
 // Common error codes
 const (
-	ErrCodeNotFound       = "not_found"
-	ErrCodeBadRequest     = "bad_request"
-	ErrCodeInternalError  = "internal_error"
-	ErrCodeValidation     = "validation_error"
+	ErrCodeNotFound      = "not_found"
+	ErrCodeBadRequest    = "bad_request"
+	ErrCodeInternalError = "internal_error"
+	ErrCodeValidation    = "validation_error"
 )
 
 // NewAPIError creates a new APIError with the given code and message.

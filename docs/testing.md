@@ -135,7 +135,7 @@ go test -bench=. -benchmem
 ### Pre-commit Checks
 1. Run all tests: `go test ./...`
 2. Check coverage: `go test ./... -cover`
-3. Run linter: `golangci-lint run`
+3. Run linter: `make lint` (runs the pinned golangci-lint version CI uses)
 4. Check formatting: `go fmt ./...`
 
 ### CI Pipeline (Future)

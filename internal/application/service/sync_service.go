@@ -51,7 +51,7 @@ type SyncRequest struct {
 
 // SyncProgress holds real-time progress information.
 type SyncProgress struct {
-	CurrentPhase    string    // "pending", "initializing", "fetching_orders", "processing_orders", "completed", "failed"
+	CurrentPhase    string // "pending", "initializing", "fetching_orders", "processing_orders", "completed", "failed"
 	TotalOrders     int
 	ProcessedOrders int
 	SkippedOrders   int
@@ -78,11 +78,11 @@ type ProviderFactory func(cfg *config.Config, verbose bool) (providers.OrderProv
 
 // SyncService manages sync operations.
 type SyncService struct {
-	cfg              *config.Config
-	clients          *clients.Clients
-	storage          storage.Repository
-	logger           *slog.Logger
-	providerFactory  map[string]ProviderFactory
+	cfg             *config.Config
+	clients         *clients.Clients
+	storage         storage.Repository
+	logger          *slog.Logger
+	providerFactory map[string]ProviderFactory
 
 	// Job management
 	jobs      map[string]*SyncJob

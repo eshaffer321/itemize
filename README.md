@@ -55,7 +55,7 @@ make install-tools
 make install-hooks
 ```
 
-The pre-commit hook runs formatting checks, `golangci-lint`, `go vet`, and `go test ./...`.
+The pre-commit hook runs formatting checks, `golangci-lint`, `go vet`, and `go test ./...`. CI runs the same `make check-fmt` and `make lint` targets, and the golangci-lint version is pinned once in the `Makefile` (`GOLANGCI_LINT_VERSION`).
 To bypass once in an emergency, run `ITEMIZE_SKIP_PRECOMMIT=1 git commit ...`.
 
 ### Configure

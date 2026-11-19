@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/clients"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/api"
@@ -18,6 +17,7 @@ import (
 	"github.com/eshaffer321/itemize/internal/infrastructure/config"
 	"github.com/eshaffer321/itemize/internal/infrastructure/logging"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // ServeFlags holds the CLI flags for the serve command.

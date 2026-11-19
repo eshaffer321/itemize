@@ -14,6 +14,11 @@ GOMOD=$(GOCMD) mod
 GOFMT=gofmt
 GOVET=$(GOCMD) vet
 
+# Tool versions — the single source of truth for local runs AND CI (ci.yml calls these targets).
+# `go run` builds the linter with this repo's Go toolchain, so it can never be older than go.mod.
+GOLANGCI_LINT_VERSION=v2.14.0
+GOLANGCI_LINT=$(GOCMD) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
 # Colors for output
 RED=\033[0;31m
 GREEN=\033[0;32m
@@ -78,7 +83,7 @@ fmt:
 ## check-fmt: Verify Go files are gofmt-formatted
 check-fmt:
 	@echo "$(GREEN)Checking Go formatting...$(NC)"
-	@unformatted="$$(gofmt -l $(GO_FILES))"; \
+	@unformatted="$$(gofmt -s -l $(GO_FILES))"; \
 	if [ -n "$$unformatted" ]; then \
 		echo "$(RED)Go files need formatting:$(NC)"; \
 		echo "$$unformatted"; \
@@ -91,11 +96,11 @@ check-fmt:
 check-fmt-staged:
 	@echo "$(GREEN)Checking staged Go formatting...$(NC)"
 	@if [ -n "$(STAGED_GO_FILES)" ]; then \
-		unformatted="$$(gofmt -l $(STAGED_GO_FILES))"; \
+		unformatted="$$(gofmt -s -l $(STAGED_GO_FILES))"; \
 		if [ -n "$$unformatted" ]; then \
 			echo "$(RED)Staged Go files need formatting:$(NC)"; \
 			echo "$$unformatted"; \
-			echo "Run: gofmt -w $$unformatted"; \
+			echo "Run: gofmt -s -w $$unformatted"; \
 			exit 1; \
 		fi; \
 	else \
@@ -103,15 +108,10 @@ check-fmt-staged:
 	fi
 	@echo "$(GREEN)Staged formatting check passed!$(NC)"
 
-## lint: Run golangci-lint using the repo config
+## lint: Run golangci-lint (pinned version, same as CI) using the repo config
 lint:
-	@echo "$(GREEN)Running golangci-lint...$(NC)"
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		echo "$(RED)golangci-lint is not installed.$(NC)"; \
-		echo "Install v2.4.0+ or run: brew install golangci-lint"; \
-		exit 1; \
-	fi
-	golangci-lint run --timeout=5m
+	@echo "$(GREEN)Running golangci-lint $(GOLANGCI_LINT_VERSION)...$(NC)"
+	$(GOLANGCI_LINT) run --timeout=5m
 	@echo "$(GREEN)Lint complete!$(NC)"
 
 ## vet: Run go vet
@@ -174,8 +174,8 @@ install-tools:
 	@echo "$(GREEN)Installing development tools...$(NC)"
 	@echo "Installing goimports..."
 	@go install golang.org/x/tools/cmd/goimports@latest
-	@echo "Installing golangci-lint..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
+	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION) (optional: make lint runs the pinned version itself)..."
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "$(GREEN)Tools installation complete!$(NC)"
 
 # Default target

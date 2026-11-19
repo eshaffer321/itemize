@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -530,7 +530,7 @@ func TestSplitter_NotesFormatting(t *testing.T) {
 		tax:      10.00,
 		items: []providers.OrderItem{
 			&mockOrderItem{name: "GUAC BOWL", price: 9.99, quantity: 1},
-			&mockOrderItem{name: "MILK", price: 5.00, quantity: 2},    // Quantity > 1
+			&mockOrderItem{name: "MILK", price: 5.00, quantity: 2}, // Quantity > 1
 			&mockOrderItem{name: "BREAD", price: 3.50, quantity: 1},
 			&mockOrderItem{name: "USB CABLE", price: 12.00, quantity: 3}, // Electronics
 		},
