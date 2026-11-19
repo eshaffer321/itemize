@@ -93,11 +93,11 @@ func (c *Client) CreateChatCompletion(ctx context.Context, request categorizer.C
 
 // messagesRequest is Anthropic's Messages API request body.
 type messagesRequest struct {
-	Model       string           `json:"model"`
-	MaxTokens   int              `json:"max_tokens"`
-	System      string           `json:"system,omitempty"`
-	Temperature *float64         `json:"temperature,omitempty"`
-	Messages    []messagesTurn   `json:"messages"`
+	Model       string         `json:"model"`
+	MaxTokens   int            `json:"max_tokens"`
+	System      string         `json:"system,omitempty"`
+	Temperature *float64       `json:"temperature,omitempty"`
+	Messages    []messagesTurn `json:"messages"`
 }
 
 type messagesTurn struct {

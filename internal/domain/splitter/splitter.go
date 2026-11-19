@@ -6,9 +6,9 @@ import (
 	"math"
 	"strings"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/adapters/providers"
 	"github.com/eshaffer321/itemize/internal/domain/categorizer"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // Categorizer interface for dependency injection

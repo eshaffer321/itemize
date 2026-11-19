@@ -158,7 +158,7 @@ func TestSyncService_IsJobStale_RunningJob_StaleByProgress(t *testing.T) {
 		ID:        "stale-job",
 		Provider:  "walmart",
 		Status:    StatusRunning,
-		StartedAt: time.Now().Add(-10 * time.Minute), // Started 10 min ago
+		StartedAt: time.Now().Add(-10 * time.Minute),                           // Started 10 min ago
 		Progress:  SyncProgress{LastUpdate: time.Now().Add(-35 * time.Minute)}, // No update for 35 min
 	}
 	svc.jobsMutex.Unlock()
@@ -178,7 +178,7 @@ func TestSyncService_IsJobStale_RunningJob_StaleByDuration(t *testing.T) {
 		ID:        "long-job",
 		Provider:  "walmart",
 		Status:    StatusRunning,
-		StartedAt: time.Now().Add(-3 * time.Hour), // Started 3 hours ago
+		StartedAt: time.Now().Add(-3 * time.Hour),       // Started 3 hours ago
 		Progress:  SyncProgress{LastUpdate: time.Now()}, // Recent progress
 	}
 	svc.jobsMutex.Unlock()
@@ -198,7 +198,7 @@ func TestSyncService_IsJobStale_RunningJob_NotStale(t *testing.T) {
 		ID:        "healthy-job",
 		Provider:  "walmart",
 		Status:    StatusRunning,
-		StartedAt: time.Now().Add(-10 * time.Minute), // Started 10 min ago
+		StartedAt: time.Now().Add(-10 * time.Minute),                          // Started 10 min ago
 		Progress:  SyncProgress{LastUpdate: time.Now().Add(-5 * time.Minute)}, // Updated 5 min ago
 	}
 	svc.jobsMutex.Unlock()

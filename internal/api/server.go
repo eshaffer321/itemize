@@ -9,11 +9,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 	"github.com/eshaffer321/itemize/internal/api/handlers"
 	"github.com/eshaffer321/itemize/internal/api/middleware"
 	"github.com/eshaffer321/itemize/internal/application/service"
 	"github.com/eshaffer321/itemize/internal/infrastructure/storage"
+	"github.com/eshaffer321/monarch-go/v2/pkg/monarch"
 )
 
 // Config holds API server configuration.

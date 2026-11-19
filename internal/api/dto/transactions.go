@@ -61,9 +61,9 @@ type TagResponse struct {
 // TransactionDetailResponse includes additional transaction details.
 type TransactionDetailResponse struct {
 	TransactionResponse
-	OriginalMerchant string                       `json:"original_merchant,omitempty"`
-	OriginalCategory *CategoryResponse            `json:"original_category,omitempty"`
-	Splits           []TransactionSplitResponse   `json:"splits,omitempty"`
+	OriginalMerchant string                     `json:"original_merchant,omitempty"`
+	OriginalCategory *CategoryResponse          `json:"original_category,omitempty"`
+	Splits           []TransactionSplitResponse `json:"splits,omitempty"`
 }
 
 // TransactionSplitResponse represents a split within a transaction.
