@@ -3,7 +3,7 @@ module github.com/eshaffer321/itemize
 go 1.26.11
 
 require (
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/daslicious/target-go v0.1.2
 	github.com/eshaffer321/amazon-go v0.5.0
 	github.com/eshaffer321/costco-go v0.3.13
@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	github.com/andybalholm/cascadia v1.3.4 // indirect
+	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
